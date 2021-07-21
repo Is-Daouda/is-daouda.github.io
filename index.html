@@ -8,7 +8,7 @@
 </head>
 <body>
 	<img class="image" id="loading" src="loading.png" alt="Loading..." width="32" height="32">
-	<div id="txt_wait" style="text-align:center">
+	<div id="msg" style="text-align:center">
 		<b>Please wait a few moments, it will start...<br>
 			Do you like speed? Then you will love this game!
 		</b>
@@ -28,20 +28,41 @@
 	<p><b><u>Eng:</u></b> Do you have bugs to report or questions? Please click <a href="mailto:isdaouda.n@gmail.com">here</a> to contact us.</p>
 	<p><b><u>Fr:</u></b> Avez vous des bugs à signaler ou des questions? S'il vous plaît, cliquez <a href="mailto:isdaouda.n@gmail.com">ici</a> pour nous contacter.</p>
 	</div>
-    <script type="text/javascript">
+    <script type="text/javascript">		
 		window.Module = {
 			canvas: document.getElementById('canvas'),
 			print: console.log,
 			printErr: console.error,
 		};
+
+		var logBackup = console.log;
+		var logMessages = [];
+
+		console.log = function() {
+			logMessages.push.apply(logMessages, arguments);
+			logBackup.apply(console, arguments);
+		};
 		
+		var showError = false;		
 		var second = 0;
 		function chrono() {
 			second++;
-			if (second > 5)
+			if (!logMessages.includes("Start successfully!"))
+			{
+				if (second > 60)
+				{
+					if (!showError)
+					{
+						document.getElementById('msg').innerHTML = "Um... The game is taking too long to load.<br>Please try relaunching the page.";
+						document.getElementById('msg').style.color = 'red';
+						showError = true;
+					}
+				}
+			}
+			else
 			{
 				document.getElementById('loading').style.visibility = 'hidden';
-				document.getElementById('txt_wait').style.visibility = 'hidden';
+				document.getElementById('msg').style.visibility = 'hidden';
 			}
 		}
 		setInterval("chrono()", 1000);

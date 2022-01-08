@@ -48,8 +48,6 @@ html, body {
 body {
   min-height: auto;
   box-sizing: border-box;
-  -ms-touch-action:none;
-  touch-action: none;
   background-image: url("../background.png");
 }
 

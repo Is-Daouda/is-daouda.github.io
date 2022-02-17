@@ -69,17 +69,15 @@
 				showError = 2;
 			}
 			
-			//if (/Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor)) {
-				if (initGame === 1) {
-					if (landscapeMode) {
-						document.getElementById('game_cover_img').style.display = "block";
-						document.getElementById('game_cover_txt').style.display = "block";			
-					} else {
-						document.getElementById('game_cover_img').style.display = "none";
-						document.getElementById('game_cover_txt').style.display = "none";			
-					}
+			if (initGame === 1) {
+				if (landscapeMode) {
+					document.getElementById('game_cover_img').style.display = "block";
+					document.getElementById('game_cover_txt').style.display = "block";			
+				} else {
+					document.getElementById('game_cover_img').style.display = "none";
+					document.getElementById('game_cover_txt').style.display = "none";			
 				}
-			//}
+			}
 		}
 	
 		function onResize() {
@@ -91,35 +89,30 @@
 		
 		window.addEventListener("resize", onResize, true);
 		
-		//if (/Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor)) {
-			document.getElementById('game_cover_txt').addEventListener("click", function() {
-			   if (initGame === 1 && showError === 0) {
-					document.getElementById('game_cover_img').style.display = "none";
-					document.getElementById('game_cover_txt').style.display = "none";
-					initGame = 2;
-				}
-			});	
-			document.getElementById('game_cover_img').addEventListener("click", function() {
-			   if (initGame === 1 && showError === 0) {
-					document.getElementById('game_cover_img').style.display = "none";
-					document.getElementById('game_cover_txt').style.display = "none";
-					initGame = 2;
-				}
-			});		
-		//}
-		//else initGame = 2;
+		document.getElementById('game_cover_txt').addEventListener("click", function() {
+		   if (initGame === 1 && showError === 0) {
+				document.getElementById('game_cover_img').style.display = "none";
+				document.getElementById('game_cover_txt').style.display = "none";
+				initGame = 2;
+			}
+		});	
+		document.getElementById('game_cover_img').addEventListener("click", function() {
+		   if (initGame === 1 && showError === 0) {
+				document.getElementById('game_cover_img').style.display = "none";
+				document.getElementById('game_cover_txt').style.display = "none";
+				initGame = 2;
+			}
+		});
 		
 		window.Module = {
 			preRun: [],
 			postRun: [],
 			canvas: canvas,
 			onRuntimeInitialized: function() {
-				//if (/Chrome/.test(navigator.userAgent) && /Google Inc/.test(navigator.vendor)) {
-					if (landscapeMode) {
-						document.getElementById('game_cover_img').style.display = "block";
-						document.getElementById('game_cover_txt').style.display = "block";
-					}
-				//}
+				if (landscapeMode) {
+					document.getElementById('game_cover_img').style.display = "block";
+					document.getElementById('game_cover_txt').style.display = "block";
+				}
 				document.querySelector("#loading_page").remove();
 				for(ms of [0, 100, 1000, 3000]) {
 					window.setTimeout(onResize, ms);

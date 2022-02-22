@@ -73,7 +73,8 @@
 				if (landscapeMode) {
 					document.getElementById('game_cover_img').style.display = "block";
 					document.getElementById('game_cover_txt').style.display = "block";			
-				} else {
+				}
+				else {
 					document.getElementById('game_cover_img').style.display = "none";
 					document.getElementById('game_cover_txt').style.display = "none";			
 				}
@@ -89,20 +90,18 @@
 		
 		window.addEventListener("resize", onResize, true);
 		
-		document.getElementById('game_cover_txt').addEventListener("click", function() {
-		   if (initGame === 1 && showError === 0) {
-				document.getElementById('game_cover_img').style.display = "none";
-				document.getElementById('game_cover_txt').style.display = "none";
-				initGame = 2;
+		function removeCover(event) {
+			   if (initGame === 1 && showError === 0) {
+					document.getElementById('game_cover_img').removeEventListener("click", removeCover);
+					document.getElementById('game_cover_txt').removeEventListener("click", removeCover);
+					document.getElementById('game_cover_img').remove();
+					document.getElementById('game_cover_txt').remove();
+					initGame = 2;
+				}
 			}
-		});	
-		document.getElementById('game_cover_img').addEventListener("click", function() {
-		   if (initGame === 1 && showError === 0) {
-				document.getElementById('game_cover_img').style.display = "none";
-				document.getElementById('game_cover_txt').style.display = "none";
-				initGame = 2;
-			}
-		});
+		
+		document.getElementById('game_cover_txt').addEventListener("click", removeCover);	
+		document.getElementById('game_cover_img').addEventListener("click", removeCover);
 		
 		window.Module = {
 			preRun: [],

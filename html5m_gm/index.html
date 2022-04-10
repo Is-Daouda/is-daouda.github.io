@@ -120,6 +120,11 @@
 			print: console.log,
 			printErr: console.error,
 		};
+		
+		Module['locateFile'] = function(path, prefix) {
+		  if (path.endsWith(".data")) return "https://is-daouda.github.io/isengine.data";
+		  return prefix + path;
+		}
     </script>
     <script async src="isengine.js"></script>
 </body>

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+	<title>I Can Transform</title>
+	<link rel="icon" href="favicon.png">
+	<link rel="stylesheet" href="styles/index.css">
+	<meta name="viewport" content="width=device-width, user-scalable=no">
+	
+	<script type="text/javascript">
+		var gameState = 2;
+		var sdkState = 0;
+		window.SDK_OPTIONS = {
+		  gameId: "3pve1sz9o9lpu8bbzi0ab73bbytb1gub",
+		  onEvent: function (a) {
+			 switch (a.name) {
+				case "SDK_GAME_PAUSE":
+				   gameState = 0;
+				   break;
+				case "SDK_GAME_START":
+				   gameState = 1;
+				   break;
+				case "SDK_READY":
+				   sdkState = 1;
+				   break;
+				}
+			}
+		};
+		(function (a, b, c) {
+		   var d = a.getElementsByTagName(b)[0];
+		   a.getElementById(c) || (a = a.createElement(b), 
+		   a.id = c, 
+		   a.src = "https://api.gamemonetize.com/sdk.js", 
+		   d.parentNode.insertBefore(a, d))
+		})(document, "script", "gamemonetize-sdk");
+
+		function showGameAds() {
+			if (typeof sdk !== 'undefined' && sdk.showBanner !== 'undefined') {
+				sdk.showBanner();
+			}
+		}
+	</script>
+</head>
+<body>
+    <div id="loading_page" class="vbox">
+      <div class="flex"></div>
+      <div class="hbox">
+        <div class="flex"></div>
+        <div id="loading"></div>
+        <div class="flex"></div>
+      </div>
+      <div class="flex"></div>
+    </div>
+	
+	<div class="bg-image" id="game_cover_img"></div>
+
+	<div class="bg-text" id="game_cover_txt">
+	  <h1>Click to get started</h1>
+	</div>
+	
+    <canvas id="canvas" oncontextmenu="event.preventDefault()">
+      Loading... 
+    </canvas>
+	
+    <script type="text/javascript">	
+		var canvas = document.getElementById('canvas');
+		var updateSize = 0;
+		var initGame = 0;
+
+		document.getElementById('game_cover_img').style.display = "none";
+		document.getElementById('game_cover_txt').style.display = "none";
+			
+		function onResize() {
+			canvas.width = window.innerWidth;
+			canvas.height = window.innerHeight;
+			updateSize = 1;
+		}
+		
+		window.addEventListener("resize", onResize, true);
+		
+		var preroll = false;
+		function chrono() {
+			if (!preroll) {
+				if (logMessages.includes("Start successfully!")) {
+					showGameAds();
+					preroll = true;
+				}
+			}
+		}
+		setInterval("chrono()", 1000);
+		
+		function removeCover(event) {
+		   if (initGame === 1 && preroll) {
+				document.getElementById('game_cover_img').removeEventListener("click", removeCover);
+				document.getElementById('game_cover_txt').removeEventListener("click", removeCover);
+				document.getElementById('game_cover_img').remove();
+				document.getElementById('game_cover_txt').remove();
+				initGame = 2;
+			}
+		}
+		
+		document.getElementById('game_cover_txt').addEventListener("click", removeCover);	
+		document.getElementById('game_cover_img').addEventListener("click", removeCover);
+		
+		var logBackup = console.log;
+		var logMessages = [];
+		console.log = function() {
+			logMessages.push.apply(logMessages, arguments);
+			logBackup.apply(console, arguments);
+		};
+
+		window.addEventListener("load", function() {
+			window.focus();
+			document.body.addEventListener("click", function(e) {
+				window.focus();
+			}, false);
+		});
+		
+		window.Module = {
+			preRun: [],
+			postRun: [],
+			canvas: canvas,
+			onRuntimeInitialized: function() {
+				document.getElementById('game_cover_img').style.display = "block";
+				document.getElementById('game_cover_txt').style.display = "block";
+				document.querySelector("#loading_page").remove();
+				for(ms of [0, 100, 1000, 3000]) {
+					window.setTimeout(onResize, ms);
+				}
+			},
+			print: console.log,
+			printErr: console.error,
+		};
+    </script>
+    <script async src="isengine.js"></script>
+</body>
+</html>

@@ -1,15 +1,30 @@
 <!DOCTYPE html> 
-<html> 
+<html>
 <head> 
+	<meta charset="utf-8">
     <title>I Can Transform Web (HTML 5)</title>
     <link rel="icon" href="favicon.png">
+	<link rel="stylesheet" href="styles/index.css">
+	<meta name="viewport" content="width=device-width, user-scalable=no">
     <meta name="description" content="2D Action-Platform Game.">
-    <meta http-equiv="refresh" content="2; url=https://crazygames.com/game/i-can-transform"/> 
+    <meta http-equiv="refresh" content="2; url=https://gamepix.com/play/i-can-transform"/>
 </head>
 <body> 
-    <h1 style="text-align:center;color:green;">Loading...</h1> 
-    <p style="text-align:center;">
-        You will be redirected to the game in 2 seconds. Please click <a href="https://crazygames.com/game/i-can-transform"><b>here</a></b> if it takes longer.
-    </p> 
+	<div class="bg-image" id="game_cover_img"></div>
+	<div class="bg-text" id="game_cover_txt">
+	  <h1 id="page_content">Loading...</h1>
+	</div>
+
+    <script type="text/javascript">	
+		var a = document.getElementById('page_content');
+		var page_content = "The game page will get started in less than 2 seconds..." + 
+							"<br>Get ready to live an Extraordinary Adventure!" +
+							"<br>Please click <a style='color:cyan;' href='https://gamepix.com/play/i-can-transform'>" +
+							"<b'>here</a></b> if it takes longer."
+		function chrono() {
+			a.innerHTML = page_content;
+		}
+		setInterval("chrono()", 1000);
+    </script>
 </body> 
 </html>

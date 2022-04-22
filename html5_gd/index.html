@@ -114,7 +114,7 @@
 		function onResize() {
 			canvas.width = window.innerWidth;
 			canvas.height = window.innerHeight;
-			checkScreenOrientation();
+			//checkScreenOrientation();
 			updateSize = 1;
 		}
 		
@@ -163,10 +163,10 @@
 			postRun: [],
 			canvas: canvas,
 			onRuntimeInitialized: function() {
-				if (landscapeMode) {
+				//if (landscapeMode) {
 					document.getElementById('game_cover_img').style.display = "block";
 					document.getElementById('game_cover_txt').style.display = "block";
-				}
+				//}
 				document.querySelector("#loading_page").remove();
 				for(ms of [0, 100, 1000, 3000]) {
 					window.setTimeout(onResize, ms);

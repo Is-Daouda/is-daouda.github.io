@@ -4,17 +4,9 @@
     <meta charset="utf-8">
 	<title>I Can Transform</title>
 	<link rel="icon" href="favicon.png">
+	<link rel="stylesheet" href="styles/index.css">
 	<meta name="viewport" content="width=device-width, user-scalable=no">
-	
-	<script type="text/javascript">
-		var normalScreen = true; //(window.innerWidth > window.innerHeight);
-		var head = document.getElementsByTagName("HEAD")[0];
-		var link = document.createElement("link");
-		link.rel = "stylesheet";
-		link.type = "text/css";
-		link.href = "styles/index" + ((normalScreen) ? "" : "_mobile") + ".css";
-		head.appendChild(link);
-		
+	<script type="text/javascript">		
 		var gameState = 2;
 		var sdkState = 0;
 		window.SDK_OPTIONS = {
@@ -73,6 +65,8 @@
 		var canvas = document.getElementById('canvas');
 		var updateSize = 0;
 		var initGame = 0;
+		var normalScreen = (window.innerWidth > window.innerHeight);
+		canvas.className = "screen_" + ((normalScreen) ? "max" : "min");
 
 		document.getElementById('game_cover_img').style.display = "none";
 		document.getElementById('game_cover_txt').style.display = "none";

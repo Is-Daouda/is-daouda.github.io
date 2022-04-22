@@ -16,14 +16,23 @@ body {
   touch-action:none;
 }
 
-#canvas {
-	position: absolute;
-	top: 0;
-	bottom: 0;
-	left: 0;
-	right: 0;
-	margin: auto;
-	width: 280px;
+.screen_max {
+  position: absolute;
+  display: block;
+  margin:0;
+  padding:0;
+  width:100vw;
+  height:100vh;
+}
+
+.screen_min {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  margin: auto;
+  width: 280px;
 }
 
 #loading_page {

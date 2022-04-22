@@ -80,26 +80,17 @@
 		document.getElementById('game_cover_txt').style.display = "none";
 
 		function showMsg() {
-			var a = document.createElement('div');
-			a.setAttribute('id', 'msg');
-			a.innerHTML = "<p style='color:white'>Please change the screen orientation in <b>landscape mode</b></p>";
-			document.body.appendChild(a);
-		}
-		
-		function hideMsg() {
-			var objDel = document.getElementById('msg');
-			objDel.remove();
+			alert("Please change the screen orientation in Landscape mode");
 		}
 		
 		function checkScreenOrientation() {
-			landscapeMode = (canvas.width > (canvas.height + 100)) ? true : false;
+			landscapeMode = (canvas.width > (canvas.height + 50)) ? true : false;
 			
 			if (!landscapeMode && showError === 0)
 				showError = 1;
 			
 			if (landscapeMode && showError > 0) {
 				canvas.style.display = "block";
-				hideMsg();
 				showError = 0;
 			}
 			

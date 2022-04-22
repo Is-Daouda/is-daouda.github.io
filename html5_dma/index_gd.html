@@ -4,10 +4,17 @@
     <meta charset="utf-8">
 	<title>I Can Transform</title>
 	<link rel="icon" href="favicon.png">
-	<link rel="stylesheet" href="styles/index.css">
 	<meta name="viewport" content="width=device-width, user-scalable=no">
 	
 	<script type="text/javascript">
+		var normalScreen = (window.innerWidth > window.innerHeight);
+		var head = document.getElementsByTagName("HEAD")[0];
+		var link = document.createElement("link");
+		link.rel = "stylesheet";
+		link.type = "text/css";
+		link.href = "styles/index" + ((normalScreen) ? "" : "_mobile") + ".css";
+		head.appendChild(link);
+		
 		var gameState = 2;
 		var sdkState = 0;
 		window["GD_OPTIONS"] = {
@@ -80,17 +87,26 @@
 		document.getElementById('game_cover_txt').style.display = "none";
 
 		function showMsg() {
-			alert("Please change the screen orientation in Landscape mode.");
+			var a = document.createElement('div');
+			a.setAttribute('id', 'msg');
+			a.innerHTML = "<p style='color:white'>Please change the screen orientation in <b>landscape mode</b></p>";
+			document.body.appendChild(a);
+		}
+		
+		function hideMsg() {
+			var objDel = document.getElementById('msg');
+			objDel.remove();
 		}
 		
 		function checkScreenOrientation() {
-			landscapeMode = (canvas.width > (canvas.height + 50)) ? true : false;
+			landscapeMode = (canvas.width > (canvas.height + 100)) ? true : false;
 			
 			if (!landscapeMode && showError === 0)
 				showError = 1;
 			
 			if (landscapeMode && showError > 0) {
 				canvas.style.display = "block";
+				hideMsg();
 				showError = 0;
 			}
 			
@@ -112,10 +128,12 @@
 		}
 	
 		function onResize() {
-			canvas.width = window.innerWidth;
-			canvas.height = window.innerHeight;
-			//checkScreenOrientation();
-			updateSize = 1;
+			if (normalScreen) {
+				canvas.width = window.innerWidth;
+				canvas.height = window.innerHeight;
+				checkScreenOrientation();
+				updateSize = 1;			
+			}
 		}
 		
 		window.addEventListener("resize", onResize, true);
@@ -163,10 +181,10 @@
 			postRun: [],
 			canvas: canvas,
 			onRuntimeInitialized: function() {
-				//if (landscapeMode) {
+				if (landscapeMode || !normalScreen) {
 					document.getElementById('game_cover_img').style.display = "block";
 					document.getElementById('game_cover_txt').style.display = "block";
-				//}
+				}
 				document.querySelector("#loading_page").remove();
 				for(ms of [0, 100, 1000, 3000]) {
 					window.setTimeout(onResize, ms);

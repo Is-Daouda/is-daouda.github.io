@@ -67,6 +67,11 @@ body {
   to { -webkit-transform: rotate(360deg); }
 }
 
+#msg {
+  padding: 70px 0;
+  text-align: center;
+}
+
 /* game cover */
 * {
   box-sizing: border-box;

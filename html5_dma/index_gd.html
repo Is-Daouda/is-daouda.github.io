@@ -79,59 +79,15 @@
     <script type="text/javascript">	
 		var canvas = document.getElementById('canvas');
 		var updateSize = 0;
-		var landscapeMode = false;
 		var initGame = 0;
-		var showError = 0;
 
 		document.getElementById('game_cover_img').style.display = "none";
 		document.getElementById('game_cover_txt').style.display = "none";
-
-		function showMsg() {
-			var a = document.createElement('div');
-			a.setAttribute('id', 'msg');
-			a.innerHTML = "<p style='color:white'>Please change the screen orientation in <b>landscape mode</b></p>";
-			document.body.appendChild(a);
-		}
-		
-		function hideMsg() {
-			var objDel = document.getElementById('msg');
-			objDel.remove();
-		}
-		
-		function checkScreenOrientation() {
-			landscapeMode = (canvas.width > (canvas.height + 100)) ? true : false;
-			
-			if (!landscapeMode && showError === 0)
-				showError = 1;
-			
-			if (landscapeMode && showError > 0) {
-				canvas.style.display = "block";
-				hideMsg();
-				showError = 0;
-			}
-			
-			if (showError === 1) {
-				canvas.style.display = "none";
-				showMsg();
-				showError = 2;
-			}
-			
-			if (initGame === 1) {
-				if (landscapeMode) {
-					document.getElementById('game_cover_img').style.display = "block";
-					document.getElementById('game_cover_txt').style.display = "block";			
-				} else {
-					document.getElementById('game_cover_img').style.display = "none";
-					document.getElementById('game_cover_txt').style.display = "none";			
-				}
-			}
-		}
-	
+				
 		function onResize() {
 			if (normalScreen) {
 				canvas.width = window.innerWidth;
 				canvas.height = window.innerHeight;
-				checkScreenOrientation();
 				updateSize = 1;			
 			}
 		}
@@ -139,7 +95,7 @@
 		window.addEventListener("resize", onResize, true);
 		
 		function removeCover(event) {
-		   if (initGame === 1 && showError === 0) {
+		   if (initGame === 1) {
 				document.getElementById('game_cover_img').removeEventListener("click", removeCover);
 				document.getElementById('game_cover_txt').removeEventListener("click", removeCover);
 				document.getElementById('game_cover_img').remove();
@@ -181,10 +137,8 @@
 			postRun: [],
 			canvas: canvas,
 			onRuntimeInitialized: function() {
-				if (landscapeMode || !normalScreen) {
-					document.getElementById('game_cover_img').style.display = "block";
-					document.getElementById('game_cover_txt').style.display = "block";
-				}
+				document.getElementById('game_cover_img').style.display = "block";
+				document.getElementById('game_cover_txt').style.display = "block";
 				document.querySelector("#loading_page").remove();
 				for(ms of [0, 100, 1000, 3000]) {
 					window.setTimeout(onResize, ms);

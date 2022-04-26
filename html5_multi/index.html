@@ -31,10 +31,11 @@
     <script type="text/javascript">	
 		var canvas = document.getElementById('canvas');
 		var updateSize = 0;
-		var landscapeMode = false;
+		var gameState = 2;
 		var initGame = 0;
 		var showError = 0;
-
+		var landscapeMode = false;
+		
 		document.getElementById('game_cover_img').style.display = "none";
 		document.getElementById('game_cover_txt').style.display = "none";
 
@@ -126,9 +127,9 @@
 			print: console.log,
 			printErr: console.error,
 		};
-		
+
 		Module['locateFile'] = function(path, prefix) {
-		  if (path.endsWith(".data")) return "https://is-daouda.github.io/isengine.data";
+		  if (path.endsWith(".data")) return "https://is-daouda.github.io/html5_multi/isengine.data";
 		  return prefix + path;
 		}
     </script>

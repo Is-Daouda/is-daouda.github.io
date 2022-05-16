@@ -90,29 +90,11 @@
 				document.getElementById('game_cover_txt').remove();
 				initGame = 2;
 			}
-		}	
+		}
 		
 		document.getElementById('game_cover_txt').addEventListener("click", removeCover);	
 		document.getElementById('game_cover_img').addEventListener("click", removeCover);
-		
-		var logBackup = console.log;
-		var logMessages = [];
-		console.log = function() {
-			logMessages.push.apply(logMessages, arguments);
-			logBackup.apply(console, arguments);
-		};
-		
-		var preroll = false;
-		function chrono() {
-			if (!preroll) {
-				if (logMessages.includes("Start successfully!")) {
-					isJsShowGameAds();
-					preroll = true;
-				}
-			}
-		}
-		setInterval("chrono()", 1000);
-		
+				
 		window.addEventListener("load", function() {
 			window.focus();
 			document.body.addEventListener("click", function(e) {
@@ -125,6 +107,8 @@
 			postRun: [],
 			canvas: canvas,
 			onRuntimeInitialized: function() {
+				isJsShowGameAds();
+				
 				document.getElementById('game_cover_img').style.display = "block";
 				document.getElementById('game_cover_txt').style.display = "block";
 				document.querySelector("#loading_page").remove();

@@ -205,7 +205,7 @@
 		loadScriptAsync(rscLink + "isengine.js");
 		
 		function loadBanner() {
-			if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
+			/*if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
 				let chooseVideo = Math.random() * 2;
 				let chooseMusic = Math.random() * 2;
 				createBanner((chooseMusic === 0) ? ad_music : ad_amu);
@@ -213,12 +213,12 @@
 				createBanner(ad_elec);
 				createBanner(ad_pay);
 			}
-			else {
+			else {*/
 				var a = document.createElement('div');
 				a.setAttribute('id', "amzn-assoc-ad-6c216f5f-a3d5-41f0-80ef-540e0377ed69");
 				bannerContainner.appendChild(a);
 				loadScriptAsync(amzJsLink);			
-			}
+			//}
 		}
 	</script>
 </html>

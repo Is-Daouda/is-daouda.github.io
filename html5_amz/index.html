@@ -30,15 +30,19 @@
 	</canvas>
 	
 <!-- Popup Window HTML -->
-	<div id="adpop" class="pop">
-	<input type="checkbox" id="3" />
+	<div id="adspopup" class="pop">
+		<input type="checkbox" id="3" />
 		<div class="modal">
 			<div class="modal__inner">
-			<p>
+			
 				<iframe src="https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=music&banner=1TMGBC1SDQP9VT3MNP82&f=ifr&linkID=70f8e5b98035f827fe28f2de68f50883&t=icantransform-21&tracking_id=icantransform-21" 
 				width="468" height="60" scrolling="no" border="0" marginwidth="0" style="border:none;" frameborder="0" 
 				sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"></iframe>
 
+				<iframe src="https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=audible&banner=0Q50QW184VF71DHVA2R2&f=ifr&linkID=c296de134ed45caa72ae6ade5dee193b&t=icantransform-21&tracking_id=icantransform-21" 
+				width="468" height="60" scrolling="no" border="0" marginwidth="0" style="border:none;" frameborder="0" 
+				sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"></iframe>
+				
 				<iframe src="https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=electronics&banner=1EHKJJ5FT55Y7YD9G0G2&f=ifr&linkID=8e35cc59948cc14688df4e7964cfa95c&t=icantransform-21&tracking_id=icantransform-21" 
 				width="468" height="60" scrolling="no" border="0" marginwidth="0" style="border:none;" frameborder="0" 
 				sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"></iframe>
@@ -54,12 +58,8 @@
 				<iframe src="https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=pw&banner=1QGGWVV64MF5MM1FKP02&f=ifr&linkID=ca91a5b4bd47ecd38b4b9bed5d94daf2&t=icantransform-21&tracking_id=icantransform-21" 
 				width="468" height="60" scrolling="no" border="0" marginwidth="0" style="border:none;" frameborder="0" 
 				sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"></iframe>
-
-				<iframe src="https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=audible&banner=0Q50QW184VF71DHVA2R2&f=ifr&linkID=c296de134ed45caa72ae6ade5dee193b&t=icantransform-21&tracking_id=icantransform-21" 
-				width="468" height="60" scrolling="no" border="0" marginwidth="0" style="border:none;" frameborder="0" 
-				sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"></iframe>
-				</p>
-				<label class="btn-close" for="3" onclick="document.getElementById('adpop').style.display = 'none';">X</label>
+				
+				<label class="btn-close" for="3" onclick="document.getElementById('adspopup').style.display = 'none';">X</label>
 			</div>
 		</div>
 	</div>
@@ -80,7 +80,7 @@
 
 		function isJsShowGameAds() {
 			document.getElementById('3').click();
-			document.getElementById('adpop').style.display = "block";
+			document.getElementById('adspopup').style.display = "block";
 		}
 		
 		function showMsg() {

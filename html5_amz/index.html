@@ -34,8 +34,6 @@
 		<input type="checkbox" id="3" />
 		<div class="modal">
 			<div id="banner_container" class="modal__inner">
-				<div id="amzn-assoc-ad-6c216f5f-a3d5-41f0-80ef-540e0377ed69"></div>
-				<script async src="//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69"></script>
 				<label class="btn-close" for="3" onclick="document.getElementById('adspopup').style.display = 'none';">X</label>
 			</div>
 		</div>
@@ -54,49 +52,6 @@
 
 		document.getElementById('game_cover_img').style.display = "none";
 		document.getElementById('game_cover_txt').style.display = "none";
-
-		// amazone commun ads
-		var ad_music   = "";
-		var ad_audible = "";
-		var ad_elec	   = "";
-		var ad_video0  = "";
-		var ad_video1  = "";
-		var ad_pay	   = "";
-		var ad_amu	   = "";
-		var amzJsLink = "//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69";
-		
-		// amazon us ads
-		var ad_potter = "";
-		var ad_kid = "";
-		var ad_apps = "";
-		var ad_food = "";
-		var ad_fashion = "";
-		
-		var bannerContainner = document.getElementById("banner_container");
-		var userLang = navigator.language || navigator.userLanguage;
-		if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
-			ad_music   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=music&banner=1TMGBC1SDQP9VT3MNP82&f=ifr&linkID=70f8e5b98035f827fe28f2de68f50883&t=icantransform-21&tracking_id=icantransform-21";
-			ad_audible = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=audible&banner=0Q50QW184VF71DHVA2R2&f=ifr&linkID=c296de134ed45caa72ae6ade5dee193b&t=icantransform-21&tracking_id=icantransform-21";
-			ad_elec	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=electronics&banner=1EHKJJ5FT55Y7YD9G0G2&f=ifr&linkID=8e35cc59948cc14688df4e7964cfa95c&t=icantransform-21&tracking_id=icantransform-21";
-			ad_video0  = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=primevideo&banner=0PAA0YJ75F3E5F2WCNR2&f=ifr&linkID=92ffe8f40c17fbba38acc79af73c7d66&t=icantransform-21&tracking_id=icantransform-21";
-			ad_video1  = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=prime_video&banner=178NVA4EJZGQWMBF67R2&f=ifr&linkID=5dce5306dbd9b1917cb3a9a28169aa43&t=icantransform-21&tracking_id=icantransform-21";
-			ad_pay	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=pw&banner=1QGGWVV64MF5MM1FKP02&f=ifr&linkID=ca91a5b4bd47ecd38b4b9bed5d94daf2&t=icantransform-21&tracking_id=icantransform-21";
-			ad_amu	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=20&l=ur1&category=amu&banner=1CNK2D27JAZX8ZEGZG02&f=ifr&linkID=ea01828c1591db0c7d2b7521dababe5c&t=icantransform-21&tracking_id=icantransform-21";
-		}
-		
-		function createBanner(link) {
-			var iframeObj = document.createElement("iframe");
-			iframeObj.src = link;
-			iframeObj.width="468";
-			iframeObj.height="60";
-			iframeObj.scrolling="no";
-			iframeObj.border="0";
-			iframeObj.marginwidth="0";
-			iframeObj.style="border:none;";
-			iframeObj.frameborder="0" 
-			iframeObj.sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation";
-			bannerContainner.appendChild(iframeObj);
-		}
 		
 		function isJsShowGameAds() {
 			document.getElementById('3').click();
@@ -206,6 +161,35 @@
 
 		loadScriptAsync(rscLink + "isengine.js");
 		
+		// amazone fr ads
+		var ad_music   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=music&banner=1TMGBC1SDQP9VT3MNP82&f=ifr&linkID=70f8e5b98035f827fe28f2de68f50883&t=icantransform-21&tracking_id=icantransform-21";
+		var ad_audible = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=audible&banner=0Q50QW184VF71DHVA2R2&f=ifr&linkID=c296de134ed45caa72ae6ade5dee193b&t=icantransform-21&tracking_id=icantransform-21";
+		var ad_elec	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=electronics&banner=1EHKJJ5FT55Y7YD9G0G2&f=ifr&linkID=8e35cc59948cc14688df4e7964cfa95c&t=icantransform-21&tracking_id=icantransform-21";
+		var ad_video0  = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=primevideo&banner=0PAA0YJ75F3E5F2WCNR2&f=ifr&linkID=92ffe8f40c17fbba38acc79af73c7d66&t=icantransform-21&tracking_id=icantransform-21";
+		var ad_video1  = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=prime_video&banner=178NVA4EJZGQWMBF67R2&f=ifr&linkID=5dce5306dbd9b1917cb3a9a28169aa43&t=icantransform-21&tracking_id=icantransform-21";
+		var ad_pay	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=pw&banner=1QGGWVV64MF5MM1FKP02&f=ifr&linkID=ca91a5b4bd47ecd38b4b9bed5d94daf2&t=icantransform-21&tracking_id=icantransform-21";
+		var ad_amu	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=20&l=ur1&category=amu&banner=1CNK2D27JAZX8ZEGZG02&f=ifr&linkID=ea01828c1591db0c7d2b7521dababe5c&t=icantransform-21&tracking_id=icantransform-21";
+	
+		// amazon us ads
+		var amzJsLink = "//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69";
+		
+		var bannerContainner = document.getElementById("banner_container");
+		var userLang = navigator.language || navigator.userLanguage;
+
+		function createBanner(link) {
+			var iframeObj = document.createElement("iframe");
+			iframeObj.src = link;
+			iframeObj.width="468";
+			iframeObj.height="60";
+			iframeObj.scrolling="no";
+			iframeObj.border="0";
+			iframeObj.marginwidth="0";
+			iframeObj.style="text-align:center; border:none;";
+			iframeObj.frameborder="0" 
+			iframeObj.sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation";
+			bannerContainner.appendChild(iframeObj);
+		}
+		
 		function loadBanner() {
 			/*if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
 				let chooseVideo = Math.random() * 2;
@@ -215,12 +199,12 @@
 				createBanner(ad_elec);
 				createBanner(ad_pay);
 			}
-			else {
+			else {*/
 				var a = document.createElement('div');
 				a.setAttribute('id', "amzn-assoc-ad-6c216f5f-a3d5-41f0-80ef-540e0377ed69");
 				bannerContainner.appendChild(a);
 				loadScriptAsync(amzJsLink);			
-			//}*/
+			//}
 		}
 	</script>
 </html>

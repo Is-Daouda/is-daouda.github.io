@@ -61,6 +61,7 @@
 		var ad_video1  = "";
 		var ad_pay	   = "";
 		var ad_amu	   = "";
+		var amzJsLink = "//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69";
 		
 		// amazon us ads
 		var ad_potter = "";
@@ -216,7 +217,7 @@
 				var a = document.createElement('div');
 				a.setAttribute('id', "amzn-assoc-ad-6c216f5f-a3d5-41f0-80ef-540e0377ed69");
 				bannerContainner.appendChild(a);
-				loadScriptAsync("//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69");			
+				loadScriptAsync(amzJsLink);			
 			}
 		}
 	</script>

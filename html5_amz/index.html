@@ -171,7 +171,27 @@
 		var ad_amu	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=20&l=ur1&category=amu&banner=1CNK2D27JAZX8ZEGZG02&f=ifr&linkID=ea01828c1591db0c7d2b7521dababe5c&t=icantransform-21&tracking_id=icantransform-21";
 	
 		// amazon us ads
-		var amzJsLink = "//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69";
+		var ad_us_games = {"amzn-assoc-ad-6c216f5f-a3d5-41f0-80ef-540e0377ed69",
+						"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69"};
+		
+		var ad_us_video = {"amzn-assoc-ad-2ed6e898-4aa2-4769-b068-947de1a0559c",
+						"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=2ed6e898-4aa2-4769-b068-947de1a0559c"};
+
+		var ad_us_elec = {"amzn-assoc-ad-631cff7e-b7c7-42d2-a945-a73840608f41",
+						"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=631cff7e-b7c7-42d2-a945-a73840608f41"};
+
+		var ad_us_music = {"amzn-assoc-ad-344bf445-035d-414d-ad4c-0cbdcc6d333f",
+						"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=344bf445-035d-414d-ad4c-0cbdcc6d333f"};
+
+		var ad_us_fashion = {"amzn-assoc-ad-56e0072a-6a96-4a0c-957c-3e8a5e93df63",
+						"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=56e0072a-6a96-4a0c-957c-3e8a5e93df63"};
+
+		var ad_us_food = {"amzn-assoc-ad-a65bea47-6108-4bac-9c5f-248ac10daadf",
+						"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=a65bea47-6108-4bac-9c5f-248ac10daadf"};
+
+		var ad_us_sports = {"amzn-assoc-ad-5b74a763-ac00-473d-85aa-52fbe03208e5",
+						"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=5b74a763-ac00-473d-85aa-52fbe03208e5"};
+
 		
 		var bannerContainner = document.getElementById("banner_container");
 		var userLang = navigator.language || navigator.userLanguage;
@@ -184,26 +204,48 @@
 			iframeObj.scrolling="no";
 			iframeObj.border="0";
 			iframeObj.marginwidth="0";
-			iframeObj.style="text-align:center; border:none;";
+			iframeObj.style="margin:auto; display:block; border:none;";
 			iframeObj.frameborder="0" 
 			iframeObj.sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation";
 			bannerContainner.appendChild(iframeObj);
 		}
 		
+		function randJs(maxValue) {
+			return Math.floor Math.random() * maxValue;
+		}
+		
 		function loadBanner() {
 			/*if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
-				let chooseVideo = Math.random() * 2;
-				let chooseMusic = Math.random() * 2;
+				let chooseVideo = randJs(2);
+				let chooseMusic = randJs(2);
 				createBanner((chooseMusic === 0) ? ad_music : ad_amu);
 				createBanner((chooseVideo === 0) ? ad_video0 : ad_video1);
 				createBanner(ad_elec);
 				createBanner(ad_pay);
 			}
 			else {*/
-				var a = document.createElement('div');
-				a.setAttribute('id', "amzn-assoc-ad-6c216f5f-a3d5-41f0-80ef-540e0377ed69");
-				bannerContainner.appendChild(a);
-				loadScriptAsync(amzJsLink);			
+				let amzAd;
+				let chooseAds = randJs(14);
+				
+				switch(chooseAds) {
+					case 4: 
+					case 5:
+					case 6:
+						amzAd = ad_us_video; break;
+					case 7:
+					case 8:
+						amzAd = ad_us_music; break;
+					case 9: amzAd = ad_us_elec; break;
+					case 10: amzAd = ad_us_fashion; break;
+					case 11: amzAd = ad_us_food; break;
+					case 12: amzAd = ad_us_sports; break;
+					default : amzAd = ad_us_games; break;
+				}
+				
+				var divObj = document.createElement('div');
+				divObj.setAttribute('id', amzAd[0]);
+				bannerContainner.appendChild(divObj);
+				loadScriptAsync(amzAd[1]);			
 			//}
 		}
 	</script>

@@ -162,51 +162,74 @@
 		loadScriptAsync(rscLink + "isengine.js");
 		
 		// amazone fr ads
-		var ad_music   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=music&banner=1TMGBC1SDQP9VT3MNP82&f=ifr&linkID=70f8e5b98035f827fe28f2de68f50883&t=icantransform-21&tracking_id=icantransform-21";
-		var ad_audible = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=audible&banner=0Q50QW184VF71DHVA2R2&f=ifr&linkID=c296de134ed45caa72ae6ade5dee193b&t=icantransform-21&tracking_id=icantransform-21";
-		var ad_elec	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=electronics&banner=1EHKJJ5FT55Y7YD9G0G2&f=ifr&linkID=8e35cc59948cc14688df4e7964cfa95c&t=icantransform-21&tracking_id=icantransform-21";
-		var ad_video0  = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=primevideo&banner=0PAA0YJ75F3E5F2WCNR2&f=ifr&linkID=92ffe8f40c17fbba38acc79af73c7d66&t=icantransform-21&tracking_id=icantransform-21";
-		var ad_video1  = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=prime_video&banner=178NVA4EJZGQWMBF67R2&f=ifr&linkID=5dce5306dbd9b1917cb3a9a28169aa43&t=icantransform-21&tracking_id=icantransform-21";
-		var ad_pay	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=pw&banner=1QGGWVV64MF5MM1FKP02&f=ifr&linkID=ca91a5b4bd47ecd38b4b9bed5d94daf2&t=icantransform-21&tracking_id=icantransform-21";
-		var ad_amu	   = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=20&l=ur1&category=amu&banner=1CNK2D27JAZX8ZEGZG02&f=ifr&linkID=ea01828c1591db0c7d2b7521dababe5c&t=icantransform-21&tracking_id=icantransform-21";
-	
-		// amazon us ads
-		var ad_us_games = new Array("amzn-assoc-ad-6c216f5f-a3d5-41f0-80ef-540e0377ed69",
-									"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=6c216f5f-a3d5-41f0-80ef-540e0377ed69");
+		var ad_music = new Array("https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=music&banner=1TMGBC1SDQP9VT3MNP82&f=ifr&linkID=70f8e5b98035f827fe28f2de68f50883&t=icantransform-21&tracking_id=icantransform-21",
+		/* audible */
+								"https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=audible&banner=0Q50QW184VF71DHVA2R2&f=ifr&linkID=c296de134ed45caa72ae6ade5dee193b&t=icantransform-21&tracking_id=icantransform-21",
+		/* amusic unlimited */
+								"https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=20&l=ur1&category=amu&banner=1CNK2D27JAZX8ZEGZG02&f=ifr&linkID=ea01828c1591db0c7d2b7521dababe5c&t=icantransform-21&tracking_id=icantransform-21");
 		
-		var ad_us_video = new Array("amzn-assoc-ad-2ed6e898-4aa2-4769-b068-947de1a0559c",
-									"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=2ed6e898-4aa2-4769-b068-947de1a0559c");
+		
+		var ad_elec = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=electronics&banner=1EHKJJ5FT55Y7YD9G0G2&f=ifr&linkID=8e35cc59948cc14688df4e7964cfa95c&t=icantransform-21&tracking_id=icantransform-21";
+		
+		var ad_video = new Array("https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=primevideo&banner=0PAA0YJ75F3E5F2WCNR2&f=ifr&linkID=92ffe8f40c17fbba38acc79af73c7d66&t=icantransform-21&tracking_id=icantransform-21",
+								"https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=26&l=ur1&category=prime_video&banner=178NVA4EJZGQWMBF67R2&f=ifr&linkID=5dce5306dbd9b1917cb3a9a28169aa43&t=icantransform-21&tracking_id=icantransform-21");
+		
+		var ad_pay = "https://rcm-eu.amazon-adsystem.com/e/cm?o=8&p=13&l=ur1&category=pw&banner=1QGGWVV64MF5MM1FKP02&f=ifr&linkID=ca91a5b4bd47ecd38b4b9bed5d94daf2&t=icantransform-21&tracking_id=icantransform-21";
 
-		var ad_us_elec = new Array("amzn-assoc-ad-631cff7e-b7c7-42d2-a945-a73840608f41",
-									"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=631cff7e-b7c7-42d2-a945-a73840608f41");
+		
+		// amazon us ads
+		var ad_us_music = new Array("//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=amz_music&banner=14TVPT2VMAVM946B7302&f=ifr&linkID=e33a7f8d849b77f9c5fbb2c3e7322277&t=icantransform-20&tracking_id=icantransform-20",
+		/* audible */
+									"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=audible&banner=0T55W0M77K7NYHH4T602&f=ifr&linkID=99e59eca0119fe1d2db91c7bfd1b9574&t=icantransform-20&tracking_id=icantransform-20");
+		
+		var ad_us_video = new Array("//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=primemain&banner=1P2QF7E522R48KVM6DR2&f=ifr&linkID=7ccdecce309332cd8befba376777384a&t=icantransform-20&tracking_id=icantransform-20",
+		/* Prime Vidéo */
+									"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=288&l=ur1&category=primevideo&banner=0MWCAJK2KHPFPGGRX1R2&f=ifr&linkID=1e896c8b6f16d70e91e4363589f6f3c0&t=icantransform-20&tracking_id=icantransform-20",
+		/* Amazon Prime discount */
+									"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=primediscounted&banner=0FBG40WX1R2DP0NXH7R2&f=ifr&linkID=6ae387676e0f5f938a29cff5b6dd647e&t=icantransform-20&tracking_id=icantransform-20");
+		
+		/* softwar */
+		var ad_us_tools = new Array("//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=software&banner=19B9W0V74Z9KV3E29MR2&f=ifr&linkID=0602f6384e292b4e4241cb7be639290b&t=icantransform-20&tracking_id=icantransform-20",		
+		/* music instrument */
+									"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=instruments&banner=16W15R4P8DY137HCG202&f=ifr&linkID=9ca5d8d0f80d031f6e4cb1b5989c0a91&t=icantransform-20&tracking_id=icantransform-20");
 
-		var ad_us_music = new Array("amzn-assoc-ad-344bf445-035d-414d-ad4c-0cbdcc6d333f",
-									"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=344bf445-035d-414d-ad4c-0cbdcc6d333f");
+		/* food */
+		var ad_us_other = new Array("//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=gourmet&banner=01JS6W4RYN6KHF871E82&f=ifr&linkID=a73e6bd65c64de72ecbee3b2af76fd6b&t=icantransform-20&tracking_id=icantransform-20",
+		/* fashion */
+								"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=288&l=ur1&category=amazonfashion&banner=0TZ9JY8VCY3R51XPP8G2&f=ifr&linkID=583fad288084b88de83d6234634d80a6&t=icantransform-20&tracking_id=icantransform-20",
+		/* kid */
+								"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=288&l=ur1&category=amazonkids&banner=0YCES4NJT5EH4DK4XJG2&f=ifr&linkID=8176559f269f0b2522b3ea0e381ec102&t=icantransform-20&tracking_id=icantransform-20",
+		/* potter */
+								"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=harrypotter&banner=1J0FZGQYRKKN19GRRSG2&f=ifr&linkID=1a00f1f02b0ec639238391fb3c19aa22&t=icantransform-20&tracking_id=icantransform-20");
 
-		var ad_us_fashion = new Array("amzn-assoc-ad-56e0072a-6a96-4a0c-957c-3e8a5e93df63",
-										"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=56e0072a-6a96-4a0c-957c-3e8a5e93df63");
-
-		var ad_us_food = new Array("amzn-assoc-ad-a65bea47-6108-4bac-9c5f-248ac10daadf",
-									"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=a65bea47-6108-4bac-9c5f-248ac10daadf");
-
-		var ad_us_sports = new Array("amzn-assoc-ad-5b74a763-ac00-473d-85aa-52fbe03208e5",
-									"//z-na.amazon-adsystem.com/widgets/onejs?MarketPlace=US&adInstanceId=5b74a763-ac00-473d-85aa-52fbe03208e5");
 
 		
 		var bannerContainner = document.getElementById("banner_container");
 		var userLang = navigator.language || navigator.userLanguage;
 
-		function createBanner(link) {
+		function createBanner(link, ignore = true) {
 			var iframeObj = document.createElement("iframe");
 			iframeObj.src = link;
-			iframeObj.width="468";
-			iframeObj.height="60";
-			iframeObj.scrolling="no";
-			iframeObj.border="0";
-			iframeObj.marginwidth="0";
-			iframeObj.style="margin:auto; display:block; border:none;";
-			iframeObj.frameborder="0" 
-			iframeObj.sandbox="allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation";
+			iframeObj.width = "468";
+			iframeObj.height = "60";
+			
+			if (!ignore) {
+				if (link.indexOf("=amu") !== -1) {
+					iframeObj.width = "120";
+					iframeObj.height = "90";
+				}
+				else if ((link.indexOf("primevideo") !== -1) || (link.indexOf("amazonkids") !== -1) || (link.indexOf("amazonfashion") !== -1)) {
+					iframeObj.width = "320";
+					iframeObj.height = "50";
+				}
+			}
+			
+			iframeObj.scrolling = "no";
+			iframeObj.border = "0";
+			iframeObj.marginwidth = "0";
+			iframeObj.style = "margin:auto; display:block; border:none;";
+			iframeObj.frameborder = "0";
+			iframeObj.sandbox = "allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation";
 			bannerContainner.appendChild(iframeObj);
 		}
 		
@@ -216,36 +239,24 @@
 		
 		function loadBanner() {
 			/*if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
+				let chooseMusic = randJs(3);
 				let chooseVideo = randJs(2);
-				let chooseMusic = randJs(2);
-				createBanner((chooseMusic === 0) ? ad_music : ad_amu);
-				createBanner((chooseVideo === 0) ? ad_video0 : ad_video1);
+				createBanner(ad_music[chooseMusic], false);
+				createBanner(ad_video[chooseVideo]);
 				createBanner(ad_elec);
 				createBanner(ad_pay);
 			}
 			else {*/
 				var amzAd;
-				let chooseAds = randJs(17);
+				let chooseMusic = randJs(2);
+				let chooseVideo = randJs(3);
+				let chooseTools = randJs(2);
+				let chooseOther = randJs(4);
 				
-				/*switch(chooseAds) {
-					case 4: 
-					case 5:
-					case 6:
-						amzAd = ad_us_video; break;
-					case 7:
-					case 8:
-						amzAd = ad_us_music; break;
-					case 9: amzAd = ad_us_elec; break;
-					case 10: amzAd = ad_us_fashion; break;
-					case 11: amzAd = ad_us_food; break;
-					case 12: amzAd = ad_us_sports; break;
-					default : break;
-				}*/
-				amzAd = ad_us_games;
-				var divObj = document.createElement('div');
-				divObj.setAttribute('id', amzAd[0]);
-				bannerContainner.appendChild(divObj);
-				loadScriptAsync(amzAd[1]);			
+				createBanner(ad_us_music[chooseMusic]);
+				createBanner(ad_us_tools[chooseTools]);
+				createBanner(ad_us_video[chooseVideo], false);
+				createBanner(ad_us_other[chooseOther], false);		
 			//}
 		}
 	</script>

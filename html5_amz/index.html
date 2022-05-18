@@ -215,7 +215,7 @@
 		}
 		
 		function loadBanner() {
-			/*if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
+			if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") {
 				let chooseVideo = randJs(2);
 				let chooseMusic = randJs(2);
 				createBanner((chooseMusic === 0) ? ad_music : ad_amu);
@@ -223,7 +223,7 @@
 				createBanner(ad_elec);
 				createBanner(ad_pay);
 			}
-			else {*/
+			/*else {
 				var amzAd;
 				let chooseAds = randJs(17);
 				
@@ -240,12 +240,12 @@
 					case 11: amzAd = ad_us_food; break;
 					case 12: amzAd = ad_us_sports; break;
 					default : break;
-				}*/
+				}
 				amzAd = ad_us_games;
 				var divObj = document.createElement('div');
 				divObj.setAttribute('id', amzAd[0]);
 				bannerContainner.appendChild(divObj);
-				loadScriptAsync(amzAd[1]);			
+				loadScriptAsync(amzAd[1]);			*/
 			//}
 		}
 	</script>

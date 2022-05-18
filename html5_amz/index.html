@@ -242,8 +242,11 @@
 				let chooseMusic = randJs(3);
 				let chooseVideo = randJs(2);
 				createBanner(ad_music[chooseMusic], false);
+				bannerContainner.innerHTML += "<br>";
 				createBanner(ad_video[chooseVideo]);
+				bannerContainner.innerHTML += "<br>";
 				createBanner(ad_elec);
+				bannerContainner.innerHTML += "<br>";
 				createBanner(ad_pay);
 			}
 			else {
@@ -260,7 +263,7 @@
 				createBanner(ad_us_tools[chooseTools]);
 				bannerContainner.innerHTML += "<br>";
 				createBanner(ad_us_other[chooseOther], false);		
-			//}
+			}
 		}
 	</script>
 </html>

@@ -124,8 +124,8 @@
 					window.setTimeout(onResize, ms);
 				}
 			},
-			print: alert, //console.log,
-			printErr: alert, //console.error,
+			print: console.log,
+			printErr: console.error,
 		};
 
 		Module['locateFile'] = function(path, prefix) {

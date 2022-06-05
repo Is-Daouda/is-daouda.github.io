@@ -109,8 +109,9 @@
 		var isJsBackKeyPressed = 0;
 		
 		function backKeyPressed() {
-			if (showAds == 1) {
+			if (showAds === 1) {
 				document.getElementById('3').click();
+				showAds = 0;
 			}
 			else isJsBackKeyPressed = 1;
 		}

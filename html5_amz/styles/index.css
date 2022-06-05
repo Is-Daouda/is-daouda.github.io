@@ -1,14 +1,33 @@
-html {
-  background-color:black;
-  color:white;
+*,
+*::after,
+*::before {
+	box-sizing: border-box;
 }
 
 html, body {
+	background-color: black;
+}
+
+.game_page {
   margin: 0px;
   border: 0;
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+.loading_page {
+	align-items: center;
+	background: black;
+	color: white;
+	display: flex;
+	font: 2rem "Poiret One";
+	width: 100%;
+	height: 100%;
+	justify-content: center;
+	margin: 0;
+	padding: 0;
+	border: 0;
 }
 
 body {
@@ -25,47 +44,174 @@ body {
   height:100vh;
 }
 
-#loading_page {
-  position:fixed;
-  top:0;
-  left:0;
-  width: 100%;
-  height: 100%;
-  z-index:1;
+#msg {
+  padding: 70px 0;
+  text-align: center;
 }
 
-.hbox {
-  display:flex;
-  flex-direction:row;
+.hmin_tag{
+	font-size: 1.em;
+	font-weight: bold;
 }
 
-.vbox {
-  display:flex;
-  flex-direction:column;
+.h1_tag{
+	font-size: 2.4em;
+	font-weight: bold;
 }
 
-.flex {
-  flex:1;
+/* loading */
+.box {
+	height: 100px;
+	margin: 0 10px;
+	overflow: hidden;
+	position: relative;
+	transform: rotateZ(270deg) scale(1.05);
+	width: 100px;
 }
 
-#loading {
-  display: inline-block;
-  width: 50px;
-  height: 50px;
-  border: 3px solid rgba(255,255,255,.3);
-  border-radius: 50%;
-  border-top-color: #fff;
-  animation: spin 1s ease-in-out infinite;
-  -webkit-animation: spin 1s ease-in-out infinite;
+.box:nth-of-type(2) {
+	left: -28px;
+	transform: rotateX(-180deg) rotateY(180deg) rotateZ(270deg) scale(1.05);
 }
 
-@keyframes spin {
-  to { -webkit-transform: rotate(360deg); }
+.box span {
+	animation: loader 4.8s infinite both;
+	display: block;
+	height: 100%;
+	position: absolute;
+	width: 100%;
 }
 
-@-webkit-keyframes spin {
-  to { -webkit-transform: rotate(360deg); }
+.box span:nth-child(1) {
+	animation-delay: 0.2s;
 }
+
+.box span:nth-child(2) {
+	animation-delay: 0.4s;
+}
+
+.box span:nth-child(3) {
+	animation-delay: 0.6s;
+}
+
+.box span:nth-child(4) {
+	animation-delay: 0.8s;
+}
+
+.box span:nth-child(5) {
+	animation-delay: 1s;
+}
+
+.box span:nth-child(6) {
+	animation-delay: 1.2s;
+}
+
+.box span::after {
+	background: #fff;
+	border-radius: 50%;
+	content: "";
+	left: 50%;
+	padding: 6px;
+	position: absolute;
+	top: 0;
+	transform: translateX(-50%);
+}
+
+@keyframes loader {
+	0% {
+		opacity: 0;
+		transform: rotate(180deg);
+		animation-timing-function: ease-out;
+	}
+	5% {
+		opacity: 1;
+		transform: rotate(300deg);
+		animation-timing-function: linear;
+	}
+	30% {
+		transform: rotate(420deg);
+		animation-timing-function: ease-in-out;
+	}
+	35% {
+		transform: rotate(625deg);
+		animation-timing-function: linear;
+	}
+	70% {
+		transform: rotate(800deg);
+		animation-timing-function: ease-out;
+		opacity: 1;
+	}
+	75% {
+		opacity: 0;
+		transform: rotate(900deg);
+		animation-timing-function: ease-out;
+	}
+	76% {
+		opacity: 0;
+		transform: rotate(900deg);
+	}
+	100% {
+		opacity: 0;
+		transform: rotate(900deg);
+	}
+}
+
+.hmin_tag {
+	text-shadow: 0 0 10px #fff;
+	animation: blink 4.8s infinite both;
+}
+
+.hmin_tag:nth-of-type(2) {
+	animation: none;
+	letter-spacing: -14px;
+	margin: 0 auto;
+	opacity: 0.1;
+	padding-left: 41px;
+	position: absolute;
+	top: 50%;
+	transform: translatey(-50%);
+}
+
+.h1_tag {
+	text-shadow: 0 0 10px #fff;
+	animation: blink 4.8s infinite both;
+}
+
+.h1_tag:nth-of-type(2) {
+	animation: none;
+	letter-spacing: -14px;
+	margin: 0 auto;
+	opacity: 0.1;
+	padding-left: 41px;
+	position: absolute;
+	top: 50%;
+	transform: translatey(-50%);
+}
+
+@keyframes blink {
+	0%,
+	50%,
+	100% {
+		opacity: 0.2;
+	}
+	25%,
+	75% {
+		opacity: 1;
+	}
+}
+
+.p_tag {
+	position: absolute;
+	font-family: monospace;
+}
+
+.p_tag {
+	font-size: 0.3em;
+	bottom: 10%;
+	width: 50%;
+	text-align: center;
+}
+/* loading */
 
 /* game cover */
 * {
@@ -105,9 +251,4 @@ body {
   width: 80%;
   padding: 20px;
   text-align: center;
-}
-
-.h1_mod{
-	font-size: 2.4em;
-	font-weight: bold;
 }

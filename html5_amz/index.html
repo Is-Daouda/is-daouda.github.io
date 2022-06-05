@@ -9,21 +9,29 @@
 	<meta name="viewport" content="width=device-width, user-scalable=no">
 </head>
 <body onload="loadBanner();">
-	<div id="loading_page" class="vbox">
-		<div class="flex"></div>
-		<div class="hbox">
-			<div class="flex"></div>
-			<div id="loading"></div>
-			<div class="flex"></div>
-		</div>
-		<div class="flex"></div>
+
+	<!-- Loading Page -->
+	<span class="hmin_tag" id="loading_title"></span>
+    <div id="loading_c1" class="box">
+		<span></span><span></span>
+		<span></span><span></span>
+		<span></span>
 	</div>
-	
-	<div class="bg-image" id="game_cover_img"></div>
-	
-	<div class="bg-text" id="game_cover_txt">
-		<span class="h1_mod">Click to get started</span>
+    <div id="loading_c2" class="box">
+		<span></span><span></span>
+		<span></span><span></span>
+		<span></span>
 	</div>
+    <span class="p_tag" id="loading_msg"></span>
+	<!-- Loading Page -->
+	
+	<!-- Cover Page -->
+	<div class="bg-image" id="game_cover_img" style="display:none;"></div>
+
+	<div class="bg-text" id="game_cover_txt" style="display:none;">
+	  <span class="h1_tag" id="msg_start"></span>
+	</div>
+	<!-- Cover Page -->
 	
 	<canvas id="canvas" oncontextmenu="event.preventDefault()">
 	  Loading... 
@@ -36,7 +44,7 @@
 			<div class="modal__inner">
 				<div id="banner_container">
 				</div>
-				<label class="btn-close" for="3" onclick="document.getElementById('adspopup').style.display = 'none';">X</label>
+				<label class="btn-close" for="3" onclick="hideAds();">X</label>
 			</div>
 		</div>
 	</div>
@@ -50,18 +58,121 @@
 		var landscapeMode = false;
 		var initGame = 0;
 		var showError = 0;
-		var rscLink = "https://is-daouda.github.io/html5_multi/";
+		var rscLink = "https://is-daouda.github.io/html5_multi/android_test/";
 
-		document.getElementById('game_cover_img').style.display = "none";
-		document.getElementById('game_cover_txt').style.display = "none";
+		// I Can Transform v2.5
+		document.documentElement.className = "loading_page";
+		document.body.className = "loading_page";
+
+		var strLoadingTitle = new Array("Loading&nbsp", "Chargement&nbsp");
+		var langIndex = 0; // English
+		var userLang = navigator.language || navigator.userLanguage;
+		if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
+		
+		function loadObjDesc() {
+			var txtFile = new XMLHttpRequest();
+			var allText = "";
+			txtFile.onreadystatechange = function () {
+				if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
+					allText = txtFile.responseText;
+					var objDescList = allText.split('\n');
+					
+					document.getElementById('loading_title').innerHTML = objDescList[langIndex];
+					document.getElementById('loading_msg').innerHTML = objDescList[2 + langIndex];
+					document.getElementById('msg_start').innerHTML = objDescList[4 + langIndex];
+				}
+			}
+			txtFile.open("GET", rscLink + "obj_desc.txt", true);
+			txtFile.send(null);		
+		}
+		
+		loadObjDesc();
+
+		function hideLoadingScreen() {
+			document.getElementById("loading_title").remove();
+			document.getElementById("loading_c1").remove();
+			document.getElementById("loading_c2").remove();
+			document.getElementById("loading_msg").remove();
+			document.documentElement.className = "game_page";
+			document.body.className = "game_page";
+			if (landscapeMode) {
+				document.getElementById('game_cover_img').style.display = "block";
+				document.getElementById('game_cover_txt').style.display = "block";
+			}
+		}
+		
+		// Android Support
+		var isJsExportGameData = 0;
+		var exportedData;
+		var exportedDataCurrentLine = 0;
+		var showAds = 0;
+		
+		function webPageStarted() {
+			Android.mainPageLoaded();
+		}
+		
+		function AndroidHideConnectionWidgets() {
+			try {
+				Android.hideConnectionWidgets();
+			}
+			catch(err) {}
+		}
+		
+		AndroidHideConnectionWidgets();
+		
+		function setGameState(state) {
+			gameState = state;
+		}
+		
+		function setExportedData(data) {
+			isJsExportGameData = 1;
+			exportedData = JSON.parse(data);
+		}
+		
+		function isJsGetExportedData() {
+			let data = exportedData[exportedDataCurrentLine];
+			exportedDataCurrentLine++;
+			return data;
+		}
+		
+		function isJsAndroidDeleteExportedDataFile()
+		{
+			isJsExportGameData = 2;
+			Android.deleteExportedDataFile();
+		}
+		
+		var isJsBackKeyPressed = 0;
+		
+		function backKeyPressed() {
+			if (showAds === 1) {
+				showAds = 0;			
+				document.getElementById('3').click();
+			}
+			else isJsBackKeyPressed = 1;
+		}
+		// I Can Transform v2.5
 		
 		function isJsShowGameAds() {
 			document.getElementById('3').click();
 			document.getElementById('adspopup').style.display = "block";
+			showAds = 1;
+		}
+		
+		function hideAds() {
+			document.getElementById('adspopup').style.display = 'none';
+			showAds = 0;
 		}
 		
 		function showMsg() {
-			alert("Please change the screen orientation in Landscape mode.");
+			var a = document.createElement('div');
+			a.setAttribute('id', 'msg');
+			a.innerHTML = "<p style='color:white'>Please change the screen orientation in <b>landscape mode</b></p>";
+			document.body.appendChild(a);
+		}
+		
+		function hideMsg() {
+			var objDel = document.getElementById('msg');
+			objDel.remove();
 		}
 		
 		function checkScreenOrientation() {
@@ -71,6 +182,7 @@
 			
 			if (landscapeMode && showError > 0) {
 				canvas.style.display = "block";
+				hideMsg();
 				showError = 0;
 			}
 			
@@ -132,12 +244,7 @@
 			canvas: canvas,
 			onRuntimeInitialized: function() {
 				isJsShowGameAds();
-
-				if (landscapeMode) {
-					document.getElementById('game_cover_img').style.display = "block";
-					document.getElementById('game_cover_txt').style.display = "block";
-				}
-				document.querySelector("#loading_page").remove();
+				hideLoadingScreen();
 				for(ms of [0, 100, 1000, 3000]) {
 					window.setTimeout(onResize, ms);
 				}
@@ -216,8 +323,7 @@
 								"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=harrypotter&banner=1J0FZGQYRKKN19GRRSG2&f=ifr&linkID=1a00f1f02b0ec639238391fb3c19aa22&t=icantransform-20&tracking_id=icantransform-20");
 
 		var bannerContainner = document.getElementById("banner_container");
-		var userLang = navigator.language || navigator.userLanguage;
-
+		
 		function createBanner(link, ignore = true) {
 			var iframeObj = document.createElement("iframe");
 			iframeObj.src = link;

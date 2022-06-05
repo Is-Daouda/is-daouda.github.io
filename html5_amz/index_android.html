@@ -10,7 +10,20 @@
 </head>
 <body onload="loadBanner();">
 
-	<div id="loading_screen" w3-include-html="https://is-daouda.github.io/html5_multi/loading_screen.html" width="100%" height="100%"></div>
+	<!-- Loading Page -->
+	<span class="hmin_tag" id="loading_title"></span>
+    <div id="loading_c1" class="box">
+		<span></span><span></span>
+		<span></span><span></span>
+		<span></span>
+	</div>
+    <div id="loading_c2" class="box">
+		<span></span><span></span>
+		<span></span><span></span>
+		<span></span>
+	</div>
+    <span class="p_tag" id="loading_msg"></span>
+	<!-- Loading Page -->
 	
 	<!-- Cover Page -->
 	<div class="bg-image" id="game_cover_img" style="display:none;"></div>
@@ -48,18 +61,40 @@
 		var rscLink = "https://is-daouda.github.io/html5_multi/android_test/";
 
 		// I Can Transform v2.5
-		document.documentElement.className = "game_page";
-		document.body.className = "game_page";
-		
-		var strGetStart = new Array("Tap to get started", "Appuyez pour démarrer");
+		document.documentElement.className = "loading_page";
+		document.body.className = "loading_page";
+
+		var strLoadingTitle = new Array("Loading&nbsp", "Chargement&nbsp");
 		var langIndex = 0; // English
 		var userLang = navigator.language || navigator.userLanguage;
+		if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
 		
-		if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;	
-		document.getElementById("msg_start").innerHTML = strGetStart[langIndex];
-	
+		function loadObjDesc() {
+			var txtFile = new XMLHttpRequest();
+			var allText = "";
+			txtFile.onreadystatechange = function () {
+				if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
+					allText = txtFile.responseText;
+					var objDescList = allText.split('\n');
+					
+					document.getElementById('loading_title').innerHTML = objDescList[langIndex];
+					document.getElementById('loading_msg').innerHTML = objDescList[2 + langIndex];
+					document.getElementById('msg_start').innerHTML = objDescList[4 + langIndex];
+				}
+			}
+			txtFile.open("GET", rscLink + "obj_desc.txt", true);
+			txtFile.send(null);		
+		}
+		
+		loadObjDesc();
+
 		function hideLoadingScreen() {
-			document.getElementById("loading_screen").remove();
+			document.getElementById("loading_title").remove();
+			document.getElementById("loading_c1").remove();
+			document.getElementById("loading_c2").remove();
+			document.getElementById("loading_msg").remove();
+			document.documentElement.className = "game_page";
+			document.body.className = "game_page";
 			if (landscapeMode) {
 				document.getElementById('game_cover_img').style.display = "block";
 				document.getElementById('game_cover_txt').style.display = "block";

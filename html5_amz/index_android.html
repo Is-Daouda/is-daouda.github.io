@@ -95,6 +95,15 @@
 			Android.mainPageLoaded();
 		}
 		
+		function AndroidHideConnectionWidgets() {
+			try {
+				Android.hideConnectionWidgets();
+			}
+			catch(err) {}
+		}
+		
+		AndroidHideConnectionWidgets();
+		
 		function setGameState(state) {
 			gameState = state;
 		}

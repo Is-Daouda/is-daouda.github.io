@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<link rel="stylesheet" href="styles/index.css">
+</head>
+<body>
+	<!-- Loading Page -->
+	<span class="hmin_tag" id="loading_title"></span>
+    <div id="loading_c1" class="box">
+		<span></span><span></span>
+		<span></span><span></span>
+		<span></span>
+	</div>
+    <div id="loading_c2" class="box">
+		<span></span><span></span>
+		<span></span><span></span>
+		<span></span>
+	</div>
+    <span class="p_tag" id="loading_msg"></span>
+	<!-- Loading Page -->
+</body>
+    <script type="text/javascript">	
+		document.documentElement.className = "loading_page";
+		document.body.className = "loading_page";
+
+		var strLoadingTitle = new Array("Loading&nbsp", "Chargement&nbsp");
+		var strLoadingMsg = new Array("Do you love speed?<br>Then you will love this game!",
+										"Aimes-tu la vitesse?<br>Alors tu vas adorer ce jeu!");
+		var strGetStart = new Array("Tap to get started", "Appuyez pour démarrer");
+		
+		var langIndex = 0; // English
+		var userLang = navigator.language || navigator.userLanguage;
+		if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
+				
+		document.getElementById("loading_title").innerHTML = strLoadingTitle[langIndex];
+		document.getElementById("loading_msg").innerHTML = strLoadingMsg[langIndex];
+	</script>
+</html>

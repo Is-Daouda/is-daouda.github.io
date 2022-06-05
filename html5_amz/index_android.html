@@ -10,26 +10,13 @@
 </head>
 <body onload="loadBanner();">
 
-	<!-- Loading Page -->
-	<span class="hmin_tag" id="loading_title"></span>
-    <div id="loading_c1" class="box">
-		<span></span><span></span>
-		<span></span><span></span>
-		<span></span>
-	</div>
-    <div id="loading_c2" class="box">
-		<span></span><span></span>
-		<span></span><span></span>
-		<span></span>
-	</div>
-    <span class="p_tag" id="loading_msg"></span>
-	<!-- Loading Page -->
+	<object id="loading_screen" data="https://is-daouda.github.io/html5_multi/loading_screen.html" width="100%" height="100%"></object>
 	
 	<!-- Cover Page -->
 	<div class="bg-image" id="game_cover_img" style="display:none;"></div>
 
 	<div class="bg-text" id="game_cover_txt" style="display:none;">
-	  <span class="h1_tag" id="msg_launch"></span>
+	  <span class="h1_tag" id="msg_start"></span>
 	</div>
 	<!-- Cover Page -->
 	
@@ -44,7 +31,7 @@
 			<div class="modal__inner">
 				<div id="banner_container">
 				</div>
-				<label class="btn-close" for="3" onclick="document.getElementById('adspopup').style.display = 'none';">X</label>
+				<label class="btn-close" for="3" onclick="hideAds();">X</label>
 			</div>
 		</div>
 	</div>
@@ -61,35 +48,29 @@
 		var rscLink = "https://is-daouda.github.io/html5_multi/android_test/";
 
 		// I Can Transform v2.5
-		document.documentElement.className = "loading_page";
-		document.body.className = "loading_page";
+		document.documentElement.className = "game_page";
+		document.body.className = "game_page";
 		
-		var strLoadingTitle = new Array("Loading&nbsp", "Chargement&nbsp");
-		var strLoadingMsg = new Array("Do you love speed?<br>Then you will love this game!",
-										"Aimes-tu la vitesse?<br>Alors tu vas adorer ce jeu!");
 		var strGetStart = new Array("Tap to get started", "Appuyez pour démarrer");
-		
 		var langIndex = 0; // English
 		var userLang = navigator.language || navigator.userLanguage;
-		if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
 		
-		document.getElementById("loading_title").innerHTML = strLoadingTitle[langIndex];
-		document.getElementById("loading_msg").innerHTML = strLoadingMsg[langIndex];
-		document.getElementById("msg_launch").innerHTML = strGetStart[langIndex];
-		
+		if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;	
+		document.getElementById("msg_start").innerHTML = strGetStart[langIndex];
+	
 		function hideLoadingScreen() {
-			document.documentElement.className = "game_page";
-			document.body.className = "game_page";
-			document.querySelector("#loading_title").remove();
-			document.querySelector("#loading_c1").remove();
-			document.querySelector("#loading_c2").remove();
-			document.querySelector("#loading_msg").remove();
+			document.getElementById("loading_screen").remove();
+			if (landscapeMode) {
+				document.getElementById('game_cover_img').style.display = "block";
+				document.getElementById('game_cover_txt').style.display = "block";
+			}
 		}
 		
 		// Android Support
 		var isJsExportGameData = 0;
 		var exportedData;
 		var exportedDataCurrentLine = 0;
+		var showAds = 0;
 		
 		function webPageStarted() {
 			Android.mainPageLoaded();
@@ -128,17 +109,34 @@
 		var isJsBackKeyPressed = 0;
 		
 		function backKeyPressed() {
-			isJsBackKeyPressed = 1;
+			if (showAds == 1) {
+				document.getElementById('3').click();
+			}
+			else isJsBackKeyPressed = 1;
 		}
 		// I Can Transform v2.5
 		
 		function isJsShowGameAds() {
 			document.getElementById('3').click();
 			document.getElementById('adspopup').style.display = "block";
+			showAds = 1;
+		}
+		
+		function hideAds() {
+			document.getElementById('adspopup').style.display = 'none';
+			showAds = 0;
 		}
 		
 		function showMsg() {
-			alert("Please change the screen orientation in Landscape mode.");
+			var a = document.createElement('div');
+			a.setAttribute('id', 'msg');
+			a.innerHTML = "<p style='color:white'>Please change the screen orientation in <b>landscape mode</b></p>";
+			document.body.appendChild(a);
+		}
+		
+		function hideMsg() {
+			var objDel = document.getElementById('msg');
+			objDel.remove();
 		}
 		
 		function checkScreenOrientation() {
@@ -148,6 +146,7 @@
 			
 			if (landscapeMode && showError > 0) {
 				canvas.style.display = "block";
+				hideMsg();
 				showError = 0;
 			}
 			
@@ -209,13 +208,7 @@
 			canvas: canvas,
 			onRuntimeInitialized: function() {
 				isJsShowGameAds();
-				
 				hideLoadingScreen();
-				if (landscapeMode) {
-					document.getElementById('game_cover_img').style.display = "block";
-					document.getElementById('game_cover_txt').style.display = "block";
-				}
-
 				for(ms of [0, 100, 1000, 3000]) {
 					window.setTimeout(onResize, ms);
 				}

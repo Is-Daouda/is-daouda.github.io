@@ -243,7 +243,7 @@ body {
 
 .bg-image {
 	/* The image used */
-	background-image: url("https://is-daouda.github.io/ict_multi/image.png");
+	background-image: url("https://is-daouda.github.io/html5_multi/image.png");
 
 	/* Add the blur effect */
 	filter: blur(3px);

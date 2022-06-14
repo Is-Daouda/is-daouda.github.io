@@ -1,0 +1,159 @@
+var canvas = document.getElementById('canvas');
+var updateSize = 0;
+var gameState = 2;
+var initGame = 0;
+var initSDK = false;
+var gameStarted = false;
+var rscLink = "https://is-daouda.github.io/html5_multi/";
+
+GamePix.pause = function() {
+	gameState = 0;
+}
+
+GamePix.resume = function() {
+	gameState = 1;
+}
+
+function isJsUpdateScore(value) {
+	GamePix.updateScore(value);
+}
+
+function isJsUpdateLevel(value) {
+	GamePix.updateLevel(value);
+}
+
+function isJsHappyMoment() {
+	GamePix.happyMoment();
+}
+
+function isJsShowGameAds() {
+	GamePix.interstitialAd().then(function (res) {
+		/*
+		if (res.success)
+		{
+			// Log the success if you want
+			info();
+		}
+		else
+		{
+			// Log the error if you want
+			errorInfo();
+		}
+		*/
+	});
+}
+
+function isLoaded(src) {
+	return Boolean(document.querySelector('script[src="' + src + '"]'));
+}
+
+function chrono() {
+	if (!initSDK) {
+		if (isLoaded("https://integration.gamepix.com/sdk/v3/gamepix.sdk.js") === true) {
+			GamePix.loading(0);
+			initSDK = true;
+		}
+	}
+}
+setInterval("chrono()", 1000);
+
+// --- I Can Transform v2.5 >>>
+document.documentElement.className = "loading_page";
+document.body.className = "loading_page";
+
+var langIndex = 0; // English
+var userLang = navigator.language || navigator.userLanguage;
+if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
+
+function loadObjDesc() {
+	var txtFile = new XMLHttpRequest();
+	var allText = "";
+	txtFile.onreadystatechange = function () {
+		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
+			allText = txtFile.responseText;
+			var objDescList = allText.split('\n');
+			
+			document.getElementById('loading_title').innerHTML = objDescList[langIndex];
+			document.getElementById('loading_msg').innerHTML = objDescList[2 + langIndex];
+			document.getElementById('msg_start').innerHTML = objDescList[4 + langIndex];
+		}
+	}
+	txtFile.open("GET", rscLink + "obj_desc.txt", true);
+	txtFile.send(null);		
+}
+
+loadObjDesc();
+
+function hideLoadingScreen() {
+	document.getElementById("screen_loading").remove();
+	document.documentElement.className = "game_page";
+	document.body.className = "game_page";
+	document.getElementById('screen_cover').style.display = "block";
+}
+// <<< I Can Transform v2.5 ---
+
+function onResize() {
+	canvas.width = window.innerWidth;
+	canvas.height = window.innerHeight;
+	updateSize = 1;
+}
+
+window.addEventListener("resize", onResize, true);		
+
+function removeCover(event) {
+   if (initGame === 1) {
+		document.getElementById('screen_cover').removeEventListener("click", removeCover);
+		document.getElementById('screen_cover').remove();
+		initGame = 2;
+	}
+}
+
+document.getElementById('screen_cover').addEventListener("click", removeCover);
+
+window.addEventListener("load", function() {
+	window.focus();
+	document.body.addEventListener("click", function(e) {
+		window.focus();
+	}, false);
+});
+
+window.Module = {
+	preRun: [],
+	postRun: [],
+	canvas: canvas,
+	onRuntimeInitialized: function() {
+		if (!gameStarted) {
+			GamePix.loading(100);
+			GamePix.loaded().then(function () {
+				hideLoadingScreen();
+				gameStarted = true;
+			})
+		}
+		for(ms of [0, 100, 1000, 3000])
+			window.setTimeout(onResize, ms);
+	},
+	print: console.log,
+	printErr: console.error,
+};
+
+Module['locateFile'] = function(path, prefix) {
+  if (path.endsWith(".data")) return rscLink + "isengine.data";
+  return prefix + path;
+}
+
+function loadScriptAsync(src) {
+	var s, r, t;
+	r = false;
+	s = document.createElement("script");
+	s.type = "text/javascript";
+	s.src = src;
+	s.onload = s.onreadystatechange = function() {
+		if (!r && (!this.readyState || this.readyState === "complete")) {
+			r = true;
+		}
+	};
+	t = document.getElementsByTagName('script')[0];
+	t.parentNode.insertBefore(s, t);
+}
+
+loadScriptAsync(rscLink + "isengine.js");

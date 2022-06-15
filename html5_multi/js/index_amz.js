@@ -5,7 +5,7 @@ var landscapeMode = false;
 var initGame = 0;
 var showError = 0;
 var showAds = 0;
-var rscLink = "";
+var rscLink = "https://is-daouda.github.io/html5_multi/";
 
 function isJsShowGameAds() {
 	document.getElementById('3').click();

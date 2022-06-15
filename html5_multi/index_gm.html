@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+	<title>I Can Transform</title>
+	<link rel="icon" href="favicon.png">
+	<link rel="stylesheet" href="css/index.css">
+	<meta name="viewport" content="width=device-width, user-scalable=no">
+	<script src="/js/index_gm_head.js"></script>
+</head>
+<body>
+	<!-- Loading Page -->
+	<div id="screen_loading" class="start_screen">
+		<span class="hmin_tag" id="loading_title"></span>
+		<div id="loading_c1" class="box">
+			<span></span><span></span>
+			<span></span><span></span>
+			<span></span>
+		</div>
+		<div id="loading_c2" class="box">
+			<span></span><span></span>
+			<span></span><span></span>
+			<span></span>
+		</div>
+		<span class="p_tag" id="loading_msg"></span>
+	</div>
+	
+	<!-- Cover Page -->
+	<div id="screen_cover" class="start_screen" style="display:none;">
+		<div class="bg-image" id="game_cover_img"></div>
+		<div class="bg-text" id="game_cover_txt">
+		  <span class="h1_tag" id="msg_start"></span>
+		</div>
+	</div>
+	
+    <canvas id="canvas" oncontextmenu="event.preventDefault()">
+      Loading... 
+    </canvas>
+</body>
+	<script src="js/index_gm.js"></script>
+</html>

@@ -35,7 +35,7 @@ var updateSize = 0;
 var landscapeMode = false;
 var initGame = 0;
 var showError = 0;
-var rscLink = "";
+var rscLink = "https://is-daouda.github.io/html5_multi/";
 
 function hideObj() {
 	var ele = document.getElementsByTagName("footer");

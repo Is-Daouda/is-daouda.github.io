@@ -2,7 +2,7 @@ var canvas = document.getElementById('canvas');
 var updateSize = 0;
 var initGame = 0;
 var normalScreen = (window.innerWidth > window.innerHeight);
-var rscLink = "";
+var rscLink = "https://is-daouda.github.io/html5_multi/";
 
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";

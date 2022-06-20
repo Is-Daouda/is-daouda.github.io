@@ -51,7 +51,7 @@ var gameState = 2;
 var landscapeMode = false;
 var initGame = 0;
 var showError = 0;
-var rscLink = "";
+var rscLink = "https://is-daouda.github.io/html5_multi/";
 
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";

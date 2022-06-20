@@ -4,7 +4,7 @@ var gameState = 2;
 var initGame = 0;
 var initSDK = false;
 var gameStarted = false;
-var rscLink = "";
+var rscLink = "https://is-daouda.github.io/html5_multi/";
 
 GamePix.pause = function() {
 	gameState = 0;

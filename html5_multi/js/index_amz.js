@@ -33,15 +33,6 @@ function webPageStarted() {
 	Android.mainPageLoaded();
 }
 
-function AndroidHideConnectionWidgets() {
-	try {
-		Android.hideConnectionWidgets();
-	}
-	catch(err) {}
-}
-
-AndroidHideConnectionWidgets();
-
 function setGameState(state) {
 	gameState = state;
 }
@@ -69,12 +60,26 @@ function isJsAndroidDeleteExportedDataFile()
 	Android.deleteExportedDataFile();
 }
 
+function isJsAndroidCloseApp()
+{
+	Android.closeApp();
+}
+
 var isJsBackKeyPressed = 0;
 
 function backKeyPressed() {
 	if (showAds === 1) hideAds();
 	else isJsBackKeyPressed = 1;
 }
+
+function AndroidHideConnectionWidgets() {
+	try {
+		Android.hideConnectionWidgets();
+	}
+	catch(err) {}
+}
+
+AndroidHideConnectionWidgets();
 
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";
@@ -84,7 +89,7 @@ var langIndex = 0; // English
 var userLang = navigator.language || navigator.userLanguage;
 if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
 
-var paramRscLink = "https://is-daouda.github.io/html5_multi/";
+var paramRscLink = rscLink;
 var isJsParam1, isJsParam2, isJsParam3;
 
 function loadObjDesc() {

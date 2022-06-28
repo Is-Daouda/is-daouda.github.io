@@ -79,7 +79,7 @@ function isJsAndroidShowBannerAds(visible) {
 }
 
 function isJsAndroidShowInterstitialAds() {
-	Android.interstitialAds();
+	Android.showInterstitialAds();
 }
 
 // Ads
@@ -272,7 +272,7 @@ var ad_us_music = new Array("//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&ca
 							"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=audible&banner=0T55W0M77K7NYHH4T602&f=ifr&linkID=99e59eca0119fe1d2db91c7bfd1b9574&t=icantransform-20&tracking_id=icantransform-20");
 
 var ad_us_video = new Array("//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=primemain&banner=1P2QF7E522R48KVM6DR2&f=ifr&linkID=7ccdecce309332cd8befba376777384a&t=icantransform-20&tracking_id=icantransform-20",
-/* Prime Vidéo */
+/* Prime VidÃ©o */
 							"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=288&l=ur1&category=primevideo&banner=0MWCAJK2KHPFPGGRX1R2&f=ifr&linkID=1e896c8b6f16d70e91e4363589f6f3c0&t=icantransform-20&tracking_id=icantransform-20",
 /* Amazon Prime discount */
 							"//rcm-na.amazon-adsystem.com/e/cm?o=1&p=13&l=ur1&category=primediscounted&banner=0FBG40WX1R2DP0NXH7R2&f=ifr&linkID=6ae387676e0f5f938a29cff5b6dd647e&t=icantransform-20&tracking_id=icantransform-20");

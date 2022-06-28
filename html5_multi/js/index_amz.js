@@ -7,23 +7,6 @@ var showError = 0;
 var showAds = 0;
 var rscLink = "https://is-daouda.github.io/html5_multi/";
 
-function isJsShowGameAds() {
-	document.getElementById('3').click();
-	document.getElementById('adspopup').style.display = "block";
-	showAds = 1;
-}
-
-function hideAds() {
-	document.getElementById('adspopup').style.display = 'none';
-	showAds = 0;
-}
-
-function chrono() {
-	if (gameState !== 1) gameState = 1;
-}
-
-setInterval("chrono()", 1000);
-
 // Android Support
 var isJsExportGameData = 0;
 var exportedData;
@@ -80,6 +63,47 @@ function AndroidHideConnectionWidgets() {
 }
 
 AndroidHideConnectionWidgets();
+
+// Admob Support
+function isJsUseAndroidAds() {
+	try {
+		return ((AndroidVersionData["0"] >= 37) ? 1 : 0);
+	}
+	catch(err) {}
+	return 0;
+}
+
+function isJsAndroidShowBannerAds(visible) {
+	if (visible === 1) Android.showBannerAds();
+	else Android.hideBannerAds();
+}
+
+function isJsAndroidShowInterstitialAds() {
+	Android.interstitialAds();
+}
+
+// Ads
+function isJsShowGameAds() {
+	if (isJsUseAndroidAds()) {
+		isJsAndroidShowInterstitialAds();
+	}
+	else {
+		document.getElementById('3').click();
+		document.getElementById('adspopup').style.display = "block";
+		showAds = 1;	
+	}
+}
+
+function hideAds() {
+	document.getElementById('adspopup').style.display = 'none';
+	showAds = 0;
+}
+
+function chrono() {
+	if (gameState !== 1) gameState = 1;
+}
+
+setInterval("chrono()", 1000);
 
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";

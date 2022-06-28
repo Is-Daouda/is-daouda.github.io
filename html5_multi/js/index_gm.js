@@ -1,6 +1,6 @@
 var canvas = document.getElementById('canvas');
-var updateSize = 0;
-var initGame = 0;
+var isJsUpdateSize = 0;
+var isJsInitGame = 0;
 var normalScreen = (window.innerWidth > window.innerHeight);
 var rscLink = "https://is-daouda.github.io/html5_multi/";
 
@@ -49,17 +49,17 @@ function onResize() {
 	if (normalScreen) {
 		canvas.width = window.innerWidth;
 		canvas.height = window.innerHeight;
-		updateSize = 1;			
+		isJsUpdateSize = 1;			
 	}
 }
 
 window.addEventListener("resize", onResize, true);
 
 function removeCover(event) {
-   if (initGame === 1) {
+   if (isJsInitGame === 1) {
 		document.getElementById('screen_cover').removeEventListener("click", removeCover);
 		document.getElementById('screen_cover').remove();
-		initGame = 2;
+		isJsInitGame = 2;
 	}
 }
 

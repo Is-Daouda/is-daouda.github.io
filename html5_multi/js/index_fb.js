@@ -1,3 +1,11 @@
+var canvas = document.getElementById('canvas');
+var isJsUpdateSize = 0;
+var isJsGameState = 2;
+var isJsInitGame = 0;
+var showError = 0;
+var landscapeMode = false;
+var rscLink = "https://is-daouda.github.io/html5_multi/";
+
 const INTERSTITIAL_PLACEMENT_ID = '<YOUR INTERSTITIAL PLACEMENT ID>';
 var preloadedInterstitial = null;
 var showFBAds = false;
@@ -44,14 +52,6 @@ function isJsShowGameAds() {
 		});
 	}
 }
-
-var canvas = document.getElementById('canvas');
-var updateSize = 0;
-var gameState = 2;
-var landscapeMode = false;
-var initGame = 0;
-var showError = 0;
-var rscLink = "https://is-daouda.github.io/html5_multi/";
 
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";
@@ -123,7 +123,7 @@ function checkScreenOrientation() {
 		showError = 2;
 	}
 	
-	if (initGame === 1) {
+	if (isJsInitGame === 1) {
 		document.getElementById('screen_cover').style.display = ((landscapeMode) ? "block" : "none");
 	}
 }
@@ -132,16 +132,16 @@ function onResize() {
 	canvas.width = window.innerWidth;
 	canvas.height = window.innerHeight;
 	checkScreenOrientation();
-	updateSize = 1;
+	isJsUpdateSize = 1;
 }
 
 window.addEventListener("resize", onResize, true);
 
 function removeCover(event) {
-   if (initGame === 1 && showError === 0) {
+   if (isJsInitGame === 1 && showError === 0) {
 		document.getElementById('screen_cover').removeEventListener("click", removeCover);
 		document.getElementById('screen_cover').remove();
-		initGame = 2;
+		isJsInitGame = 2;
 	}
 }
 

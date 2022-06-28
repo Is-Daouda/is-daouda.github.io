@@ -1,17 +1,17 @@
 var canvas = document.getElementById('canvas');
-var updateSize = 0;
-var gameState = 2;
-var initGame = 0;
+var isJsUpdateSize = 0;
+var isJsGameState = 2;
+var isJsInitGame = 0;
 var initSDK = false;
 var gameStarted = false;
 var rscLink = "https://is-daouda.github.io/html5_multi/";
 
 GamePix.pause = function() {
-	gameState = 0;
+	isJsGameState = 0;
 }
 
 GamePix.resume = function() {
-	gameState = 1;
+	isJsGameState = 1;
 }
 
 function isJsUpdateScore(value) {
@@ -101,16 +101,16 @@ function hideLoadingScreen() {
 function onResize() {
 	canvas.width = window.innerWidth;
 	canvas.height = window.innerHeight;
-	updateSize = 1;
+	isJsUpdateSize = 1;
 }
 
 window.addEventListener("resize", onResize, true);		
 
 function removeCover(event) {
-   if (initGame === 1) {
+   if (isJsInitGame === 1) {
 		document.getElementById('screen_cover').removeEventListener("click", removeCover);
 		document.getElementById('screen_cover').remove();
-		initGame = 2;
+		isJsInitGame = 2;
 	}
 }
 

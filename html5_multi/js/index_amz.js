@@ -31,6 +31,20 @@ function getAppVersion(data) {
 	AndroidVersionData = JSON.parse(data);
 }
 
+function isJsCheckAndroidVersionCode(version) {
+	try {
+		return ((AndroidVersionData["0"] >= version) ? 1 : 0);
+	}
+	catch(err) {return 0;}
+}
+
+function getAndroidVersion() {
+	try {
+		return AndroidVersionData["1"];
+	}
+	catch(err) {return "0.0";}
+}
+
 function isJsGetExportedData() {
 	let data = exportedData[exportedDataCurrentLine];
 	exportedDataCurrentLine++;
@@ -66,11 +80,7 @@ AndroidHideConnectionWidgets();
 
 // Admob Support
 function isJsUseAndroidAds() {
-	try {
-		return ((AndroidVersionData["0"] >= 37) ? 1 : 0);
-	}
-	catch(err) {}
-	return 0;
+	return isJsCheckAndroidVersionCode(37);
 }
 
 function isJsAndroidShowBannerAds(visible) {

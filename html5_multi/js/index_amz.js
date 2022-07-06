@@ -11,29 +11,15 @@ var rscLink = "https://is-daouda.github.io/html5_multi/";
 var isJsExportGameData = 0;
 var exportedData;
 var exportedDataCurrentLine = 0;
-
-function webPageStarted() {
-	Android.mainPageLoaded();
-}
-
-function setGameState(state) {
-	isJsGameState = state;
-}
-
-function setExportedData(data) {
-	isJsExportGameData = 1;
-	exportedData = JSON.parse(data);
-}
-
 var AndroidVersionData;
 
 function getAppVersion(data) {
 	AndroidVersionData = JSON.parse(data);
 }
 
-function isJsCheckAndroidVersionCode(version) {
+function isJsCheckAndroidVersionCode(codeVersion) {
 	try {
-		return ((AndroidVersionData["0"] >= version) ? 1 : 0);
+		return ((AndroidVersionData["0"] >= codeVersion) ? 1 : 0);
 	}
 	catch(err) {return 0;}
 }
@@ -43,6 +29,24 @@ function getAndroidVersion() {
 		return AndroidVersionData["1"];
 	}
 	catch(err) {return "0.0";}
+}
+
+// ---
+// Deprecadted in Android Version Code >= 38
+function webPageStarted(versionCode = 38) {
+	if (isJsCheckAndroidVersionCode(versionCode) !== 1) {
+		Android.mainPageLoaded();
+	}
+}
+// ---
+
+function setGameState(state) {
+	isJsGameState = state;
+}
+
+function setExportedData(data) {
+	isJsExportGameData = 1;
+	exportedData = JSON.parse(data);
 }
 
 function isJsGetExportedData() {
@@ -109,12 +113,6 @@ function hideAds() {
 	showAds = 0;
 }
 
-function chrono() {
-	if (isJsGameState !== 1) isJsGameState = 1;
-}
-
-setInterval("chrono()", 1000);
-
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";
 document.body.className = "loading_page";
@@ -125,6 +123,7 @@ if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex
 
 var paramRscLink = rscLink;
 var isJsParam1, isJsParam2, isJsParam3;
+var strLoadingError;
 
 function loadObjDesc() {
 	var txtFile = new XMLHttpRequest();
@@ -140,6 +139,7 @@ function loadObjDesc() {
 			isJsParam1 = paramList[6];
 			isJsParam2 = paramList[7];
 			isJsParam3 = paramList[8];
+			strLoadingError = paramList[9 + langIndex];
 		}
 	}
 	txtFile.open("GET", paramRscLink + "param.txt", true);
@@ -153,7 +153,34 @@ function hideLoadingScreen() {
 	document.documentElement.className = "game_page";
 	document.body.className = "game_page";
 	if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
+	
+	// Change Android back key function
+	try {
+		if (isJsCheckAndroidVersionCode(38) === 1) Android.mainPageLoaded();
+	}
+	catch(err) {}
+	
 }
+
+var timeToRestart = 0;
+const MAX_TIME = 90;
+const RESTART_TIME = 5;
+
+function chrono() {
+	if (isJsGameState !== 1) isJsGameState = 1;
+	if (document.body.className === "loading_page") {
+		if (timeToRestart > -1) timeToRestart++;
+		if (timeToRestart > MAX_TIME) {
+			document.getElementById('loading_msg').innerHTML = strLoadingError;
+			if (timeToRestart > MAX_TIME + RESTART_TIME) {
+				window.location.reload();
+				timeToRestart = -1;
+			}
+		}
+	}
+}
+
+setInterval("chrono()", 1000);
 // <<< I Can Transform v2.5 ---
 
 function showMsg() {

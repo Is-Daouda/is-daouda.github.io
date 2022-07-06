@@ -32,8 +32,8 @@ function getAndroidVersion() {
 }
 
 // ---
-// Deprecadted in Android Version Code >= 38
-function webPageStarted(versionCode = 38) {
+// Deprecadted from Android Version Code >= 37
+function webPageStarted(versionCode = 37) {
 	if (isJsCheckAndroidVersionCode(versionCode) !== 1) {
 		Android.mainPageLoaded();
 	}
@@ -156,14 +156,14 @@ function hideLoadingScreen() {
 	
 	// Change Android back key function
 	try {
-		if (isJsCheckAndroidVersionCode(38) === 1) Android.mainPageLoaded();
+		if (isJsCheckAndroidVersionCode(37) === 1) Android.mainPageLoaded();
 	}
 	catch(err) {}
 	
 }
 
 var timeToRestart = 0;
-const MAX_TIME = 90;
+const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
 function chrono() {

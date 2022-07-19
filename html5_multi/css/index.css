@@ -35,7 +35,16 @@ body {
 	touch-action:none;
 }
 
-/* @media removed */
+/* @media min size removed */
+
+#canvas {
+	position: absolute;
+	display: block;
+	margin:0;
+	padding:0;
+	width:100vw;
+	height:100vh;
+}
 
 .start_screen {
 	display:flex;

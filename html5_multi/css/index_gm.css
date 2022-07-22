@@ -45,6 +45,11 @@ body {
 		margin: auto;
 		width: 280px;
 	}
+	
+	.hmin_tag{
+		font-size: 0.7em;
+		font-weight: bold;
+	}
 }
 
 @media only screen and (min-width: 640px) {
@@ -55,6 +60,11 @@ body {
 		padding:0;
 		width:100vw;
 		height:100vh;
+	}
+	
+	.hmin_tag{
+		font-size: 1.em;
+		font-weight: bold;
 	}
 }
 
@@ -73,10 +83,7 @@ body {
 	height:100%;
 }
 
-.hmin_tag{
-	font-size: 1.em;
-	font-weight: bold;
-}
+/* .hmin_tag set in @media */
 
 .h1_tag{
 	font-size: 2.4em;

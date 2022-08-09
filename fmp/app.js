@@ -303,7 +303,7 @@ function getRandomSafeSpot() {
       playerRef = firebase.database().ref(`players/${playerId}`);
 
       const name = "Is"; // createName();
-      playerNameInput.value = name;
+      //playerNameInput.value = name;
 
       const {x, y} = getRandomSafeSpot();
 

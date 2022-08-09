@@ -322,8 +322,10 @@ function getRandomSafeSpot() {
       playerRef.onDisconnect().remove();
 
       //Begin the game now that we are signed in
-      initGame();
+      //initGame();
+alert("Start");
     } else {
+alert("End");
       //You're logged out.
     }
   })
@@ -332,7 +334,7 @@ function getRandomSafeSpot() {
     var errorCode = error.code;
     var errorMessage = error.message;
     // ...
-    console.log(errorCode, errorMessage);
+    alert(errorCode + " | " + errorMessage);
   });
 
 

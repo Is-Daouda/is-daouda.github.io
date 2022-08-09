@@ -121,6 +121,8 @@ function getRandomSafeSpot() {
   let coins = {};
   let coinElements = {};
 
+alert("init");
+
   const gameContainer = document.querySelector(".game-container");
   const playerNameInput = document.querySelector("#player-name");
   const playerColorButton = document.querySelector("#player-color");

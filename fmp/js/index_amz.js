@@ -7,6 +7,162 @@ var showAds = 0;
 var landscapeMode = false;
 var rscLink = ""; // "https://is-daouda.github.io/html5_multi/";
 
+// Android Support
+var isJsExportGameData = 0;
+var exportedData;
+var exportedDataCurrentLine = 0;
+var AndroidVersionData;
+
+function getAppVersion(data) {
+	AndroidVersionData = JSON.parse(data);
+}
+
+function isJsCheckAndroidVersionCode(codeVersion) {
+	try {
+		return ((AndroidVersionData["0"] >= codeVersion) ? 1 : 0);
+	}
+	catch(err) {return 0;}
+}
+
+function getAndroidVersion() {
+	try {
+		return AndroidVersionData["1"];
+	}
+	catch(err) {return "0.0";}
+}
+
+// ---
+// Deprecadted from Android Version Code >= 37
+function webPageStarted(versionCode = 37) {
+	if (isJsCheckAndroidVersionCode(versionCode) !== 1) {
+		Android.mainPageLoaded();
+	}
+}
+// ---
+
+function setGameState(state) {
+	isJsGameState = state;
+}
+
+function setExportedData(data) {
+	isJsExportGameData = 1;
+	exportedData = JSON.parse(data);
+}
+
+function isJsGetExportedData() {
+	let data = exportedData[exportedDataCurrentLine];
+	exportedDataCurrentLine++;
+	return data;
+}
+
+function isJsAndroidDeleteExportedDataFile()
+{
+	isJsExportGameData = 2;
+	Android.deleteExportedDataFile();
+}
+
+function isJsAndroidCloseApp()
+{
+	Android.closeApp();
+}
+
+var isJsBackKeyPressed = 0;
+
+function backKeyPressed() {
+	if (showAds === 1) hideAds();
+	else isJsBackKeyPressed = 1;
+}
+
+function AndroidHideConnectionWidgets() {
+	try {
+		Android.hideConnectionWidgets();
+	}
+	catch(err) {}
+}
+
+AndroidHideConnectionWidgets();
+
+// Admob Support
+function isJsUseAndroidAds() {
+	return isJsCheckAndroidVersionCode(37);
+}
+
+function isJsAndroidShowBannerAds(visible) {
+	if (visible === 1) Android.showBannerAds();
+	else Android.hideBannerAds();
+}
+
+function isJsAndroidShowInterstitialAds() {
+	Android.showInterstitialAds();
+}
+
+// Ads
+function isJsShowGameAds() {
+	if (isJsUseAndroidAds() === 1) {
+		isJsAndroidShowInterstitialAds();
+	}
+	else {
+		document.getElementById('3').click();
+		document.getElementById('adspopup').style.display = "block";
+		showAds = 1;	
+	}
+}
+
+function hideAds() {
+	document.getElementById('adspopup').style.display = 'none';
+	showAds = 0;
+}
+
+// --- I Can Transform v2.5 >>>
+document.documentElement.className = "loading_page";
+document.body.className = "loading_page";
+
+var langIndex = 0; // English
+var userLang = navigator.language || navigator.userLanguage;
+if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
+
+var paramRscLink = rscLink;
+var isJsParam1, isJsParam2, isJsParam3;
+var strLoadingError;
+
+function loadObjDesc() {
+	var txtFile = new XMLHttpRequest();
+	var allParam = "";
+	txtFile.onreadystatechange = function () {
+		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
+			allParam = txtFile.responseText;
+			var paramList = allParam.split('\n');
+			
+			document.getElementById('loading_title').innerHTML = paramList[langIndex];
+			document.getElementById('loading_msg').innerHTML = paramList[2 + langIndex];
+			document.getElementById('msg_start').innerHTML = paramList[4 + langIndex];
+			isJsParam1 = paramList[6];
+			isJsParam2 = paramList[7];
+			isJsParam3 = paramList[8];
+			strLoadingError = paramList[9 + langIndex];
+		}
+	}
+	txtFile.open("GET", paramRscLink + "param.txt", true);
+	txtFile.send(null);		
+}
+
+loadObjDesc();
+
+function hideLoadingScreen() {
+	document.getElementById("screen_loading").remove();
+	document.documentElement.className = "game_page";
+	document.body.className = "game_page";
+	if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
+	
+	// Change Android back key function
+	try {
+		if (isJsCheckAndroidVersionCode(37) === 1) Android.mainPageLoaded();
+	}
+	catch(err) {}
+	
+}
+// <<< I Can Transform v2.5 ---
+
 ////////////////////////////////////////////////////////////////////////////
 //							MULTI PLAYER
 ////////////////////////////////////////////////////////////////////////////
@@ -275,8 +431,26 @@ function playerLeave() {
 	}
 }
 
-// ---------------------- MULTI PLAYER TIMER ----------------------
+// ---------------------- TIMER ----------------------
+var timeToRestart = 0;
+const MAX_TIME = 70;
+const RESTART_TIME = 5;
+
 function chrono() {
+	// ------- PAGE AUTO RESTART -------
+	if (isJsGameState !== 1) isJsGameState = 1;
+	if (document.body.className === "loading_page") {
+		if (timeToRestart > -1) timeToRestart++;
+		if (timeToRestart > MAX_TIME) {
+			document.getElementById('loading_msg').innerHTML = strLoadingError;
+			if (timeToRestart > MAX_TIME + RESTART_TIME) {
+				window.location.reload();
+				timeToRestart = -1;
+			}
+		}
+	}
+
+	// ------- MULTI PLAYER -------
 	if (timeWait > -1) timeWait++;
 	if (timeWait > TIME_WAIT_MAX) {
 		lockRoom();
@@ -415,182 +589,6 @@ function initMultiPlayer() {
 ////////////////////////////////////////////////////////////////////////////
 //							MULTI PLAYER
 ////////////////////////////////////////////////////////////////////////////
-
-// Android Support
-var isJsExportGameData = 0;
-var exportedData;
-var exportedDataCurrentLine = 0;
-var AndroidVersionData;
-
-function getAppVersion(data) {
-	AndroidVersionData = JSON.parse(data);
-}
-
-function isJsCheckAndroidVersionCode(codeVersion) {
-	try {
-		return ((AndroidVersionData["0"] >= codeVersion) ? 1 : 0);
-	}
-	catch(err) {return 0;}
-}
-
-function getAndroidVersion() {
-	try {
-		return AndroidVersionData["1"];
-	}
-	catch(err) {return "0.0";}
-}
-
-// ---
-// Deprecadted from Android Version Code >= 37
-function webPageStarted(versionCode = 37) {
-	if (isJsCheckAndroidVersionCode(versionCode) !== 1) {
-		Android.mainPageLoaded();
-	}
-}
-// ---
-
-function setGameState(state) {
-	isJsGameState = state;
-}
-
-function setExportedData(data) {
-	isJsExportGameData = 1;
-	exportedData = JSON.parse(data);
-}
-
-function isJsGetExportedData() {
-	let data = exportedData[exportedDataCurrentLine];
-	exportedDataCurrentLine++;
-	return data;
-}
-
-function isJsAndroidDeleteExportedDataFile()
-{
-	isJsExportGameData = 2;
-	Android.deleteExportedDataFile();
-}
-
-function isJsAndroidCloseApp()
-{
-	Android.closeApp();
-}
-
-var isJsBackKeyPressed = 0;
-
-function backKeyPressed() {
-	if (showAds === 1) hideAds();
-	else isJsBackKeyPressed = 1;
-}
-
-function AndroidHideConnectionWidgets() {
-	try {
-		Android.hideConnectionWidgets();
-	}
-	catch(err) {}
-}
-
-AndroidHideConnectionWidgets();
-
-// Admob Support
-function isJsUseAndroidAds() {
-	return isJsCheckAndroidVersionCode(37);
-}
-
-function isJsAndroidShowBannerAds(visible) {
-	if (visible === 1) Android.showBannerAds();
-	else Android.hideBannerAds();
-}
-
-function isJsAndroidShowInterstitialAds() {
-	Android.showInterstitialAds();
-}
-
-// Ads
-function isJsShowGameAds() {
-	if (isJsUseAndroidAds() === 1) {
-		isJsAndroidShowInterstitialAds();
-	}
-	else {
-		document.getElementById('3').click();
-		document.getElementById('adspopup').style.display = "block";
-		showAds = 1;	
-	}
-}
-
-function hideAds() {
-	document.getElementById('adspopup').style.display = 'none';
-	showAds = 0;
-}
-
-// --- I Can Transform v2.5 >>>
-document.documentElement.className = "loading_page";
-document.body.className = "loading_page";
-
-var langIndex = 0; // English
-var userLang = navigator.language || navigator.userLanguage;
-if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
-
-var paramRscLink = rscLink;
-var isJsParam1, isJsParam2, isJsParam3;
-var strLoadingError;
-
-function loadObjDesc() {
-	var txtFile = new XMLHttpRequest();
-	var allParam = "";
-	txtFile.onreadystatechange = function () {
-		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
-			allParam = txtFile.responseText;
-			var paramList = allParam.split('\n');
-			
-			document.getElementById('loading_title').innerHTML = paramList[langIndex];
-			document.getElementById('loading_msg').innerHTML = paramList[2 + langIndex];
-			document.getElementById('msg_start').innerHTML = paramList[4 + langIndex];
-			isJsParam1 = paramList[6];
-			isJsParam2 = paramList[7];
-			isJsParam3 = paramList[8];
-			strLoadingError = paramList[9 + langIndex];
-		}
-	}
-	txtFile.open("GET", paramRscLink + "param.txt", true);
-	txtFile.send(null);		
-}
-
-loadObjDesc();
-
-function hideLoadingScreen() {
-	document.getElementById("screen_loading").remove();
-	document.documentElement.className = "game_page";
-	document.body.className = "game_page";
-	if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
-	
-	// Change Android back key function
-	try {
-		if (isJsCheckAndroidVersionCode(37) === 1) Android.mainPageLoaded();
-	}
-	catch(err) {}
-	
-}
-
-var timeToRestart = 0;
-const MAX_TIME = 70;
-const RESTART_TIME = 5;
-
-function chrono() {
-	if (isJsGameState !== 1) isJsGameState = 1;
-	if (document.body.className === "loading_page") {
-		if (timeToRestart > -1) timeToRestart++;
-		if (timeToRestart > MAX_TIME) {
-			document.getElementById('loading_msg').innerHTML = strLoadingError;
-			if (timeToRestart > MAX_TIME + RESTART_TIME) {
-				window.location.reload();
-				timeToRestart = -1;
-			}
-		}
-	}
-}
-
-setInterval("chrono()", 1000);
-// <<< I Can Transform v2.5 ---
 
 function showMsg() {
 	var a = document.createElement('div');

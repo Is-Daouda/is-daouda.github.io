@@ -314,7 +314,7 @@ function isJsSetPlayerXY(id, x, y, xscale, yscale, angle, frame, value) {
 	// update
 }
 
-function updateIsJsPlayers() {
+async function updateIsJsPlayers() {
 	if (playersKey[key]) {
 		for(id = 0; id < isJsPlayerCount; id++) {
 			if (isJsPlayers[id].id === key) {
@@ -334,7 +334,7 @@ function isJsPlayerReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 
-function addOtherPlayer(id) {
+async function addOtherPlayer(id) {
 	if (id != playerId) {
 		if (!playersKey[id]) {
 			playersKey[id] = id;

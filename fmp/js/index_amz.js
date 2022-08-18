@@ -342,8 +342,8 @@ function initMultiPlayer() {
 		});
 		
 		allPlayersRef.on("value", (snapshot) => {
-			if (isJsMultiPlayerStarted === 1) {
-				players = snapshot.val() || {};
+			players = snapshot.val() || {};
+				if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
 						if (isJsRoomStep == 2) {

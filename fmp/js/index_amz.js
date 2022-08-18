@@ -333,7 +333,7 @@ function isJsPlayerReady() {
 }
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
-
+/*
 function addOtherPlayer(id) {
 	if (id != playerId) {
 		if (!playersKey[id]) {
@@ -351,7 +351,7 @@ function addOtherPlayer(id) {
 		}	
 	}
 }
-
+*/
 function isJsStartMultiPlayerGame(level, crossworld) {
 	isJsGameLevel = level;
 	isJsCrossWorld =  crossworld;
@@ -526,9 +526,24 @@ function initMultiPlayer() {
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
-						//if (isJsRoomStep == 2) {
-							addOtherPlayer(key);
-						//}
+						if (isJsRoomStep == 2) {
+							//addOtherPlayer(key);
+							if (players[key].id != playerId) {
+								if (!playersKey[players[key].id]) {
+									playersKey[players[key].id] = players[key].id;
+									isJsPlayers[isJsPlayerCount] = players[players[key].id];
+									isJsPlayers[isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
+									console.log("log : " + playersKey[players[key].id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
+									isJsPlayerCount++;
+									console.log("N : " + isJsPlayerCount);
+									timerSetAction("action_start_game");
+
+									if (avoidChangeRoom === 1 && isJsPlayerCount === 3) {
+										lockRoom();
+									}
+								}	
+							}
+						}
 						//else if (isJsRoomStep == 4) {
 						//	updateIsJsPlayers(key);
 						//}

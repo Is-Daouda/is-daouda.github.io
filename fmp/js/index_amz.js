@@ -355,7 +355,8 @@ function addOtherPlayer(id) {
 function isJsStartMultiPlayerGame(level, crossworld) {
 	isJsGameLevel = level;
 	isJsCrossWorld =  crossworld;
-
+	console.log("level : " + level + " | crossworld : " + crossworld);
+	
 	roomId = firebase.database().ref().child('rooms').push().key;
 	console.log("init id : " + roomId);
 	roomRef = firebase.database().ref(`rooms/${roomId}`);

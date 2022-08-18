@@ -345,7 +345,7 @@ function addOtherPlayer(id) {
 			console.log("N : " + isJsPlayerCount);
 			timerSetAction("action_start_game");
 
-			if (avoidChangeRoom && isJsPlayerCount === 3) {
+			if (avoidChangeRoom === 1 && isJsPlayerCount === 3) {
 				lockRoom();
 			}
 		}	
@@ -355,7 +355,6 @@ function addOtherPlayer(id) {
 function isJsStartMultiPlayerGame(level, crossworld) {
 	isJsGameLevel = level;
 	isJsCrossWorld =  crossworld;
-	console.log("level : " + level + " | crossworld : " + crossworld);
 	
 	roomId = firebase.database().ref().child('rooms').push().key;
 	console.log("init id : " + roomId);
@@ -369,9 +368,10 @@ function isJsStartMultiPlayerGame(level, crossworld) {
 		locked: 0
 	});
 
-	playerRef.update({
-		roomId: roomId
-	});
+	players[playerId].quit = 0;
+	players[playerId].ready = 0;
+	players[playerId].roomId: roomId;
+	playerRef.set(players[playerId]);
 	
 	isJsMultiPlayerStarted = 1;
 	isJsRoomStep = 1;
@@ -412,7 +412,7 @@ function playerLeave() {
 	if (isJsRoomStep > 1) {		
 		let quitWithoutDanger = 0;
 		
-		if (!avoidChangeRoom) {
+		if (avoidChangeRoom === 1) {
 			if (isJsPlayerCount == 0) {
 				leaveWithoutDanger();
 			}

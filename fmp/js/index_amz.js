@@ -512,7 +512,7 @@ function initMultiPlayer() {
 								isJsAvoidChangeRoom = 1;
 								isJsRoomStep = 2;
 							}
-						}
+						//}
 						//else if (isJsRoomStep == 2) {
 						//	playerQuit = room.player_quit;
 						//}			

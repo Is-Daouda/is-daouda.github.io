@@ -485,7 +485,7 @@ function initMultiPlayer() {
 			
 		allRoomsRef.on("value", (snapshot) => {
 			rooms = snapshot.val() || {};
-			if (isJsMultiPlayerStarted === 1) {				
+			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(rooms).forEach((key) => {
 					const room = rooms[key];
 					if (typeof(room) !== "undefined") {				
@@ -518,12 +518,12 @@ function initMultiPlayer() {
 						}			
 					}
 				});						
-			}
+			//}
 		});
 		
 		allPlayersRef.on("value", (snapshot) => {
 			players = snapshot.val() || {};
-				if (isJsMultiPlayerStarted === 1) {				
+			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
 						if (isJsRoomStep == 2) {
@@ -534,7 +534,7 @@ function initMultiPlayer() {
 						}
 					}
 				});
-			}
+			//}
 		});
 				
 		allPlayersRef.on("child_removed", (snapshot) => {

@@ -409,6 +409,7 @@ function leaveWithoutDanger()
 
 function playerLeave() {
 	if (isJsRoomStep > 1) {		
+	alert("0");
 		let quitWithoutDanger = 0;
 		
 		if (avoidChangeRoom === 1) {

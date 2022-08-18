@@ -484,8 +484,8 @@ function initMultiPlayer() {
 		const allRoomsRef = firebase.database().ref(`rooms`);
 			
 		allRoomsRef.on("value", (snapshot) => {
-			if (isJsMultiPlayerStarted === 1) {
-				rooms = snapshot.val() || {};
+			rooms = snapshot.val() || {};
+			if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(rooms).forEach((key) => {
 					const room = rooms[key];
 					if (typeof(room) !== "undefined") {				

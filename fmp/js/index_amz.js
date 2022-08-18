@@ -525,12 +525,12 @@ function initMultiPlayer() {
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
-						if (isJsRoomStep == 2) {
+						//if (isJsRoomStep == 2) {
 							addOtherPlayer(key);
-						}
-						else if (isJsRoomStep == 4) {
-							updateIsJsPlayers(key);
-						}
+						//}
+						//else if (isJsRoomStep == 4) {
+							//updateIsJsPlayers(key);
+						//}
 					}
 				});
 			//}

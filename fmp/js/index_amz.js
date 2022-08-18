@@ -370,7 +370,7 @@ function isJsStartMultiPlayerGame(level, crossworld) {
 
 	players[playerId].quit = 0;
 	players[playerId].ready = 0;
-	players[playerId].roomId: roomId;
+	players[playerId].roomId = roomId;
 	playerRef.set(players[playerId]);
 	
 	isJsMultiPlayerStarted = 1;

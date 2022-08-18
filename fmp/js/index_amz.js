@@ -415,16 +415,19 @@ function playerLeave() {
 		if (avoidChangeRoom === 1) {
 			if (isJsPlayerCount == 0) {
 				leaveWithoutDanger();
+				alert("1");
 			}
 			else {
 				roomRef.update({
 					player_quit: 1
 				});
 				quitWithoutDanger = 1;
+				alert("2");
 			}
 		}
-		else if (isJsPlayerCount => 0) {
+		else if (isJsPlayerCount > 0) {
 			quitWithoutDanger = 1;
+			alert("3");
 		}
 		playerRef.update({
 					quit: quitWithoutDanger

@@ -530,8 +530,7 @@ function initMultiPlayer() {
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
 						if (isJsRoomStep == 2) {
-							const result = await addOtherPlayer(key);
-							console.log(result);
+							addOtherPlayer(key);
 						}
 						else if (isJsRoomStep == 4) {
 							updateIsJsPlayers(key);

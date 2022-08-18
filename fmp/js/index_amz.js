@@ -314,7 +314,7 @@ function isJsSetPlayerXY(id, x, y, xscale, yscale, angle, frame, value) {
 	// update
 }
 
-async function updateIsJsPlayers() {
+function updateIsJsPlayers() {
 	if (playersKey[key]) {
 		for(id = 0; id < isJsPlayerCount; id++) {
 			if (isJsPlayers[id].id === key) {
@@ -334,22 +334,25 @@ function isJsPlayerReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 
-async function addOtherPlayer(id) {
-	if (id != playerId) {
-		if (!playersKey[id]) {
-			playersKey[id] = id;
-			isJsPlayers[isJsPlayerCount] = players[id];
-			isJsPlayers[isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
-			console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
-			isJsPlayerCount++;
-			console.log("N : " + isJsPlayerCount);
-			timerSetAction("action_start_game");
+function addOtherPlayer(id) {
+	return new Promise(resolve => {
+		if (id != playerId) {
+			if (!playersKey[id]) {
+				playersKey[id] = id;
+				isJsPlayers[isJsPlayerCount] = players[id];
+				isJsPlayers[isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
+				console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
+				isJsPlayerCount++;
+				console.log("N : " + isJsPlayerCount);
+				timerSetAction("action_start_game");
 
-			if (avoidChangeRoom === 1 && isJsPlayerCount === 3) {
-				lockRoom();
-			}
-		}	
-	}
+				if (avoidChangeRoom === 1 && isJsPlayerCount === 3) {
+					lockRoom();
+				}
+			}	
+		}
+		resolve(true);
+	});
 }
 
 function isJsStartMultiPlayerGame(level, crossworld) {
@@ -527,7 +530,8 @@ function initMultiPlayer() {
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
 						if (isJsRoomStep == 2) {
-							addOtherPlayer(key);
+							const result = await addOtherPlayer(key);
+							console.log(result);
 						}
 						else if (isJsRoomStep == 4) {
 							updateIsJsPlayers(key);

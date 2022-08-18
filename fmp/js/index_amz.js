@@ -335,24 +335,21 @@ function isJsPlayerReady() {
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 
 function addOtherPlayer(id) {
-	return new Promise(resolve => {
-		if (id != playerId) {
-			if (!playersKey[id]) {
-				playersKey[id] = id;
-				isJsPlayers[isJsPlayerCount] = players[id];
-				isJsPlayers[isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
-				console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
-				isJsPlayerCount++;
-				console.log("N : " + isJsPlayerCount);
-				timerSetAction("action_start_game");
+	if (id != playerId) {
+		if (!playersKey[id]) {
+			playersKey[id] = id;
+			isJsPlayers[isJsPlayerCount] = players[id];
+			isJsPlayers[isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
+			console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
+			isJsPlayerCount++;
+			console.log("N : " + isJsPlayerCount);
+			timerSetAction("action_start_game");
 
-				if (avoidChangeRoom === 1 && isJsPlayerCount === 3) {
-					lockRoom();
-				}
-			}	
-		}
-		resolve(true);
-	});
+			if (avoidChangeRoom === 1 && isJsPlayerCount === 3) {
+				lockRoom();
+			}
+		}	
+	}
 }
 
 function isJsStartMultiPlayerGame(level, crossworld) {
@@ -524,24 +521,20 @@ function initMultiPlayer() {
 			//}
 		});
 		
-		async function playersLoop(snapshot) {
+		allPlayersRef.on("value", (snapshot) => {
 			players = snapshot.val() || {};
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
-						if (isJsRoomStep == 2) {
+						//if (isJsRoomStep == 2) {
 							addOtherPlayer(key);
-						}
-						else if (isJsRoomStep == 4) {
-							updateIsJsPlayers(key);
-						}
+						//}
+						//else if (isJsRoomStep == 4) {
+						//	updateIsJsPlayers(key);
+						//}
 					}
 				});
 			//}
-		}
-		
-		allPlayersRef.on("value", (snapshot) => {
-			playersLoop(snapshot);
 		});
 				
 		allPlayersRef.on("child_removed", (snapshot) => {

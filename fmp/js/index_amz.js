@@ -44,6 +44,7 @@ var isJsGameLevel = 0;
 var isJsCrossWorld = 0;
 var isJsRoomStep = 0;
 var isJsAvoidChangeRoom = 0;
+var isJsMultiPlayerStarted = 0;
 var canLockRoom = true;
 
 var timeWait = -1;

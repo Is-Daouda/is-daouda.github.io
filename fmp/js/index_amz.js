@@ -524,7 +524,7 @@ function initMultiPlayer() {
 			//}
 		});
 		
-		allPlayersRef.on("value", (snapshot) => {
+		async function playersLoop() {
 			players = snapshot.val() || {};
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
@@ -539,6 +539,10 @@ function initMultiPlayer() {
 					}
 				});
 			//}
+		}
+		
+		allPlayersRef.on("value", (snapshot) => {
+			playersLoop();
 		});
 				
 		allPlayersRef.on("child_removed", (snapshot) => {

@@ -519,14 +519,14 @@ function initMultiPlayer() {
 										roomExists = true;
 										canLockRoom = false;
 										//players[playerId].isJsRoomStep = 2;
-										isJsRoomStepUpdate(2);
+										//isJsRoomStepUpdate(2);
 									}
 								}	
 							}
 							if (!roomExists) {
 								isJsAvoidChangeRoom = 1;
 								//players[playerId].isJsRoomStep = 2;
-								isJsRoomStepUpdate(2);
+								//isJsRoomStepUpdate(2);
 							}
 						/*}
 						else if (players[playerId].isJsRoomStep == 2) {

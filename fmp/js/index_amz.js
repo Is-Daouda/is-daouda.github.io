@@ -502,7 +502,7 @@ function initMultiPlayer() {
 				Object.keys(rooms).forEach((key) => {
 					const room = rooms[key];
 					if (typeof(room) !== "undefined") {				
-						if (players[playerId].isJsRoomStep == 1) {
+						//if (players[playerId].isJsRoomStep == 1) {
 							let roomExists = false;
 							if (isJsAvoidChangeRoom === 0) {
 								if (room.id != roomId) {
@@ -528,10 +528,10 @@ function initMultiPlayer() {
 								//players[playerId].isJsRoomStep = 2;
 								isJsRoomStepUpdate(2);
 							}
-						}
+						/*}
 						else if (players[playerId].isJsRoomStep == 2) {
 							playerQuit = room.player_quit;
-						}			
+						}*/		
 					}
 				});						
 			//}

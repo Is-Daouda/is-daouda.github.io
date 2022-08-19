@@ -187,14 +187,12 @@ var playerRef;
 var players = {};
 var playersKey = {};
 
-
 var roomRef;	
 var rooms;
 var roomId;
 
 var isJsPlayerCount = 0;
 var isJsPlayers = {};
-
 var isJsGameLevel = 0;
 var isJsCrossWorld = 0;
 var isJsAvoidChangeRoom = 0;

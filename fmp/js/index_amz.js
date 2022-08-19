@@ -282,18 +282,6 @@ function isJsSetPlayerData(point, usernameCode0, usernameCode1, usernameCode2, u
 	players[playerId].username_code8 = usernameCode8;
 	players[playerId].username_code9 = usernameCode9;
 	playerRef.set(players[playerId]);
-	/*playerRef.update({
-				username_code0: usernameCode0,
-				username_code1: usernameCode1,
-				username_code2: usernameCode2,
-				username_code3: usernameCode3,
-				username_code4: usernameCode4,
-				username_code5: usernameCode5,
-				username_code6: usernameCode6,
-				username_code7: usernameCode7,
-				username_code8: usernameCode8,
-				username_code9: usernameCode9,
-	});*/
 }
 
 function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, value) {

@@ -639,7 +639,7 @@ function hideMsg() {
 	objDel.remove();
 }
 
-function checkScreenOrientation() {
+function checkScreenOrientation() {/*
 	landscapeMode = (canvas.width > (canvas.height + 100)) ? true : false;
 	
 	if (!landscapeMode && showError === 0)
@@ -659,7 +659,7 @@ function checkScreenOrientation() {
 	
 	if (isJsInitGame === 1) {
 		document.getElementById('screen_cover').style.display = ((landscapeMode) ? "block" : "none");
-	}
+	}*/
 }
 
 function onResize() {

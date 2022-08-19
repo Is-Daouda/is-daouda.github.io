@@ -640,11 +640,8 @@ function hideMsg() {
 }
 
 function checkScreenOrientation() {
-
-landscapeMode = true;
-/*
 	landscapeMode = (canvas.width > (canvas.height + 100)) ? true : false;
-	*/
+	
 	if (!landscapeMode && showError === 0)
 		showError = 1;
 	

@@ -186,14 +186,13 @@ var playerId;
 var playerRef;
 var players = {};
 var playersKey = {};
-var isJsPlayerCount = 0;
+
 
 var roomRef;	
 var rooms;
 var roomId;
 
-var isJsIsPlaying = 0;
-var isJsStartGame = 0;
+var isJsPlayerCount = 0;
 var isJsPlayers = {};
 
 var isJsGameLevel = 0;
@@ -269,8 +268,9 @@ function isJsGetOtherPlayerUsername(id, codeIndex) {
 	}
 }
 
-function isJsSetUsername(usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
+function isJsSetPlayerData(point, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
 							usernameCode5, usernameCode6, usernameCode7, usernameCode8, usernameCode9) {
+	players[playerId].point = point;
 	players[playerId].username_code0 = usernameCode0;
 	players[playerId].username_code1 = usernameCode1;
 	players[playerId].username_code2 = usernameCode2;
@@ -296,13 +296,7 @@ function isJsSetUsername(usernameCode0, usernameCode1, usernameCode2, usernameCo
 	});*/
 }
 
-function isJsSetPlayerPoint(point) {
-	playerRef.update({
-				point: point
-	});	
-}
-
-function isJsSetPlayerXY(id, x, y, xscale, yscale, angle, frame, value) {
+function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, value) {
 	players[playerId].x = x;
 	players[playerId].y = y;
 	players[playerId].xscale = xscale;
@@ -311,7 +305,6 @@ function isJsSetPlayerXY(id, x, y, xscale, yscale, angle, frame, value) {
 	players[playerId].frame = frame;
 	players[playerId].disqualify = value;
 	playerRef.set(players[playerId]);
-	// update
 }
 
 function updateIsJsPlayers() {
@@ -320,16 +313,35 @@ function updateIsJsPlayers() {
 			if (isJsPlayers[id].id === key) {
 				isJsPlayers[id] = players[key];
 				isJsPlayers[id].isJsId = id;
-				isJsRoomStep = 1;
 			}
 		}
 	}
 }
 
 function isJsPlayerReady() {
+	players[playerId].isJsRoomStep = 4;
+	players[playerId].ready = 1;
+	playerRef.set(players[playerId]);
+}
+
+function isJsRoomStepValue() {
+	return players[playerId].isJsRoomStep;
+}
+
+function isJsRoomStepUpdate(value) {
 	playerRef.update({
-				ready: 1
+				isJsRoomStep: value
 	});
+}
+
+function isJsAllPlayersReady() {
+	let playerReadyCount = 0;
+	Object.keys(players).forEach((key) => {
+		if (players[key].roomId === roomId && players[key].ready === 1) {
+			playerReadyCount++;
+		}
+	});
+	return ((playerReadyCount > isJsPlayerCount) ? 1 : 0);
 }
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
@@ -366,14 +378,14 @@ function isJsStartMultiPlayerGame(level, crossworld) {
 		player_quit: 0,
 		locked: 0
 	});
-
+	
+	players[playerId].isJsRoomStep = 1;
 	players[playerId].quit = 0;
 	players[playerId].ready = 0;
 	players[playerId].roomId = roomId;
 	playerRef.set(players[playerId]);
 	
 	isJsMultiPlayerStarted = 1;
-	isJsRoomStep = 1;
 	isJsIsPlaying = 1;
 	isJsAvoidChangeRoom = 0;
 	canLockRoom = true;
@@ -399,22 +411,24 @@ function removeRoom() {
 	isJsCreateRoom = 0;
 }
 
-function leaveWithoutDanger()
+function leaveWithoutDanger(updateRoomStep)
 {
 	removeRoom();
 	roomId = "";
 	isJsMultiPlayerStarted = 0;
-	isJsRoomStep = 0;
+	//players[playerId].isJsRoomStep = 0;
+	if (updateRoomStep) isJsRoomStepUpdate(0);
 }
 
-function playerLeave() {
-	if (isJsRoomStep > 1) {		
-	alert("0");
+function isJsPlayerLeave() {
+	if (players[playerId].isJsRoomStep > 1) {		
+		alert("0");
+		
 		let quitWithoutDanger = 0;
 		
 		if (avoidChangeRoom === 1) {
 			if (isJsPlayerCount == 0) {
-				leaveWithoutDanger();
+				leaveWithoutDanger(false);
 				alert("1");
 			}
 			else {
@@ -429,9 +443,9 @@ function playerLeave() {
 			quitWithoutDanger = 1;
 			alert("3");
 		}
-		playerRef.update({
-					quit: quitWithoutDanger
-		});		
+		players[playerId].isJsRoomStep = 0;
+		players[playerId].quit = quitWithoutDanger;
+		playerRef.set(players[playerId]);
 	}
 }
 
@@ -464,10 +478,11 @@ function chrono() {
 		if (timerAction === "action_start_game") {
 			if (playerQuit === 1) {lockRoom(); console.log("OTHER LOCK ROOM!");}
 			console.log("GAME START!!!");
-			isJsRoomStep = 3;
+			//players[playerId].isJsRoomStep = 3;
+			isJsRoomStepUpdate(3);
 		}
 		else if (timerAction === "action_quit_room") {
-			leaveWithoutDanger();
+			leaveWithoutDanger(true);
 			console.log("QUIT!");
 		}
 		else console.log("ERROR : UNKNOW ACTION !");
@@ -489,7 +504,7 @@ function initMultiPlayer() {
 				Object.keys(rooms).forEach((key) => {
 					const room = rooms[key];
 					if (typeof(room) !== "undefined") {				
-						//if (isJsRoomStep == 1) {
+						if (players[playerId].isJsRoomStep == 1) {
 							let roomExists = false;
 							if (isJsAvoidChangeRoom === 0) {
 								if (room.id != roomId) {
@@ -504,18 +519,20 @@ function initMultiPlayer() {
 										// roomRef = firebase.database().ref(`rooms/${roomId}`);
 										roomExists = true;
 										canLockRoom = false;
-										isJsRoomStep = 2;
+										//players[playerId].isJsRoomStep = 2;
+										isJsRoomStepUpdate(2);
 									}
 								}	
 							}
 							if (!roomExists) {
 								isJsAvoidChangeRoom = 1;
-								isJsRoomStep = 2;
+								//players[playerId].isJsRoomStep = 2;
+								isJsRoomStepUpdate(2);
 							}
-						//}
-						//else if (isJsRoomStep == 2) {
-						//	playerQuit = room.player_quit;
-						//}			
+						}
+						else if (players[playerId].isJsRoomStep == 2) {
+							playerQuit = room.player_quit;
+						}			
 					}
 				});						
 			//}
@@ -526,19 +543,20 @@ function initMultiPlayer() {
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
-						//if (isJsRoomStep == 2) {
+						if (players[playerId].isJsRoomStep == 2) {
 							addOtherPlayer(key);
-						//}
-						//else if (isJsRoomStep == 4) {
-							//updateIsJsPlayers(key);
-						//}
+						}
+						else if (players[playerId].isJsRoomStep == 4) {
+							updateIsJsPlayers(key);
+						}
 					}
 				});
 			//}
 		});
-				
+		
 		allPlayersRef.on("child_removed", (snapshot) => {
-			playerLeave();
+			const key = snapshot.val().id;
+			if (key == playerId) isJsPlayerLeave();
 		})
 	}
 
@@ -552,6 +570,7 @@ function initMultiPlayer() {
 			playerRef.set({
 				id: playerId,
 				isJsId: 0,
+				isJsRoomStep: 0,
 				roomId: "0",
 				quit: 0,
 				ready: 0,				

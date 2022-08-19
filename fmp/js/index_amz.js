@@ -1,7 +1,20 @@
 function loadScript(src) {
-	const script = document.createElement('script');
-	script.src = src;
-	document.head.appendChild(script);
+  let scriptEle = document.createElement("script");
+
+  scriptEle.setAttribute("src", src);
+  scriptEle.setAttribute("type", "text/javascript");
+  scriptEle.setAttribute("async", true);
+
+  document.body.appendChild(scriptEle);
+
+  // success event 
+  scriptEle.addEventListener("load", () => {
+    console.log("File loaded")
+  });
+   // error event
+  scriptEle.addEventListener("error", (ev) => {
+    console.log("Error on loading file", ev);
+  });
 }
 
 loadScript("https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");

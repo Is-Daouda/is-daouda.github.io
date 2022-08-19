@@ -1,3 +1,13 @@
+function loadScript(src) {
+	const script = document.createElement('script');
+	script.src = src;
+	document.head.appendChild(script);
+}
+
+loadScript("https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
+loadScript("https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js");
+loadScript("https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js");
+
 var canvas = document.getElementById('canvas');
 var isJsUpdateSize = 0;
 var isJsGameState = 2;

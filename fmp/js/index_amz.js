@@ -501,13 +501,13 @@ function initMultiPlayer() {
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(rooms).forEach((key) => {
 					const room = rooms[key];
-					if (typeof(room) !== "undefined") {				
+					if (typeof(room) !== "undefined") {	
+						alert("call : " + playerId);
 						//if (players[playerId].isJsRoomStep == 1) {
 							let roomExists = false;
 							if (isJsAvoidChangeRoom === 0) {
 								if (room.id != roomId) {
 									if (room.locked === 0) {
-										alert("call");
 										playerRef.update({
 											roomId: room.id
 										});
@@ -541,7 +541,7 @@ function initMultiPlayer() {
 			players = snapshot.val() || {};
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
-					if (players[key].roomId == roomId) {
+					if (players[key].roomId === roomId) {
 						//if (players[playerId].isJsRoomStep == 2) {
 							addOtherPlayer(key);
 						//}

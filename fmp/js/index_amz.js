@@ -294,14 +294,14 @@ function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, value) {
 	playerRef.set(players[playerId]);
 }
 
-function updateIsJsPlayers() {
+function updateIsJsPlayers(key) {
 	if (playersKey[key]) {
-		//for(id = 0; id < isJsPlayerCount; id++) {
+		for(id = 0; id < isJsPlayerCount; id++) {
 			if (isJsPlayers[0].id === key) {
 				isJsPlayers[0] = players[key];
 				isJsPlayers[0].isJsId = id;
 			}
-		//}
+		}
 	}
 }
 
@@ -415,9 +415,8 @@ function isJsPlayerLeave() {
 				alert("1");
 			}
 			else {
-				roomRef.update({
-					player_quit: 1
-				});
+				rooms.player_quit = 1;
+				roomRef.set(rooms[roomId]);
 				quitWithoutDanger = 1;
 				alert("2");
 			}
@@ -531,6 +530,7 @@ function initMultiPlayer() {
 						}
 						else if (players[playerId].isJsRoomStep === 4) {
 							updateIsJsPlayers(key);
+							console.log("call");
 						}
 					}
 				});

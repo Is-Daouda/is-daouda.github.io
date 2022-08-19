@@ -298,9 +298,9 @@ function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, value) {
 function updateIsJsPlayers(key) {
 	if (playersKey[key]) {
 		for(id = 0; id < isJsPlayerCount; id++) {
-			if (isJsPlayers[0].id === key) {
-				isJsPlayers[0] = players[key];
-				isJsPlayers[0].isJsId = id;
+			if (isJsPlayers[id].id === key) {
+				isJsPlayers[id] = players[key];
+				isJsPlayers[id].isJsId = id;
 			}
 		}
 	}
@@ -390,10 +390,13 @@ function lockRoom() {
 
 function removeRoom() {		
 	roomRef.remove();
+	let it = 0;
 	Object.keys(players).forEach((key) => {
 		delete playersKey[key];
+		delete isJsPlayers[i];
+		it++;
 	});
-	playerIndex = 0;
+	isJsPlayerCount = 0;
 }
 
 function leaveWithoutDanger(updateRoomStep)
@@ -440,10 +443,13 @@ function isJsClearPrevMutliPlayerGame() {
 	try {
 		if (players[playerId].isJsRoomStep === 4) {
 			isJsAvoidChangeRoom = 0;
+			let it = 0;
 			Object.keys(players).forEach((key) => {
 				delete playersKey[key];
+				delete isJsPlayers[it];
+				it++;
 			});
-			playerIndex = 0;
+			isJsPlayerCount = 0;
 			players[playerId].isJsRoomStep = 0;
 			players[playerId].quit = 0;
 			players[playerId].disqualify = 0;

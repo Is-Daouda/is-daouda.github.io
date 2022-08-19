@@ -421,9 +421,8 @@ function leaveWithoutDanger(updateRoomStep)
 }
 
 function isJsPlayerLeave() {
-	if (players[playerId].isJsRoomStep > 1) {		
 		alert("0");
-		
+	if (players[playerId].isJsRoomStep > 1) {				
 		let quitWithoutDanger = 0;
 		
 		if (avoidChangeRoom === 1) {

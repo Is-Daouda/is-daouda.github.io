@@ -546,7 +546,7 @@ function initMultiPlayer() {
 							addOtherPlayer(key);
 						//}
 						//else if (players[playerId].isJsRoomStep == 4) {
-							updateIsJsPlayers(key);
+						//	updateIsJsPlayers(key);
 						//}
 					}
 				});

@@ -509,6 +509,7 @@ function initMultiPlayer() {
 							if (isJsAvoidChangeRoom === 0) {
 								if (room.id != roomId) {
 									if (room.locked === 0) {
+										alert("call");
 										playerRef.update({
 											roomId: room.id
 										});

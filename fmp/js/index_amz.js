@@ -129,7 +129,7 @@ function loadObjDesc() {
 	var txtFile = new XMLHttpRequest();
 	var allParam = "";
 	txtFile.onreadystatechange = function () {
-		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
+		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status === 200) {
 			allParam = txtFile.responseText;
 			var paramList = allParam.split('\n');
 			
@@ -334,21 +334,19 @@ function isJsAllPlayersReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 function addOtherPlayer(id) {
-	if (id != playerId) {
-		if (!playersKey[id]) {
-			playersKey[id] = id;
-			isJsPlayers[isJsPlayerCount] = players[id];
-			isJsPlayers[isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
-			console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
-			isJsPlayerCount++;
-			console.log("N : " + isJsPlayerCount);
-			timerSetAction("action_start_game");
+	if (!playersKey[id]) {
+		playersKey[id] = id;
+		isJsPlayers[isJsPlayerCount] = players[id];
+		isJsPlayers[isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
+		console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
+		isJsPlayerCount++;
+		console.log("N : " + isJsPlayerCount);
+		timerSetAction("action_start_game");
 
-			if (isJsAvoidChangeRoom === 1 && isJsPlayerCount === 3) {
-				lockRoom();
-			}
-		}	
-	}
+		if (isJsAvoidChangeRoom === 1 && isJsPlayerCount === 3) {
+			lockRoom();
+		}
+	}	
 }
 
 function isJsStartMultiPlayerGame(level, crossworld) {
@@ -413,7 +411,7 @@ function isJsPlayerLeave() {
 		let quitWithoutDanger = 0;
 		
 		if (isJsAvoidChangeRoom === 1) {
-			if (isJsPlayerCount == 0) {
+			if (isJsPlayerCount === 0) {
 				leaveWithoutDanger(false);
 				alert("1");
 			}
@@ -491,7 +489,7 @@ function initMultiPlayer() {
 				Object.keys(rooms).forEach((key) => {
 					const room = rooms[key];
 					if (typeof(room) !== "undefined") {				
-						if (players[playerId].isJsRoomStep == 1) {
+						if (players[playerId].isJsRoomStep === 1) {
 							if (isJsAvoidChangeRoom === 0) {
 								if (room.id != roomId) {
 									if (room.locked === 0) {
@@ -511,7 +509,7 @@ function initMultiPlayer() {
 								}	
 							}
 						}
-						else if (players[playerId].isJsRoomStep == 2) {
+						else if (players[playerId].isJsRoomStep === 2) {
 							playerQuit = room.player_quit;
 						}
 					}
@@ -528,11 +526,11 @@ function initMultiPlayer() {
 			players = snapshot.val() || {};
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
-					if (players[key].roomId == roomId) {
-						if (players[playerId].isJsRoomStep == 2) {
+					if (players[key].roomId === roomId && players[key].id !== playerId) {
+						if (players[playerId].isJsRoomStep === 2) {
 							addOtherPlayer(key);
 						}
-						else if (players[playerId].isJsRoomStep == 4) {
+						else if (players[playerId].isJsRoomStep === 4) {
 							updateIsJsPlayers(key);
 						}
 					}
@@ -542,7 +540,7 @@ function initMultiPlayer() {
 		
 		allPlayersRef.on("child_removed", (snapshot) => {
 			const key = snapshot.val().id;
-			if (key == playerId) isJsPlayerLeave();
+			if (key === playerId) isJsPlayerLeave();
 		})
 	}
 

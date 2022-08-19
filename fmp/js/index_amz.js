@@ -523,17 +523,17 @@ function initMultiPlayer() {
 									}
 								}	
 							}
-							if (!roomExists) {
-								isJsAvoidChangeRoom = 1;
-								//players[playerId].isJsRoomStep = 2;
-								isJsRoomStepUpdate(2);
-							}
 						}
 						else if (players[playerId].isJsRoomStep == 2) {
 							playerQuit = room.player_quit;
 						}
 					}
-				});						
+				});
+				if (!roomExists) {
+					isJsAvoidChangeRoom = 1;
+					//players[playerId].isJsRoomStep = 2;
+					isJsRoomStepUpdate(2);
+				}
 			//}
 		});
 		

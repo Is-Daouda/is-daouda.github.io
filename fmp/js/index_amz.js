@@ -394,7 +394,6 @@ function removeRoom() {
 		delete playersKey[key];
 	});
 	playerIndex = 0;
-	isJsCreateRoom = 0;
 }
 
 function leaveWithoutDanger(updateRoomStep)
@@ -408,28 +407,52 @@ function leaveWithoutDanger(updateRoomStep)
 
 function isJsPlayerLeave() {
 	if (players[playerId].isJsRoomStep > 0) {				
-		let quitWithoutDanger = 0;
+		let quitWithPenalize = 0;
 		
-		if (isJsAvoidChangeRoom === 1) {
-			if (isJsPlayerCount === 0) {
-				leaveWithoutDanger(false);
-				alert("1");
-			}
-			else {
-				rooms.player_quit = 1;
-				roomRef.set(rooms[roomId]);
-				quitWithoutDanger = 1;
-				alert("2");
-			}
+		if (players[playerId].isJsRoomStep === 4) {
+			players[playerId].disqualify = 1;
+			quitWithPenalize = 1;
+			alert("4");
 		}
-		else if (isJsPlayerCount > 0) {
-			quitWithoutDanger = 1;
-			alert("3");
+		else {
+			if (isJsAvoidChangeRoom === 1) {
+				if (isJsPlayerCount === 0) {
+					leaveWithoutDanger(false);
+				}
+				else {
+					rooms.player_quit = 1;
+					roomRef.set(rooms[roomId]);
+					quitWithPenalize = 1;
+				}
+			}
+			else if (isJsPlayerCount > 0) {
+				quitWithPenalize = 1;
+				alert("3");
+			}		
 		}
 		players[playerId].isJsRoomStep = 0;
-		players[playerId].quit = quitWithoutDanger;
+		players[playerId].quit = quitWithPenalize;
 		playerRef.set(players[playerId]);
 	}
+}
+
+function isJsClearPrevMutliPlayerGame() {
+	try {
+		if (players[playerId].isJsRoomStep === 4) {
+			isJsAvoidChangeRoom = 0;
+			Object.keys(players).forEach((key) => {
+				delete playersKey[key];
+			});
+			playerIndex = 0;
+			players[playerId].isJsRoomStep = 0;
+			players[playerId].quit = 0;
+			players[playerId].disqualify = 0;
+			players[playerId].ready = 0;
+			players[playerId].roomId = playerId;
+			playerRef.set(players[playerId]);			
+		}
+	}
+	catch(err) {console.log("ERROR: Can't clear previous game!");}
 }
 
 // ---------------------------------------------------
@@ -482,43 +505,46 @@ function initMultiPlayer() {
 		const allRoomsRef = firebase.database().ref(`rooms`);
 			
 		allRoomsRef.on("value", (snapshot) => {
-			rooms = snapshot.val() || {};
-			let roomExists = false;
-			//if (isJsMultiPlayerStarted === 1) {				
-				Object.keys(rooms).forEach((key) => {
-					const room = rooms[key];
-					if (typeof(room) !== "undefined") {				
-						if (players[playerId].isJsRoomStep === 1) {
-							if (isJsAvoidChangeRoom === 0) {
-								if (room.id != roomId) {
-									if (room.locked === 0) {
-										removeRoom();
-										roomId = room.id;
-										isJsGameLevel = room.level;
-										isJsCrossWorld = room.crossworld;
-										// roomRef = firebase.database().ref(`rooms/${roomId}`);
-										roomExists = true;
-										canLockRoom = false;
-										//players[playerId].isJsRoomStep = 2;
-										//isJsRoomStepUpdate(2);
-										players[playerId].isJsRoomStep = 2;
-										players[playerId].roomId = room.id;										
-										playerRef.set(players[playerId]);
-									}
-								}	
+			try {
+				rooms = snapshot.val() || {};
+				let roomExists = false;
+				//if (isJsMultiPlayerStarted === 1) {				
+					Object.keys(rooms).forEach((key) => {
+						const room = rooms[key];
+						if (typeof(room) !== "undefined") {				
+							if (players[playerId].isJsRoomStep === 1) {
+								if (isJsAvoidChangeRoom === 0) {
+									if (room.id != roomId) {
+										if (room.locked === 0) {
+											removeRoom();
+											roomId = room.id;
+											isJsGameLevel = room.level;
+											isJsCrossWorld = room.crossworld;
+											// roomRef = firebase.database().ref(`rooms/${roomId}`);
+											roomExists = true;
+											canLockRoom = false;
+											//players[playerId].isJsRoomStep = 2;
+											//isJsRoomStepUpdate(2);
+											players[playerId].isJsRoomStep = 2;
+											players[playerId].roomId = room.id;										
+											playerRef.set(players[playerId]);
+										}
+									}	
+								}
+							}
+							else if (players[playerId].isJsRoomStep === 2) {
+								playerQuit = room.player_quit;
 							}
 						}
-						else if (players[playerId].isJsRoomStep === 2) {
-							playerQuit = room.player_quit;
-						}
+					});
+					if (!roomExists) {
+						isJsAvoidChangeRoom = 1;
+						//players[playerId].isJsRoomStep = 2;
+						isJsRoomStepUpdate(2);
 					}
-				});
-				if (!roomExists) {
-					isJsAvoidChangeRoom = 1;
-					//players[playerId].isJsRoomStep = 2;
-					isJsRoomStepUpdate(2);
-				}
-			//}
+				//}
+			}
+			catch(err) {console.log("ERROR: Room Loop()")}
 		});
 		
 		allPlayersRef.on("value", (snapshot) => {
@@ -531,7 +557,6 @@ function initMultiPlayer() {
 						}
 						else if (players[playerId].isJsRoomStep === 4) {
 							updateIsJsPlayers(key);
-							console.log("call");
 						}
 					}
 				});

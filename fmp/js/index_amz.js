@@ -197,7 +197,6 @@ var isJsPlayers = {};
 
 var isJsGameLevel = 0;
 var isJsCrossWorld = 0;
-//var isJsRoomStep = 0;
 var isJsAvoidChangeRoom = 0;
 var isJsMultiPlayerStarted = 0;
 var canLockRoom = true;
@@ -297,12 +296,12 @@ function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, value) {
 
 function updateIsJsPlayers() {
 	if (playersKey[key]) {
-		for(id = 0; id < isJsPlayerCount; id++) {
-			if (isJsPlayers[id].id === key) {
-				isJsPlayers[id] = players[key];
-				isJsPlayers[id].isJsId = id;
+		//for(id = 0; id < isJsPlayerCount; id++) {
+			if (isJsPlayers[0].id === key) {
+				isJsPlayers[0] = players[key];
+				isJsPlayers[0].isJsId = id;
 			}
-		}
+		//}
 	}
 }
 

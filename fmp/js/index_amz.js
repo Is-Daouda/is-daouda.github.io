@@ -1,26 +1,3 @@
-function loadScript(src) {
-  let scriptEle = document.createElement("script");
-
-  scriptEle.setAttribute("src", src);
-  scriptEle.setAttribute("type", "text/javascript");
-  scriptEle.setAttribute("async", true);
-
-  document.body.appendChild(scriptEle);
-
-  // success event 
-  scriptEle.addEventListener("load", () => {
-    console.log("File loaded")
-  });
-   // error event
-  scriptEle.addEventListener("error", (ev) => {
-    console.log("Error on loading file", ev);
-  });
-}
-
-loadScript("https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
-loadScript("https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js");
-loadScript("https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js");
-
 var canvas = document.getElementById('canvas');
 var isJsUpdateSize = 0;
 var isJsGameState = 2;

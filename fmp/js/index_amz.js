@@ -424,7 +424,7 @@ function isJsPlayerLeave() {
 	if (players[playerId].isJsRoomStep > 0) {				
 		let quitWithoutDanger = 0;
 		
-		if (avoidChangeRoom === 1) {
+		if (isJsAvoidChangeRoom === 1) {
 			if (isJsPlayerCount == 0) {
 				leaveWithoutDanger(false);
 				alert("1");
@@ -542,12 +542,12 @@ function initMultiPlayer() {
 			//if (isJsMultiPlayerStarted === 1) {				
 				Object.keys(players).forEach((key) => {
 					if (players[key].roomId == roomId) {
-						if (players[playerId].isJsRoomStep == 2) {
+						//if (players[playerId].isJsRoomStep == 2) {
 							addOtherPlayer(key);
-						}
-						else if (players[playerId].isJsRoomStep == 4) {
+						//}
+						//else if (players[playerId].isJsRoomStep == 4) {
 							updateIsJsPlayers(key);
-						}
+						//}
 					}
 				});
 			//}

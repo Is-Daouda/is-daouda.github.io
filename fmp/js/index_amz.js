@@ -507,10 +507,8 @@ function initMultiPlayer() {
 							if (isJsAvoidChangeRoom === 0) {
 								if (room.id != roomId) {
 									if (room.locked === 0) {
-										alert("call");
-										playerRef.update({
-											roomId: room.id
-										});
+										players[playerId].isJsRoomStep = 2;
+										players[playerId].roomId: room.id;
 										removeRoom();
 										roomId = room.id;
 										isJsGameLevel = room.level;
@@ -519,7 +517,8 @@ function initMultiPlayer() {
 										roomExists = true;
 										canLockRoom = false;
 										//players[playerId].isJsRoomStep = 2;
-										isJsRoomStepUpdate(2);
+										//isJsRoomStepUpdate(2);
+										playerRef.set(players[playerId]);
 									}
 								}	
 							}

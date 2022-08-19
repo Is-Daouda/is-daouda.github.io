@@ -244,6 +244,7 @@ function isJsGetOtherPlayerFrame(id) {
 }
 
 function isJsGetOtherPlayerDisqualify(id) {
+	if (isJsPlayers[id].quit === 1) return 1;
 	return isJsPlayers[id].disqualify;
 }
 

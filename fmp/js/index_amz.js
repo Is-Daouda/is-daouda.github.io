@@ -242,8 +242,19 @@ function isJsGetOtherPlayerFrame(id) {
 }
 
 function isJsGetOtherPlayerDisqualify(id) {
-	if (isJsPlayers[id].quit === 1) return 1;
 	return isJsPlayers[id].disqualify;
+}
+
+function isJsGetOtherPlayerQuit(id) {
+	return isJsPlayers[id].quit;
+}
+
+function isJsGetOtherPlayerFinish(id) {
+	return isJsPlayers[id].finish;
+}
+
+function isJsGetOtherPlayerLevelTime(id) {
+	return isJsPlayers[id].levelTime;
 }
 
 function isJsGetOtherPlayerPoint(id) {
@@ -282,14 +293,16 @@ function isJsSetPlayerData(point, usernameCode0, usernameCode1, usernameCode2, u
 	playerRef.set(players[playerId]);
 }
 
-function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, value) {
+function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, disqualify, finish, levelTime) {
 	players[playerId].x = x;
 	players[playerId].y = y;
 	players[playerId].xscale = xscale;
 	players[playerId].yscale = yscale;
 	players[playerId].angle = angle;
 	players[playerId].frame = frame;
-	players[playerId].disqualify = value;
+	players[playerId].disqualify = disqualify;
+	players[playerId].finish = finish;
+	players[playerId].levelTime;
 	playerRef.set(players[playerId]);
 }
 
@@ -320,6 +333,14 @@ function isJsRoomStepUpdate(value) {
 	});
 }
 
+function isJsisJsGameLevelValue() {
+	return players[playerId].isJsGameLevel;
+}
+
+function isJsisJsCrossWorldValue() {
+	return players[playerId].isJsCrossWorld;
+}
+
 function isJsAllPlayersReady() {
 	let playerReadyCount = 0;
 	Object.keys(players).forEach((key) => {
@@ -341,30 +362,30 @@ function addOtherPlayer(id) {
 		console.log("N : " + isJsPlayerCount);
 		timerSetAction("action_start_game");
 
-		if (isJsAvoidChangeRoom === 1 && isJsPlayerCount === 3) {
-			lockRoom();
+		if (isJsPlayerCount === 3) {
+			if (playerQuit === 1 || isJsAvoidChangeRoom === 1) lockRoom();
 		}
 	}	
 }
 
 function isJsStartMultiPlayerGame(level, crossworld) {
-	isJsGameLevel = level;
-	isJsCrossWorld =  crossworld;
-	
 	roomId = firebase.database().ref().child('rooms').push().key;
 	console.log("init id : " + roomId);
 	roomRef = firebase.database().ref(`rooms/${roomId}`);
 	roomRef.set({
 		id: roomId,
-		level: isJsGameLevel,
-		crossworld: isJsCrossWorld,
+		level: level,
+		crossworld: crossworld,
 		id_player: playerId,
 		player_quit: 0,
 		locked: 0
 	});
 	
+	players[playerId].isJsGameLevel = level;
+	players[playerId].isJsCrossWorld = crossworld;
 	players[playerId].isJsRoomStep = 1;
 	players[playerId].quit = 0;
+	players[playerId].finish = 0;
 	players[playerId].ready = 0;
 	players[playerId].roomId = roomId;
 	playerRef.set(players[playerId]);
@@ -379,9 +400,8 @@ function isJsStartMultiPlayerGame(level, crossworld) {
 
 function lockRoom() {
 	if (canLockRoom) {
-		roomRef.update({
-			locked: 1
-		});
+		rooms[roomId].locked = 1;
+		roomRef.set(rooms[roomId]);
 		canLockRoom = false;
 	}
 }
@@ -401,9 +421,11 @@ function leaveWithoutDanger(updateRoomStep)
 {
 	removeRoom();
 	roomId = "";
-	isJsMultiPlayerStarted = 0;
-	//players[playerId].isJsRoomStep = 0;
-	if (updateRoomStep) isJsRoomStepUpdate(0);
+	if (updateRoomStep) {
+		players[playerId].isJsMultiPlayerStarted = 0;
+		players[playerId].isJsRoomStep = 0;
+		playerRef.set(players[playerId]);
+	}
 }
 
 function isJsPlayerLeave() {
@@ -429,12 +451,25 @@ function isJsPlayerLeave() {
 			else if (isJsPlayerCount > 0) {
 				quitWithPenalize = 1;
 				alert("3");
-			}		
+			}
 		}
+		players[playerId].isJsMultiPlayerStarted = 0;
 		players[playerId].isJsRoomStep = 0;
 		players[playerId].quit = quitWithPenalize;
 		playerRef.set(players[playerId]);
 	}
+}
+
+function isJsConnected()
+{
+   try {
+       players[playerId].isJsRoomStep = 0;
+   }
+   catch(err) {
+       console.log("ERROR: Player disconnected!");
+       return 0;
+   }
+   return 1;
 }
 
 function isJsClearPrevMutliPlayerGame() {
@@ -448,6 +483,7 @@ function isJsClearPrevMutliPlayerGame() {
 				it++;
 			});
 			isJsPlayerCount = 0;
+			players[playerId].isJsMultiPlayerStarted = 0;
 			players[playerId].isJsRoomStep = 0;
 			players[playerId].quit = 0;
 			players[playerId].disqualify = 0;
@@ -488,7 +524,6 @@ function chrono() {
 		if (timerAction === "action_start_game") {
 			if (playerQuit === 1) {lockRoom(); console.log("OTHER LOCK ROOM!");}
 			console.log("GAME START!!!");
-			//players[playerId].isJsRoomStep = 3;
 			isJsRoomStepUpdate(3);
 		}
 		else if (timerAction === "action_quit_room") {
@@ -511,8 +546,9 @@ function initMultiPlayer() {
 		allRoomsRef.on("value", (snapshot) => {
 			try {
 				rooms = snapshot.val() || {};
-				let roomExists = false;
-				//if (isJsMultiPlayerStarted === 1) {				
+
+				if (players[playerId].isJsMultiPlayerStarted === 1) {
+					let roomExists = false;
 					Object.keys(rooms).forEach((key) => {
 						const room = rooms[key];
 						if (typeof(room) !== "undefined") {				
@@ -522,13 +558,11 @@ function initMultiPlayer() {
 										if (room.locked === 0) {
 											removeRoom();
 											roomId = room.id;
-											isJsGameLevel = room.level;
-											isJsCrossWorld = room.crossworld;
-											// roomRef = firebase.database().ref(`rooms/${roomId}`);
+											roomRef = firebase.database().ref(`rooms/${roomId}`);
 											roomExists = true;
 											canLockRoom = false;
-											//players[playerId].isJsRoomStep = 2;
-											//isJsRoomStepUpdate(2);
+											players[playerId].isJsGameLevel = room.level;
+											players[playerId].isJsCrossWorld = room.crossworld;											
 											players[playerId].isJsRoomStep = 2;
 											players[playerId].roomId = room.id;										
 											playerRef.set(players[playerId]);
@@ -538,38 +572,45 @@ function initMultiPlayer() {
 							}
 							else if (players[playerId].isJsRoomStep === 2) {
 								playerQuit = room.player_quit;
+								if (room.id_player !== playerId && playerQuit === 1) {
+									canLockRoom = false;
+								}
 							}
 						}
 					});
 					if (!roomExists) {
 						isJsAvoidChangeRoom = 1;
-						//players[playerId].isJsRoomStep = 2;
 						isJsRoomStepUpdate(2);
 					}
-				//}
+				}
 			}
-			catch(err) {console.log("ERROR: Room Loop()")}
+			catch(err) {console.log("ERROR: Rooms loop()")}
 		});
 		
 		allPlayersRef.on("value", (snapshot) => {
-			players = snapshot.val() || {};
-			//if (isJsMultiPlayerStarted === 1) {				
-				Object.keys(players).forEach((key) => {
-					if (players[key].roomId === roomId && players[key].id !== playerId) {
-						if (players[playerId].isJsRoomStep === 2) {
-							addOtherPlayer(key);
+			try {
+				players = snapshot.val() || {};
+
+				if (players[playerId].isJsMultiPlayerStarted === 1) {				
+					Object.keys(players).forEach((key) => {					
+						if (players[key].roomId === roomId && players[key].id !== playerId) {
+							if (players[playerId].isJsRoomStep === 2) {
+								addOtherPlayer(key);
+							}
+							else if (players[playerId].isJsRoomStep === 4) {
+								updateIsJsPlayers(key);
+							}
 						}
-						else if (players[playerId].isJsRoomStep === 4) {
-							updateIsJsPlayers(key);
-						}
-					}
-				});
-			//}
+					});
+				}
+			}
+			catch(err) {console.log("ERROR: Players loop()")}
 		});
 		
 		allPlayersRef.on("child_removed", (snapshot) => {
 			const key = snapshot.val().id;
 			if (key === playerId) isJsPlayerLeave();
+			//if (typeof(player) !== "undefined")) {}
 		})
 	}
 
@@ -584,16 +625,21 @@ function initMultiPlayer() {
 				id: playerId,
 				isJsId: 0,
 				isJsRoomStep: 0,
+				isJsMultiPlayerStarted: 0,
+				isJsGameLevel: 0,
+				isJsCrossWorld: 0,
 				roomId: "0",
-				quit: 0,
-				ready: 0,				
+				ready: 0,
+				quit: 0,			
 				x: 0,
 				y: 0,
 				xscale: 0,
 				yscale: 0,
 				angle: 0,
 				frame: 0,
+				levelTime: 0,
 				disqualify: 0,
+				finish: 0,
 				point: 0,
 				username_code0: -1,
 				username_code1: -1,

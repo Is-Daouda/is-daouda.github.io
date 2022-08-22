@@ -406,8 +406,8 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
     const snapshot = await ref.once('value');
 	try {
 		rooms = snapshot.val() || {};
-		if (typeof(players[playerId]) !== "undefined") {	
-			if (players[playerId].isJsMultiPlayerStarted === 1) {
+		//if (typeof(players[playerId]) !== "undefined") {	
+		//	if (players[playerId].isJsMultiPlayerStarted === 1) {
 				let roomExists = false;
 				Object.keys(rooms).forEach((key) => {
 					const room = rooms[key];
@@ -445,8 +445,8 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 					playerRef.set(players[playerId]);
 					alert("create");
 				}
-			}
-		}
+			//}
+		//}
 	}
 	catch(err) {console.log(err);}
 	

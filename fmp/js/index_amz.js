@@ -330,6 +330,7 @@ function isJsRoomStepUpdate(value) {
 }
 
 function isJsGameLevelValue() {
+	alert("lvl : " + players[playerId].isJsGameLevel);
 	return players[playerId].isJsGameLevel;
 }
 
@@ -338,6 +339,7 @@ function isJsCrossWorldValue() {
 }
 
 function isJsAvoidChangeRoomValue() {
+	alert("c room : " + players[playerId].isJsAvoidChangeRoom);
 	return players[playerId].isJsAvoidChangeRoom;
 }
 

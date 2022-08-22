@@ -193,6 +193,7 @@ var roomId;
 
 var isJsPlayers = {};
 var canLockRoom = true;
+var playerQuit = 0;
 
 var timeWait = -1;
 var TIME_WAIT_MAX = 15;

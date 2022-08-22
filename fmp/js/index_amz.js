@@ -377,13 +377,12 @@ function addOtherPlayer(id) {
 	}	
 }
 
-async function isJsStartMultiPlayerGame(level, crossworld) {	
+async function isJsStartMultiPlayerGame(level, crossworld) {
+	let roomExists = false;
     let ref = firebase.database().ref(`rooms`);
     const snapshot = await ref.once('value');
 	try {
 		rooms = snapshot.val() || {};
-
-		let roomExists = false;
 		Object.keys(rooms).forEach((key) => {
 			const room = rooms[key];
 			if (typeof(room) !== "undefined") {

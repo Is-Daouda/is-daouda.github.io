@@ -387,14 +387,13 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 		Object.keys(rooms).forEach((key) => {
 			const room = rooms[key];
 			if (typeof(room) !== "undefined") {
-					if (room.locked === 0) {
-						roomId = room.id;
-						roomExists = true;
-						canLockRoom = false;
-						players[playerId].isJsGameLevel = room.level;
-						players[playerId].isJsCrossWorld = room.crossworld;											
-						players[playerId].roomId = room.id;
-					}
+				if (room.locked === 0) {
+					roomId = room.id;
+					roomExists = true;
+					canLockRoom = false;
+					players[playerId].isJsGameLevel = room.level;
+					players[playerId].isJsCrossWorld = room.crossworld;											
+					players[playerId].roomId = room.id;
 				}
 			}
 		});

@@ -607,7 +607,7 @@ function initMultiPlayer() {
 			const addedRoom = snapshot.val();
 			if (addedRoom.id === roomId) {
 				try {
-					await allRoomsRef.on("value", (snapshot2) => {
+					await allRoomsRef.once("value", (snapshot2) => {
 						rooms = snapshot2.val() || {};
 						if (typeof(players[playerId]) !== "undefined") {	
 							if (players[playerId].isJsMultiPlayerStarted === 1) {

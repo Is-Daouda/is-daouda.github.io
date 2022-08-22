@@ -650,7 +650,7 @@ function initMultiPlayer() {
 								}
 							}
 						}
-					}
+					});
 				}
 				catch(err) {console.log(/*"ERROR: Rooms loop()"*/err);}
 			}

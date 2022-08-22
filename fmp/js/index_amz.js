@@ -603,11 +603,11 @@ function initMultiPlayer() {
 		});
 		*/
 		
-		allPlayersRef.on("child_added", async function(snapshot) => {
+		allPlayersRef.on("child_added", async function(snapshot) {
 			const addedRoom = snapshot.val();
 			if (addedRoom.id === roomId) {
 				try {
-					await allRoomsRef.once("value", (snapshot2) => {
+					let result = await allRoomsRef.once("value", (snapshot2) => {
 						rooms = snapshot2.val() || {};
 						if (typeof(players[playerId]) !== "undefined") {	
 							if (players[playerId].isJsMultiPlayerStarted === 1) {
@@ -629,6 +629,7 @@ function initMultiPlayer() {
 														players[playerId].roomId = room.id;										
 														playerRef.set(players[playerId]);
 														alert("joint");
+														return true;
 													}
 												}	
 											}
@@ -647,6 +648,7 @@ function initMultiPlayer() {
 									players[playerId].isJsRoomStep = 2;
 									playerRef.set(players[playerId]);
 									alert("create");
+									return true;
 								}
 							}
 						}

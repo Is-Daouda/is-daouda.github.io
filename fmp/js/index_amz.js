@@ -437,7 +437,6 @@ function isJsPlayerLeave() {
 		if (players[playerId].isJsRoomStep === 4) {
 			players[playerId].disqualify = 1;
 			quitWithPenalize = 1;
-			alert("4");
 		}
 		else {
 			if (isJsAvoidChangeRoom === 1) {
@@ -594,18 +593,19 @@ function initMultiPlayer() {
 		allPlayersRef.on("value", (snapshot) => {
 			try {
 				players = snapshot.val() || {};
-
-				if (players[playerId].isJsMultiPlayerStarted === 1) {				
-					Object.keys(players).forEach((key) => {					
-						if (players[key].roomId === roomId && players[key].id !== playerId) {
-							if (players[playerId].isJsRoomStep === 2) {
-								addOtherPlayer(key);
+				if (typeof(players[playerId]) !== "undefined") {
+					if (players[playerId].isJsMultiPlayerStarted === 1) {				
+						Object.keys(players).forEach((key) => {					
+							if (players[key].roomId === roomId && players[key].id !== playerId) {
+								if (players[playerId].isJsRoomStep === 2) {
+									addOtherPlayer(key);
+								}
+								else if (players[playerId].isJsRoomStep === 4) {
+									updateIsJsPlayers(key);
+								}
 							}
-							else if (players[playerId].isJsRoomStep === 4) {
-								updateIsJsPlayers(key);
-							}
-						}
-					});
+						});
+					}
 				}
 			}
 			catch(err) {console.log(/*"ERROR: Players loop()"*/err)}

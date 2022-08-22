@@ -611,7 +611,7 @@ function initMultiPlayer() {
 			if (addedRoom.id === roomId) {
 				updateRooms(snapshot);
 			}
-		}
+		});
 		
 		allPlayersRef.on("value", (snapshot) => {
 			try {

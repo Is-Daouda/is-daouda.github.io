@@ -339,7 +339,6 @@ function isJsCrossWorldValue() {
 }
 
 function isJsAvoidChangeRoomValue() {
-	alert("c room : " + players[playerId].isJsAvoidChangeRoom);
 	return players[playerId].isJsAvoidChangeRoom;
 }
 
@@ -577,6 +576,7 @@ function initMultiPlayer() {
 												players[playerId].isJsRoomStep = 2;
 												players[playerId].roomId = room.id;										
 												playerRef.set(players[playerId]);
+												alert("joint");
 											}
 										}	
 									}
@@ -594,6 +594,7 @@ function initMultiPlayer() {
 							players[playerId].isJsAvoidChangeRoom = 1;
 							players[playerId].isJsRoomStep = 2;
 							playerRef.set(players[playerId]);
+							alert("create");
 						}
 					}
 				}

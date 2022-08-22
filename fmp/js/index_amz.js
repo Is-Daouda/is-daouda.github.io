@@ -342,8 +342,7 @@ function isJsAvoidChangeRoomValue() {
 }
 
 function isJsPlayerCountValue() {
-	return 0;
-	//return players[playerId].isJsPlayerCount;
+	return players[playerId].isJsPlayerCount;
 }
 
 function isJsAllPlayersReady() {

@@ -610,7 +610,7 @@ function initMultiPlayer() {
 		
 		allPlayersRef.on("child_removed", (snapshot) => {
 			const key = snapshot.val().id;
-			if (key === playerId) isJsPlayerLeave();
+			//if (key === playerId) isJsPlayerLeave();
 			//if (typeof(player) !== "undefined")) {}
 		})
 	}

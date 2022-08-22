@@ -462,7 +462,8 @@ function isJsPlayerLeave() {
 function isJsConnected()
 {
    try {
-       players[playerId].isJsRoomStep = 0;
+       players[playerId].isJsRoomStep = 1;
+	   return 1;
    }
    catch(err) {
        console.log("ERROR: Player disconnected!");

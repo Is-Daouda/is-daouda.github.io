@@ -360,8 +360,9 @@ function addOtherPlayer(id) {
 	if (!playersKey[id]) {
 		playersKey[id] = id;
 		isJsPlayers[players[playerId].isJsPlayerCount] = players[id];
-		isJsPlayers[players[playerId].isJsPlayerCount].isJsId = isJsPlayerCount; // Allows to check data
-		console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[players[playerId].isJsPlayerCount].isJsId);						
+		isJsPlayers[players[playerId].isJsPlayerCount].isJsId = players[playerId].isJsPlayerCount; // Allows to check data
+		console.log("log : " + playersKey[id] + " > pid : " + playerId + 
+					" > : " + isJsPlayers[players[playerId].isJsPlayerCount].isJsId);						
 		players[playerId].isJsPlayerCount++;
 		console.log("N : " + players[playerId].isJsPlayerCount);
 		let tempTime = TIME_WAIT_DEFAULT;

@@ -201,6 +201,7 @@ var canLockRoom = true;
 
 var timeWait = -1;
 var TIME_WAIT_MAX = 15;
+const TIME_WAIT_DEFAULT = 7;
 var timerAction = "";
 
 // ---------------------- TIMER FUNCTIONS ----------------------
@@ -209,7 +210,7 @@ function timerStop() {
 	timeWait = -1;
 }
 
-function timerSetAction(action, time = 7) {
+function timerSetAction(action, time = TIME_WAIT_DEFAULT) {
 	timeWait = 0;
 	TIME_WAIT_MAX = time;
 	timerAction = action;
@@ -360,11 +361,13 @@ function addOtherPlayer(id) {
 		console.log("log : " + playersKey[id] + " > pid : " + playerId + " > : " + isJsPlayers[isJsPlayerCount].isJsId);						
 		isJsPlayerCount++;
 		console.log("N : " + isJsPlayerCount);
-		timerSetAction("action_start_game");
-
+		let tempTime = TIME_WAIT_DEFAULT;
 		if (isJsPlayerCount === 3) {
 			if (playerQuit === 1 || isJsAvoidChangeRoom === 1) lockRoom();
+			tempTime = 1;
+			
 		}
+		timerSetAction("action_start_game", tempTime);
 	}	
 }
 

@@ -407,7 +407,7 @@ function lockRoom() {
 
 function removeRoom() {
 	try {
-		roomRef.remove();
+		if (typeof(roomRef) !== "undefined") roomRef.remove();
 	}
 	catch(err) {console.log(err);}
 	let it = 0;

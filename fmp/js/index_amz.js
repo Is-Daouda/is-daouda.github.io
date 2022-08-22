@@ -553,8 +553,8 @@ function initMultiPlayer() {
 	function initMultiPlayerSubFunctions() {
 		const allPlayersRef = firebase.database().ref(`players`);
 		const allRoomsRef = firebase.database().ref(`rooms`);
-		
-		function updateRooms(snapshot) {
+		/*
+		allRoomsRef.on("value", (snapshot) => {
 			try {
 				rooms = snapshot.val() || {};
 				if (typeof(players[playerId]) !== "undefined") {	
@@ -599,17 +599,58 @@ function initMultiPlayer() {
 					}
 				}
 			}
-			catch(err) {console.log(/*"ERROR: Rooms loop()"*/err);}		
-		}
-		
-		allRoomsRef.on("value", (snapshot) => {
-			updateRooms(snapshot);
+			catch(err) {console.log(/*"ERROR: Rooms loop()"*/err);}
 		});
+		*/
 		
-		allRoomsRef.on("child_added", (snapshot) => {
+		allPlayersRef.on("child_added", (snapshot) => {
 			const addedRoom = snapshot.val();
 			if (addedRoom.id === roomId) {
-				updateRooms(snapshot);
+				try {
+					rooms = snapshot.val() || {};
+					if (typeof(players[playerId]) !== "undefined") {	
+						if (players[playerId].isJsMultiPlayerStarted === 1) {
+							let roomExists = false;
+							Object.keys(rooms).forEach((key) => {
+								const room = rooms[key];
+								if (typeof(room) !== "undefined") {				
+									if (players[playerId].isJsRoomStep === 1) {
+										if (players[playerId].isJsAvoidChangeRoom === 0) {
+											if (room.id != roomId) {
+												if (room.locked === 0) {
+													removeRoom();
+													roomId = room.id;
+													roomExists = true;
+													canLockRoom = false;
+													players[playerId].isJsGameLevel = room.level;
+													players[playerId].isJsCrossWorld = room.crossworld;											
+													players[playerId].isJsRoomStep = 2;
+													players[playerId].roomId = room.id;										
+													playerRef.set(players[playerId]);
+													alert("joint");
+												}
+											}	
+										}
+									}
+									else if (players[playerId].isJsRoomStep === 2) {
+										playerQuit = room.player_quit;
+										if (room.id_player !== playerId && playerQuit === 1 && !canLockRoom) {
+											roomRef = firebase.database().ref(`rooms/${roomId}`);
+											canLockRoom = true;
+										}
+									}
+								}
+							});
+							if (!roomExists) {
+								players[playerId].isJsAvoidChangeRoom = 1;
+								players[playerId].isJsRoomStep = 2;
+								playerRef.set(players[playerId]);
+								alert("create");
+							}
+						}
+					}
+				}
+				catch(err) {console.log(/*"ERROR: Rooms loop()"*/err);}
 			}
 		});
 		

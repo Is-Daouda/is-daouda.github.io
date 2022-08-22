@@ -430,8 +430,9 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 
 function lockRoom() {
 	if (canLockRoom) {
-		rooms[roomId].locked = 1;
-		roomRef.set(rooms[roomId]);
+		roomRef.update({
+					locked: 1
+		});
 		canLockRoom = false;
 	}
 }

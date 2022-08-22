@@ -333,11 +333,11 @@ function isJsRoomStepUpdate(value) {
 	});
 }
 
-function isJsisJsGameLevelValue() {
+function isJsGameLevelValue() {
 	return players[playerId].isJsGameLevel;
 }
 
-function isJsisJsCrossWorldValue() {
+function isJsCrossWorldValue() {
 	return players[playerId].isJsCrossWorld;
 }
 

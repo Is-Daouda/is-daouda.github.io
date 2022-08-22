@@ -378,18 +378,6 @@ function addOtherPlayer(id) {
 }
 
 function isJsStartMultiPlayerGame(level, crossworld) {
-	players[playerId].isJsGameLevel = level;
-	players[playerId].isJsCrossWorld = crossworld;
-	players[playerId].isJsRoomStep = 1;
-	players[playerId].isJsMultiPlayerStarted = 1;
-	players[playerId].isJsAvoidChangeRoom = 0;
-	players[playerId].isJsPlayerCount = 0;
-	players[playerId].quit = 0;
-	players[playerId].finish = 0;
-	players[playerId].ready = 0;
-	players[playerId].roomId = roomId;
-	playerRef.set(players[playerId]);
-	
 	roomId = firebase.database().ref().child('rooms').push().key;
 	console.log("init id : " + roomId);
 	roomRef = firebase.database().ref(`rooms/${roomId}`);
@@ -402,6 +390,18 @@ function isJsStartMultiPlayerGame(level, crossworld) {
 		locked: 0
 	});
 	
+	players[playerId].isJsGameLevel = level;
+	players[playerId].isJsCrossWorld = crossworld;
+	players[playerId].isJsRoomStep = 1;
+	players[playerId].isJsMultiPlayerStarted = 1;
+	players[playerId].isJsAvoidChangeRoom = 0;
+	players[playerId].isJsPlayerCount = 0;
+	players[playerId].quit = 0;
+	players[playerId].finish = 0;
+	players[playerId].ready = 0;
+	players[playerId].roomId = roomId;
+	playerRef.set(players[playerId]);
+
 	canLockRoom = true;
 	playerQuit = 0;
 	timerSetAction("action_quit_room", 15);
@@ -553,8 +553,8 @@ function initMultiPlayer() {
 	function initMultiPlayerSubFunctions() {
 		const allPlayersRef = firebase.database().ref(`players`);
 		const allRoomsRef = firebase.database().ref(`rooms`);
-			
-		allRoomsRef.on("value", (snapshot) => {
+		
+		function updateRooms(snapshot) {
 			try {
 				rooms = snapshot.val() || {};
 				if (typeof(players[playerId]) !== "undefined") {	
@@ -599,8 +599,19 @@ function initMultiPlayer() {
 					}
 				}
 			}
-			catch(err) {console.log(/*"ERROR: Rooms loop()"*/err);}
+			catch(err) {console.log(/*"ERROR: Rooms loop()"*/err);}		
+		}
+		
+		allRoomsRef.on("value", (snapshot) => {
+			updateRooms(snapshot);
 		});
+		
+		allRoomsRef.on("child_added", (snapshot) => {
+			const addedRoom = snapshot.val();
+			if (addedRoom.id === roomId) {
+				updateRooms(snapshot);
+			}
+		}
 		
 		allPlayersRef.on("value", (snapshot) => {
 			try {

@@ -584,7 +584,7 @@ function initMultiPlayer() {
 					}
 				}
 			}
-			catch(err) {console.log("ERROR: Rooms loop()")}
+			catch(err) {console.log(/*"ERROR: Rooms loop()"*/err);}
 		});
 		
 		allPlayersRef.on("value", (snapshot) => {
@@ -604,7 +604,7 @@ function initMultiPlayer() {
 					});
 				}
 			}
-			catch(err) {console.log("ERROR: Players loop()")}
+			catch(err) {console.log(/*"ERROR: Players loop()"*/err)}
 		});
 		
 		allPlayersRef.on("child_removed", (snapshot) => {

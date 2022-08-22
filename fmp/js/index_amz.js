@@ -563,7 +563,6 @@ function initMultiPlayer() {
 											if (room.locked === 0) {
 												removeRoom();
 												roomId = room.id;
-												roomRef = firebase.database().ref(`rooms/${roomId}`);
 												roomExists = true;
 												canLockRoom = false;
 												players[playerId].isJsGameLevel = room.level;
@@ -577,8 +576,9 @@ function initMultiPlayer() {
 								}
 								else if (players[playerId].isJsRoomStep === 2) {
 									playerQuit = room.player_quit;
-									if (room.id_player !== playerId && playerQuit === 1) {
-										canLockRoom = false;
+									if (room.id_player !== playerId && playerQuit === 1 && !canLockRoom) {
+										roomRef = firebase.database().ref(`rooms/${roomId}`);
+										canLockRoom = true;
 									}
 								}
 							}

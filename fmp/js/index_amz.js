@@ -603,11 +603,11 @@ function initMultiPlayer() {
 		});
 		*/
 		
-		allPlayersRef.on("child_added", (snapshot) => {
+		allPlayersRef.on("child_added", async function(snapshot) => {
 			const addedRoom = snapshot.val();
 			if (addedRoom.id === roomId) {
 				try {
-					allRoomsRef.on("value", (snapshot2) => {
+					await allRoomsRef.on("value", (snapshot2) => {
 						rooms = snapshot2.val() || {};
 						if (typeof(players[playerId]) !== "undefined") {	
 							if (players[playerId].isJsMultiPlayerStarted === 1) {

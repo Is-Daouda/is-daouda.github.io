@@ -206,23 +206,6 @@ function hideLoadingScreen() {
 ////////////////////////////////////////////////////////////////////////////
 //							MULTI PLAYER
 ////////////////////////////////////////////////////////////////////////////
-loadScriptsInOrder(['https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js', 
-					'https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js',
-					'https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js']).then(function () {
-// ---------------------- DATABASE ----------------------
-/////// Database ///////
-const firebaseConfig = {
-apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
-	authDomain: "ict-html5.firebaseapp.com",
-	databaseURL: "https://ict-html5-default-rtdb.firebaseio.com",
-	projectId: "ict-html5",
-	storageBucket: "ict-html5.appspot.com",
-	messagingSenderId: "792013620073",
-	appId: "1:792013620073:web:480e1943e47fc9b3fd73f8"
-};
-  
-firebase.initializeApp(firebaseConfig);
-});
 
 // ---------------------- VARIABLES ----------------------
 var playerId;
@@ -813,7 +796,7 @@ window.Module = {
 	onRuntimeInitialized: function() {
 		//isJsShowGameAds();
 		hideLoadingScreen();
-		initMultiPlayer();
+		//initMultiPlayer();
 		
 		for(ms of [0, 100, 1000, 3000]) {
 			window.setTimeout(onResize, ms);
@@ -848,3 +831,23 @@ loadScriptAsync(rscLink + "isengine.js");
 function randJs(maxValue) {
 	return Math.floor(Math.random() * maxValue);
 }
+
+loadScriptsInOrder(['https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js', 
+					'https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js',
+					'https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js']).then(function () {
+// ---------------------- DATABASE ----------------------
+/////// Database ///////
+const firebaseConfig = {
+apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
+	authDomain: "ict-html5.firebaseapp.com",
+	databaseURL: "https://ict-html5-default-rtdb.firebaseio.com",
+	projectId: "ict-html5",
+	storageBucket: "ict-html5.appspot.com",
+	messagingSenderId: "792013620073",
+	appId: "1:792013620073:web:480e1943e47fc9b3fd73f8"
+};
+  
+firebase.initializeApp(firebaseConfig);
+
+initMultiPlayer();
+});

@@ -97,7 +97,7 @@ function isJsAndroidShowInterstitialAds() {
 }
 
 // Ads
-function isJsShowGameAds() {
+function isJsShowGameAds() {/*
 	if (isJsUseAndroidAds() === 1) {
 		isJsAndroidShowInterstitialAds();
 	}
@@ -105,7 +105,7 @@ function isJsShowGameAds() {
 		document.getElementById('3').click();
 		document.getElementById('adspopup').style.display = "block";
 		showAds = 1;	
-	}
+	}*/
 }
 
 function hideAds() {
@@ -504,7 +504,7 @@ function isJsConnected()
 
 function isJsClearPrevMutliPlayerGame() {
 	try {
-		if (players[playerId].isJsRoomStep === 4) {
+		//if (players[playerId].isJsRoomStep === 4) {
 			let it = 0;
 			Object.keys(players).forEach((key) => {
 				delete playersKey[key];
@@ -520,9 +520,9 @@ function isJsClearPrevMutliPlayerGame() {
 			players[playerId].ready = 0;
 			players[playerId].roomId = playerId;
 			playerRef.set(players[playerId]);			
-		}
+		//}
 	}
-	catch(err) {console.log("ERROR: Can't clear previous game!");}
+	catch(err) {console.log("ERROR: Clear data : " + err);}
 }
 
 // ---------------------------------------------------

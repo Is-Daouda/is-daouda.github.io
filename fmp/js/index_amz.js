@@ -410,6 +410,7 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 			canLockRoom = true;
 			players[playerId].isJsGameLevel = level;
 			players[playerId].isJsCrossWorld = crossworld;
+			timerSetAction("action_quit_room", 15);
 		}
 	}
 	catch(err) {console.log(err);}
@@ -423,7 +424,6 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 	players[playerId].ready = 0;
 	players[playerId].roomId = roomId;
 	playerRef.set(players[playerId]);
-	timerSetAction("action_quit_room", 15);
 }
 
 function lockRoom() {

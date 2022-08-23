@@ -600,20 +600,6 @@ function initMultiPlayer() {
 				if (players[playerId].isJsMultiPlayerStarted === 1) {
 					const key = snapshot.val().id;
 					if (key === playerId) isJsPlayerLeave();
-					/*else {
-						if (players[playerId].isJsRoomStep === 2 || players[playerId].isJsRoomStep === 3) {
-							if (playersKey[key]) {
-								for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
-									if (isJsPlayers[id].id === key) {
-										delete playersKey[key];
-										delete isJsPlayers[id];
-										players[playerId].isJsPlayerCount--;
-										playerRef.set(players[playerId]);
-									}
-								}
-							}
-						}			
-					}*/
 				}
 			}
 		});

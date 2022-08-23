@@ -358,21 +358,23 @@ function isJsAllPlayersReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 function addOtherPlayer(id) {
-	if (!playersKey[id]) {
-		playersKey[id] = id;
-		isJsPlayers[players[playerId].isJsPlayerCount] = players[id];
-		isJsPlayers[players[playerId].isJsPlayerCount].isJsId = players[playerId].isJsPlayerCount; // Allows to check data
-		console.log("log : " + playersKey[id] + " > pid : " + playerId + 
-					" > : " + isJsPlayers[players[playerId].isJsPlayerCount].isJsId);						
-		players[playerId].isJsPlayerCount++;
-		console.log("N : " + players[playerId].isJsPlayerCount);
-		let tempTime = TIME_WAIT_DEFAULT;
-		if (players[playerId].isJsPlayerCount === 3) {
-			if (playerQuit === 1 || players[playerId].isJsAvoidChangeRoom === 1) lockRoom();
-			tempTime = 1;
+	if (players[playerId].isJsPlayerCount < 3) {
+		if (!playersKey[id]) {
+			playersKey[id] = id;
+			isJsPlayers[players[playerId].isJsPlayerCount] = players[id];
+			isJsPlayers[players[playerId].isJsPlayerCount].isJsId = players[playerId].isJsPlayerCount; // Allows to check data
+			console.log("log : " + playersKey[id] + " > pid : " + playerId + 
+						" > : " + isJsPlayers[players[playerId].isJsPlayerCount].isJsId);						
+			players[playerId].isJsPlayerCount++;
+			console.log("N : " + players[playerId].isJsPlayerCount);
+			let tempTime = TIME_WAIT_DEFAULT;
+			if (players[playerId].isJsPlayerCount === 3) {
+				if (playerQuit === 1 || players[playerId].isJsAvoidChangeRoom === 1) lockRoom();
+				tempTime = 1;
+			}
+			timerSetAction("action_start_game", tempTime);
+			playerRef.set(players[playerId]);		
 		}
-		timerSetAction("action_start_game", tempTime);
-		playerRef.set(players[playerId]);
 	}	
 }
 
@@ -396,7 +398,6 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 		});
 		if (!roomExists) {
 			roomId = firebase.database().ref().child('rooms').push().key;
-			console.log("init id : " + roomId);
 			roomRef = firebase.database().ref(`rooms/${roomId}`);
 			roomRef.set({
 				id: roomId,

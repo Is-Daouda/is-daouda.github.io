@@ -197,7 +197,8 @@ var canLockRoom = true;
 var playerQuit = 0;
 
 var timeWait = -1;
-var TIME_WAIT_MAX = 15;
+var TIME_WAIT_MAX = 0;
+var TIME_QUIT_ROOM = 10;
 const TIME_WAIT_DEFAULT = 7;
 var timerAction = "";
 
@@ -434,7 +435,7 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 			
 			players[playerId].isJsGameLevel = level;
 			players[playerId].isJsCrossWorld = crossworld;
-			timerSetAction("action_quit_room", 15);
+			timerSetAction("action_quit_room", TIME_QUIT_ROOM);
 		}
 	}
 	catch(err) {console.log(err);}

@@ -167,6 +167,21 @@ function hideLoadingScreen() {
 //							MULTI PLAYER
 ////////////////////////////////////////////////////////////////////////////
 
+// ---------------------- DATABASE ----------------------
+function initMultiPlayerDB() {
+	const firebaseConfig = {
+	apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
+		authDomain: "ict-html5.firebaseapp.com",
+		databaseURL: "https://ict-html5-default-rtdb.firebaseio.com",
+		projectId: "ict-html5",
+		storageBucket: "ict-html5.appspot.com",
+		messagingSenderId: "792013620073",
+		appId: "1:792013620073:web:480e1943e47fc9b3fd73f8"
+	};
+	  
+	firebase.initializeApp(firebaseConfig);
+}
+
 // ---------------------- VARIABLES ----------------------
 var playerId;
 var playerRef;
@@ -339,6 +354,17 @@ function isJsAllPlayersReady() {
 			playerReadyCount++;
 		}
 	});
+	
+	for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
+		try {
+			if (players[isJsPlayers[id].id].ready === 1) {/*Check if player is connected*/}
+		}
+		catch(err) {
+			console.log("ERROR: A Player has left the game!");
+			playerReadyCount++;
+			isJsPlayers[id].quit = 1;
+		}
+	}
 	return ((playerReadyCount > players[playerId].isJsPlayerCount) ? 1 : 0);
 }
 
@@ -457,11 +483,13 @@ function isJsPlayerLeave() {
 			if (players[playerId].isJsAvoidChangeRoom === 1) {
 				if (players[playerId].isJsPlayerCount === 0) {
 					leaveWithoutDanger(false);
+					alert("1");
 				}
 				else {
 					rooms.player_quit = 1;
 					roomRef.set(rooms[roomId]);
 					quitWithPenalize = 1;
+					alert("2");
 				}
 			}
 			else if (players[playerId].isJsPlayerCount > 0) {
@@ -608,7 +636,7 @@ function initMultiPlayer() {
 				if (players[playerId].isJsMultiPlayerStarted === 1) {
 					const key = snapshot.val().id;
 					if (key === playerId) isJsPlayerLeave();
-					else {
+					/*else {
 						if (players[playerId].isJsRoomStep === 2 || players[playerId].isJsRoomStep === 3) {
 							if (playersKey[key]) {
 								for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
@@ -621,7 +649,7 @@ function initMultiPlayer() {
 								}
 							}
 						}			
-					}
+					}*/
 				}
 			}
 		});
@@ -792,6 +820,7 @@ function randJs(maxValue) {
 	return Math.floor(Math.random() * maxValue);
 }
 
+// Load firebase
 let myScript1 = document.createElement("script");
 myScript1.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
 document.body.appendChild(myScript1);
@@ -807,21 +836,7 @@ myScript1.addEventListener("load", () => {
 		document.body.appendChild(myScript3);
 		
 		myScript3.addEventListener("load", () => {
-
-// ---------------------- DATABASE ----------------------
-			/////// Database ///////
-			const firebaseConfig = {
-			apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
-				authDomain: "ict-html5.firebaseapp.com",
-				databaseURL: "https://ict-html5-default-rtdb.firebaseio.com",
-				projectId: "ict-html5",
-				storageBucket: "ict-html5.appspot.com",
-				messagingSenderId: "792013620073",
-				appId: "1:792013620073:web:480e1943e47fc9b3fd73f8"
-			};
-			  
-			firebase.initializeApp(firebaseConfig);
-
+			initMultiPlayerDB();
 			initMultiPlayer();
 			}, false);
 		}, false);

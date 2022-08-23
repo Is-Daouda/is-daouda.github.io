@@ -823,6 +823,6 @@ myScript1.addEventListener("load", () => {
 			firebase.initializeApp(firebaseConfig);
 
 			initMultiPlayer();
-			});
-		});
+			}, false);
+		}, false);
 }, false);

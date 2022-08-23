@@ -331,7 +331,6 @@ function isJsRoomStepUpdate(value) {
 }
 
 function isJsGameLevelValue() {
-	alert("lvl : " + players[playerId].isJsGameLevel);
 	return players[playerId].isJsGameLevel;
 }
 
@@ -371,7 +370,6 @@ function addOtherPlayer(id) {
 		if (players[playerId].isJsPlayerCount === 3) {
 			if (playerQuit === 1 || players[playerId].isJsAvoidChangeRoom === 1) lockRoom();
 			tempTime = 1;
-			
 		}
 		timerSetAction("action_start_game", tempTime);
 		playerRef.set(players[playerId]);
@@ -576,35 +574,16 @@ function initMultiPlayer() {
 	function initMultiPlayerSubFunctions() {
 		const allPlayersRef = firebase.database().ref(`players`);
 		const allRoomsRef = firebase.database().ref(`rooms`);
-		/*
+
 		allRoomsRef.on("value", (snapshot) => {
 			try {
 				rooms = snapshot.val() || {};
-				if (typeof(players[playerId]) !== "undefined") {	
-					if (players[playerId].isJsMultiPlayerStarted === 1) {
-						let roomExists = false;
+				if (typeof(players[playerId]) !== "undefined") {
+					if (players[playerId].isJsMultiPlayerStarted === 1 && players[playerId].isJsRoomStep === 2) {
 						Object.keys(rooms).forEach((key) => {
 							const room = rooms[key];
-							if (typeof(room) !== "undefined") {				
-								if (players[playerId].isJsRoomStep === 1) {
-									if (players[playerId].isJsAvoidChangeRoom === 0) {
-										if (room.id != roomId) {
-											if (room.locked === 0) {
-												removeRoom();
-												roomId = room.id;
-												roomExists = true;
-												canLockRoom = false;
-												players[playerId].isJsGameLevel = room.level;
-												players[playerId].isJsCrossWorld = room.crossworld;											
-												players[playerId].isJsRoomStep = 2;
-												players[playerId].roomId = room.id;										
-												playerRef.set(players[playerId]);
-												alert("joint");
-											}
-										}	
-									}
-								}
-								else if (players[playerId].isJsRoomStep === 2) {
+							if (typeof(room) !== "undefined") {
+								if (room.id === roomId && room.locked === 0) {
 									playerQuit = room.player_quit;
 									if (room.id_player !== playerId && playerQuit === 1 && !canLockRoom) {
 										roomRef = firebase.database().ref(`rooms/${roomId}`);
@@ -613,75 +592,12 @@ function initMultiPlayer() {
 								}
 							}
 						});
-						if (!roomExists) {
-							players[playerId].isJsAvoidChangeRoom = 1;
-							players[playerId].isJsRoomStep = 2;
-							playerRef.set(players[playerId]);
-							alert("create");
-						}
 					}
 				}
 			}
 			catch(err) {console.log(err);}
 		});
-		*/
-		
-		/*allPlayersRef.on("child_added", async function(snapshot) {
-			const addedRoom = snapshot.val();
-			if (addedRoom.id === roomId) {
-				try {
-					let result = await allRoomsRef.once("value", (snapshot2) => {
-						rooms = snapshot2.val() || {};
-						if (typeof(players[playerId]) !== "undefined") {	
-							if (players[playerId].isJsMultiPlayerStarted === 1) {
-								let roomExists = false;
-								Object.keys(rooms).forEach((key) => {
-									const room = rooms[key];
-									if (typeof(room) !== "undefined") {				
-										if (players[playerId].isJsRoomStep === 1) {
-											if (players[playerId].isJsAvoidChangeRoom === 0) {
-												if (room.id != roomId) {
-													if (room.locked === 0) {
-														removeRoom();
-														roomId = room.id;
-														roomExists = true;
-														canLockRoom = false;
-														players[playerId].isJsGameLevel = room.level;
-														players[playerId].isJsCrossWorld = room.crossworld;											
-														players[playerId].isJsRoomStep = 2;
-														players[playerId].roomId = room.id;										
-														playerRef.set(players[playerId]);
-														alert("joint");
-														return true;
-													}
-												}	
-											}
-										}
-										else if (players[playerId].isJsRoomStep === 2) {
-											playerQuit = room.player_quit;
-											if (room.id_player !== playerId && playerQuit === 1 && !canLockRoom) {
-												roomRef = firebase.database().ref(`rooms/${roomId}`);
-												canLockRoom = true;
-											}
-										}
-									}
-								});
-								if (!roomExists) {
-									players[playerId].isJsAvoidChangeRoom = 1;
-									players[playerId].isJsRoomStep = 2;
-									playerRef.set(players[playerId]);
-									alert("create");
-									return true;
-								}
-							}
-						}
-					});
-				}
-				catch(err) {console.log(err);}
-			}
-		});
-		*/
-		
+
 		allPlayersRef.on("value", (snapshot) => {
 			try {
 				players = snapshot.val() || {};
@@ -700,14 +616,31 @@ function initMultiPlayer() {
 					}
 				}
 			}
-			catch(err) {console.log(/*"ERROR: Players loop()"*/err)}
+			catch(err) {console.log("ERROR: Players loop() : " + err)}
 		});
 		
 		allPlayersRef.on("child_removed", (snapshot) => {
-			const key = snapshot.val().id;
-			//if (key === playerId) isJsPlayerLeave();
-			//if (typeof(player) !== "undefined")) {}
-		})
+			if (typeof(players[playerId]) !== "undefined") {
+				if (players[playerId].isJsMultiPlayerStarted === 1) {
+					const key = snapshot.val().id;
+					if (key === playerId) isJsPlayerLeave();
+					else {
+						if (players[playerId].isJsRoomStep === 2 || players[playerId].isJsRoomStep === 3) {
+							if (playersKey[key]) {
+								for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
+									if (isJsPlayers[id].id === key) {
+										delete playersKey[key];
+										delete isJsPlayers[id];
+										players[playerId].isJsPlayerCount--;
+										playerRef.set(players[playerId]);
+									}
+								}
+							}
+						}			
+					}
+				}
+			}
+		});
 	}
 
 	firebase.auth().onAuthStateChanged((user) => {

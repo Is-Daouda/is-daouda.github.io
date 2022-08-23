@@ -390,8 +390,7 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 					roomExists = true;
 					canLockRoom = false;
 					players[playerId].isJsGameLevel = room.level;
-					players[playerId].isJsCrossWorld = room.crossworld;											
-					players[playerId].roomId = room.id;
+					players[playerId].isJsCrossWorld = room.crossworld;
 				}
 			}
 		});
@@ -494,7 +493,6 @@ function isJsConnected()
 {
    try {
        players[playerId].isJsRoomStep = 1;
-	   return 1;
    }
    catch(err) {
        console.log("ERROR: Player disconnected!");

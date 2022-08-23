@@ -300,7 +300,7 @@ function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, disqualify,
 	players[playerId].frame = frame;
 	players[playerId].disqualify = disqualify;
 	players[playerId].finish = finish;
-	players[playerId].levelTime;
+	players[playerId].levelTime = levelTime;
 	playerRef.set(players[playerId]);
 }
 

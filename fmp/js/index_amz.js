@@ -196,7 +196,7 @@ var isJsPlayers = {};
 var canLockRoom = true;
 var playerQuit = 0;
 
-var timeWait = -1;
+var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
 var TIME_QUIT_ROOM = 10;
 const TIME_WAIT_DEFAULT = 7;
@@ -205,11 +205,11 @@ var timerAction = "";
 // ---------------------- TIMER FUNCTIONS ----------------------
 
 function timerStop() {
-	timeWait = -1;
+	timeWaitCount = -1;
 }
 
 function timerSetAction(action, time = TIME_WAIT_DEFAULT) {
-	timeWait = 0;
+	timeWaitCount = 0;
 	TIME_WAIT_MAX = time;
 	timerAction = action;
 }
@@ -552,8 +552,8 @@ function chrono() {
 	}
 
 	// ------- MULTI PLAYER -------
-	if (timeWait > -1) timeWait++;
-	if (timeWait > TIME_WAIT_MAX) {
+	if (timeWaitCount > -1) timeWaitCount++;
+	if (timeWaitCount > TIME_WAIT_MAX) {
 		if (timerAction === "action_start_game") {
 			lockRoom();
 			isJsRoomStepUpdate(3);

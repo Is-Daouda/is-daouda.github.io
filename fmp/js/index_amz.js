@@ -1,43 +1,3 @@
-// Load a script from given `url`
-const loadScript = function (url) {
-    return new Promise(function (resolve, reject) {
-        const script = document.createElement('script');
-        script.src = url;
-
-        script.addEventListener('load', function () {
-            // The script is loaded completely
-            resolve(true);
-        });
-
-        document.head.appendChild(script);
-    });
-};
-
-// Perform all promises in the order
-const waterfall = function (promises) {
-    return promises.reduce(
-        function (p, c) {
-            // Waiting for `p` completed
-            return p.then(function () {
-                // and then `c`
-                return c().then(function (result) {
-                    return true;
-                });
-            });
-        },
-        // The initial value passed to the reduce method
-        Promise.resolve([])
-    );
-};
-
-// Load an array of scripts in order
-const loadScriptsInOrder = function (arrayOfJs) {
-    const promises = arrayOfJs.map(function (url) {
-        return loadScript(url);
-    });
-    return waterfall(promises);
-};
-
 var canvas = document.getElementById('canvas');
 var isJsUpdateSize = 0;
 var isJsGameState = 2;
@@ -832,22 +792,37 @@ function randJs(maxValue) {
 	return Math.floor(Math.random() * maxValue);
 }
 
-loadScriptsInOrder(['https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js', 
-					'https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js',
-					'https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js']).then(function () {
-// ---------------------- DATABASE ----------------------
-/////// Database ///////
-const firebaseConfig = {
-apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
-	authDomain: "ict-html5.firebaseapp.com",
-	databaseURL: "https://ict-html5-default-rtdb.firebaseio.com",
-	projectId: "ict-html5",
-	storageBucket: "ict-html5.appspot.com",
-	messagingSenderId: "792013620073",
-	appId: "1:792013620073:web:480e1943e47fc9b3fd73f8"
-};
-  
-firebase.initializeApp(firebaseConfig);
+let myScript1 = document.createElement("script");
+myScript1.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
+document.body.appendChild(myScript1);
 
-initMultiPlayer();
-});
+myScript1.addEventListener("load", () => {
+	let myScript2 = document.createElement("script");
+	myScript2.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js");
+	document.body.appendChild(myScript2);
+
+	myScript2.addEventListener("load", () => {
+		let myScript3 = document.createElement("script");
+		myScript3.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js");
+		document.body.appendChild(myScript3);
+		
+		myScript3.addEventListener("load", () => {
+
+// ---------------------- DATABASE ----------------------
+			/////// Database ///////
+			const firebaseConfig = {
+			apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
+				authDomain: "ict-html5.firebaseapp.com",
+				databaseURL: "https://ict-html5-default-rtdb.firebaseio.com",
+				projectId: "ict-html5",
+				storageBucket: "ict-html5.appspot.com",
+				messagingSenderId: "792013620073",
+				appId: "1:792013620073:web:480e1943e47fc9b3fd73f8"
+			};
+			  
+			firebase.initializeApp(firebaseConfig);
+
+			initMultiPlayer();
+			});
+		});
+}, false);

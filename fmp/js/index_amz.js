@@ -362,9 +362,9 @@ function isJsAllPlayersReady() {
 		catch(err) {
 			if (isJsPlayers[id].quit === 0) {
 				console.log("ERROR: A Player has left the game!");
-				playerReadyCount++;
 				isJsPlayers[id].quit = 1;			
 			}
+			playerReadyCount++;
 		}
 	}
 	return ((playerReadyCount > players[playerId].isJsPlayerCount) ? 1 : 0);
@@ -431,14 +431,14 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 				player_quit: 0,
 				locked: 0
 			});
-			canLockRoom = true;
+			
 			players[playerId].isJsGameLevel = level;
 			players[playerId].isJsCrossWorld = crossworld;
 			timerSetAction("action_quit_room", 15);
 		}
 	}
 	catch(err) {console.log(err);}
-	
+	canLockRoom = true;
 	players[playerId].isJsRoomStep = 2;
 	players[playerId].isJsMultiPlayerStarted = 1;
 	players[playerId].isJsAvoidChangeRoom = ((roomExists) ? 0 : 1);

@@ -1,3 +1,43 @@
+// Load a script from given `url`
+const loadScript = function (url) {
+    return new Promise(function (resolve, reject) {
+        const script = document.createElement('script');
+        script.src = url;
+
+        script.addEventListener('load', function () {
+            // The script is loaded completely
+            resolve(true);
+        });
+
+        document.head.appendChild(script);
+    });
+};
+
+// Perform all promises in the order
+const waterfall = function (promises) {
+    return promises.reduce(
+        function (p, c) {
+            // Waiting for `p` completed
+            return p.then(function () {
+                // and then `c`
+                return c().then(function (result) {
+                    return true;
+                });
+            });
+        },
+        // The initial value passed to the reduce method
+        Promise.resolve([])
+    );
+};
+
+// Load an array of scripts in order
+const loadScriptsInOrder = function (arrayOfJs) {
+    const promises = arrayOfJs.map(function (url) {
+        return loadScript(url);
+    });
+    return waterfall(promises);
+};
+
 var canvas = document.getElementById('canvas');
 var isJsUpdateSize = 0;
 var isJsGameState = 2;
@@ -166,7 +206,9 @@ function hideLoadingScreen() {
 ////////////////////////////////////////////////////////////////////////////
 //							MULTI PLAYER
 ////////////////////////////////////////////////////////////////////////////
-
+loadScriptsInOrder(['https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js', 
+					'https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js',
+					'https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js']).then(function () {
 // ---------------------- DATABASE ----------------------
 /////// Database ///////
 const firebaseConfig = {
@@ -180,6 +222,7 @@ apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
 };
   
 firebase.initializeApp(firebaseConfig);
+});
 
 // ---------------------- VARIABLES ----------------------
 var playerId;

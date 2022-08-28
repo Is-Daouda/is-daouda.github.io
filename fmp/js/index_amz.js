@@ -164,7 +164,7 @@ function hideLoadingScreen() {
 // <<< I Can Transform v2.5 ---
 
 ////////////////////////////////////////////////////////////////////////////
-//							MULTI PLAYER
+//						---	MULTIPLAYER >>>
 ////////////////////////////////////////////////////////////////////////////
 
 // ---------------------- DATABASE ----------------------
@@ -509,23 +509,21 @@ function isJsConnected()
 
 function isJsClearPrevMutliPlayerGame() {
 	try {
-		//if (players[playerId].isJsRoomStep === 4) {
-			let it = 0;
-			Object.keys(players).forEach((key) => {
-				delete playersKey[key];
-				delete isJsPlayers[it];
-				it++;
-			});
-			players[playerId].isJsPlayerCount = 0;
-			players[playerId].isJsAvoidChangeRoom = 0;
-			players[playerId].isJsMultiPlayerStarted = 0;
-			players[playerId].isJsRoomStep = 0;
-			players[playerId].quit = 0;
-			players[playerId].disqualify = 0;
-			players[playerId].ready = 0;
-			players[playerId].roomId = playerId;
-			playerRef.set(players[playerId]);			
-		//}
+		let it = 0;
+		Object.keys(players).forEach((key) => {
+			delete playersKey[key];
+			delete isJsPlayers[it];
+			it++;
+		});
+		players[playerId].isJsPlayerCount = 0;
+		players[playerId].isJsAvoidChangeRoom = 0;
+		players[playerId].isJsMultiPlayerStarted = 0;
+		players[playerId].isJsRoomStep = 0;
+		players[playerId].quit = 0;
+		players[playerId].disqualify = 0;
+		players[playerId].ready = 0;
+		players[playerId].roomId = playerId;
+		playerRef.set(players[playerId]);			
 	}
 	catch(err) {console.log("ERROR: Clear data : " + err);}
 }
@@ -538,8 +536,9 @@ const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
 function chrono() {
+	if (isJsGameState !== 1) isJsGameState = 1; // Force state game on Android
+	
 	// ------- PAGE AUTO RESTART -------
-	if (isJsGameState !== 1) isJsGameState = 1;
 	if (document.body.className === "loading_page") {
 		if (timeToRestart > -1) timeToRestart++;
 		if (timeToRestart > MAX_TIME) {
@@ -551,7 +550,7 @@ function chrono() {
 		}
 	}
 
-	// ------- MULTI PLAYER -------
+	// ------- MULTIPLAYER -------
 	if (timeWaitCount > -1) timeWaitCount++;
 	if (timeWaitCount > TIME_WAIT_MAX) {
 		if (timerAction === "action_start_game") {
@@ -569,7 +568,7 @@ function chrono() {
 }
 setInterval("chrono()", 1000);
 
-// ---------------------- MULTI PLAYER INIT FUNCTIONS ----------------------
+// ---------------------- MULTIPLAYER INIT FUNCTIONS ----------------------
 function initMultiPlayer() {
 	
 	function initMultiPlayerSubFunctions() {
@@ -664,8 +663,31 @@ function initMultiPlayer() {
 		console.log(errorCode, errorMessage);
 	});
 }
+
+
+// ---------------------- MULTIPLAYER LIBRARIES ----------------------
+let myScript1 = document.createElement("script");
+myScript1.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
+document.body.appendChild(myScript1);
+
+myScript1.addEventListener("load", () => {
+	let myScript2 = document.createElement("script");
+	myScript2.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js");
+	document.body.appendChild(myScript2);
+
+	myScript2.addEventListener("load", () => {
+		let myScript3 = document.createElement("script");
+		myScript3.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js");
+		document.body.appendChild(myScript3);
+		
+		myScript3.addEventListener("load", () => {
+			initMultiPlayerDB();
+			initMultiPlayer();
+			}, false);
+		}, false);
+}, false);
 ////////////////////////////////////////////////////////////////////////////
-//							MULTI PLAYER
+//						<<<	MULTIPLAYER ---
 ////////////////////////////////////////////////////////////////////////////
 
 function showMsg() {
@@ -735,7 +757,6 @@ window.Module = {
 	onRuntimeInitialized: function() {
 		//isJsShowGameAds();
 		hideLoadingScreen();
-		//initMultiPlayer();
 		
 		for(ms of [0, 100, 1000, 3000]) {
 			window.setTimeout(onResize, ms);
@@ -770,25 +791,3 @@ loadScriptAsync(rscLink + "isengine.js");
 function randJs(maxValue) {
 	return Math.floor(Math.random() * maxValue);
 }
-
-// Load firebase
-let myScript1 = document.createElement("script");
-myScript1.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
-document.body.appendChild(myScript1);
-
-myScript1.addEventListener("load", () => {
-	let myScript2 = document.createElement("script");
-	myScript2.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js");
-	document.body.appendChild(myScript2);
-
-	myScript2.addEventListener("load", () => {
-		let myScript3 = document.createElement("script");
-		myScript3.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js");
-		document.body.appendChild(myScript3);
-		
-		myScript3.addEventListener("load", () => {
-			initMultiPlayerDB();
-			initMultiPlayer();
-			}, false);
-		}, false);
-}, false);

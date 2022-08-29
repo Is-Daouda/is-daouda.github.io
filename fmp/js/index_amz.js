@@ -196,6 +196,7 @@ var isJsPlayers = {};
 var canLockRoom = true;
 var playerQuit = 0;
 
+const isJsROOM_TIME_OUT = (50 * 59);
 var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
 var TIME_QUIT_ROOM = 10;
@@ -203,7 +204,6 @@ const TIME_WAIT_DEFAULT = 7;
 var timerAction = "";
 
 // ---------------------- TIMER FUNCTIONS ----------------------
-
 function timerStop() {
 	timeWaitCount = -1;
 }
@@ -215,7 +215,6 @@ function timerSetAction(action, time = TIME_WAIT_DEFAULT) {
 }
 
 // ---------------------- IN GAME FUNCTIONS ----------------------
-
 function isJsGetOtherPlayerX(id) {
 	return isJsPlayers[id].x;
 }
@@ -316,8 +315,12 @@ function updateIsJsPlayers(key) {
 	}
 }
 
-function isJsPlayerReady() {
+function isJsGameStarted() {
 	players[playerId].isJsRoomStep = 4;
+	playerRef.set(players[playerId]);
+}
+
+function isJsPlayerReady() {
 	players[playerId].ready = 1;
 	playerRef.set(players[playerId]);
 }
@@ -386,11 +389,9 @@ function addOtherPlayer(id) {
 		if (!playersKey[id]) {
 			playersKey[id] = id;
 			isJsPlayers[players[playerId].isJsPlayerCount] = players[id];
-			isJsPlayers[players[playerId].isJsPlayerCount].isJsId = players[playerId].isJsPlayerCount; // Allows to check data
-			console.log("log : " + playersKey[id] + " > pid : " + playerId + 
-						" > : " + isJsPlayers[players[playerId].isJsPlayerCount].isJsId);						
+			isJsPlayers[players[playerId].isJsPlayerCount].isJsId = players[playerId].isJsPlayerCount; // Allows to check data					
 			players[playerId].isJsPlayerCount++;
-			console.log("N : " + players[playerId].isJsPlayerCount);
+
 			let tempTime = TIME_WAIT_DEFAULT;
 			if (players[playerId].isJsPlayerCount === 3) {
 				lockRoom();
@@ -559,11 +560,9 @@ function chrono() {
 		if (timerAction === "action_start_game") {
 			lockRoom();
 			isJsRoomStepUpdate(3);
-			console.log("GAME START!!!");
 		}
 		else if (timerAction === "action_quit_room") {
 			leaveWithoutDanger(true);
-			console.log("QUIT!");
 		}
 		else console.log("ERROR : UNKNOW ACTION !");
 		timerStop();

@@ -31,12 +31,13 @@ if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex
 
 var paramRscLink = rscLink;
 var isJsParam1, isJsParam2, isJsParam3;
+var strLoadingError;
 
 function loadObjDesc() {
 	var txtFile = new XMLHttpRequest();
 	var allParam = "";
 	txtFile.onreadystatechange = function () {
-		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
+		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status === 200) {
 			allParam = txtFile.responseText;
 			var paramList = allParam.split('\n');
 			
@@ -46,6 +47,7 @@ function loadObjDesc() {
 			isJsParam1 = paramList[6];
 			isJsParam2 = paramList[7];
 			isJsParam3 = paramList[8];
+			strLoadingError = paramList[9 + langIndex];
 		}
 	}
 	txtFile.open("GET", paramRscLink + "param.txt", true);

@@ -599,7 +599,18 @@ function initMultiPlayer() {
 			if (typeof(players[playerId]) !== "undefined") {
 				if (players[playerId].isJsMultiPlayerStarted === 1) {
 					const key = snapshot.val().id;
-					if (key === playerId) isJsPlayerLeave();
+					if (key === playerId) {
+						isJsPlayerLeave();
+					}
+					else if (players[playerId].isJsRoomStep === 4) {
+						if (playersKey[key]) {
+							for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
+								if (isJsPlayers[id].id === key) {
+									isJsPlayers[id].quit = 1;
+								}
+							}
+						}					
+					}
 				}
 			}
 		});

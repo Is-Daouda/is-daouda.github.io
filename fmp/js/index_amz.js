@@ -476,23 +476,26 @@ function leaveWithoutDanger(updateRoomStep)
 }
 
 function isJsPlayerLeave() {
-	if (players[playerId].isJsRoomStep > 0) {				
-		let quitWithPenalize = 0;
-		
-		if (players[playerId].isJsRoomStep === 4) {
-			players[playerId].disqualify = 1;
-			quitWithPenalize = 1;
-		}
-		else {
-			if (players[playerId].isJsPlayerCount > 0) {
+	try {
+		if (players[playerId].isJsRoomStep > 0) {				
+			let quitWithPenalize = 0;
+			
+			if (players[playerId].isJsRoomStep === 4) {
+				players[playerId].disqualify = 1;
 				quitWithPenalize = 1;
 			}
+			else {
+				if (players[playerId].isJsPlayerCount > 0) {
+					quitWithPenalize = 1;
+				}
+			}
+			players[playerId].isJsMultiPlayerStarted = 0;
+			players[playerId].isJsRoomStep = 0;
+			players[playerId].quit = quitWithPenalize;
+			playerRef.set(players[playerId]);
 		}
-		players[playerId].isJsMultiPlayerStarted = 0;
-		players[playerId].isJsRoomStep = 0;
-		players[playerId].quit = quitWithPenalize;
-		playerRef.set(players[playerId]);
 	}
+	catch(err) {console.log(err);}
 }
 
 function isJsConnected()

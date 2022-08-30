@@ -95,10 +95,10 @@ function isJsAndroidShowInterstitialAds() {
 }
 
 // Ads
-function isJsShowGameAds() {
+function isJsShowGameAds() {/*
 	if (isJsUseAndroidAds() === 1) {
 		isJsAndroidShowInterstitialAds();
-	}
+	}*/
 }
 
 // --- I Can Transform v2.5 >>>
@@ -751,7 +751,7 @@ window.Module = {
 	postRun: [],
 	canvas: canvas,
 	onRuntimeInitialized: function() {
-		isJsShowGameAds();
+		//isJsShowGameAds();
 		hideLoadingScreen();
 		
 		for(ms of [0, 100, 1000, 3000]) {
@@ -782,4 +782,12 @@ function loadScriptAsync(src) {
 	t.parentNode.insertBefore(s, t);
 }
 
+<<<<<<< HEAD
 loadScriptAsync(rscLink + "isengine.js");
+=======
+loadScriptAsync(rscLink + "isengine.js");
+
+function randJs(maxValue) {
+	return Math.floor(Math.random() * maxValue);
+}
+>>>>>>> d191a4b1b2685e4dd3d13a190ead52456775fdc3

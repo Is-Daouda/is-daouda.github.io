@@ -260,8 +260,10 @@ function isJsAllPlayersReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 function clearPlayersArray() {
-	while(playersKey.length > 0) {playersKey.pop();}
-	while(isJsPlayers.length > 0) {isJsPlayers.pop();}
+	playersKey = [];
+	isJsPlayers = [];
+	//while(playersKey.length > 0) {playersKey.pop();}
+	//while(isJsPlayers.length > 0) {isJsPlayers.pop();}
 }
 
 function lockRoom() {

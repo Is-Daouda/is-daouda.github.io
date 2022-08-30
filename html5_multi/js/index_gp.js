@@ -123,7 +123,6 @@ var isJsPlayers = {};
 var canLockRoom = true;
 var playerQuit = 0;
 
-const isJsROOM_TIME_OUT = (50 * 59);
 var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
 var TIME_QUIT_ROOM = 10;

@@ -3,7 +3,6 @@ var isJsUpdateSize = 0;
 var isJsGameState = 2;
 var isJsInitGame = 0;
 var showError = 0;
-var showAds = 0;
 var landscapeMode = false;
 var rscLink = "https://is-daouda.github.io/html5_multi/";
 
@@ -69,8 +68,7 @@ function isJsAndroidCloseApp()
 var isJsBackKeyPressed = 0;
 
 function backKeyPressed() {
-	if (showAds === 1) hideAds();
-	else isJsBackKeyPressed = 1;
+	isJsBackKeyPressed = 1;
 }
 
 function AndroidHideConnectionWidgets() {
@@ -101,11 +99,6 @@ function isJsShowGameAds() {
 	if (isJsUseAndroidAds() === 1) {
 		isJsAndroidShowInterstitialAds();
 	}
-}
-
-function hideAds() {
-	document.getElementById('adspopup').style.display = 'none';
-	showAds = 0;
 }
 
 // --- I Can Transform v2.5 >>>
@@ -191,7 +184,6 @@ var isJsPlayers = {};
 var canLockRoom = true;
 var playerQuit = 0;
 
-const isJsROOM_TIME_OUT = (50 * 59);
 var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
 var TIME_QUIT_ROOM = 10;
@@ -791,7 +783,3 @@ function loadScriptAsync(src) {
 }
 
 loadScriptAsync(rscLink + "isengine.js");
-
-function randJs(maxValue) {
-	return Math.floor(Math.random() * maxValue);
-}

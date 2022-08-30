@@ -303,10 +303,8 @@ function isJsAllPlayersReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 function clearPlayersArray() {
-	playersKey = [];
-	isJsPlayers = [];
-	//while(playersKey.length > 0) {playersKey.pop();}
-	//while(isJsPlayers.length > 0) {isJsPlayers.pop();}
+	playersKey.length = 0;
+	isJsPlayers.length = 0;
 }
 
 function lockRoom() {

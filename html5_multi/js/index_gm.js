@@ -260,8 +260,8 @@ function isJsAllPlayersReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 function clearPlayersArray() {
-	playersKey.length = 0;
-	isJsPlayers.length = 0;
+	playersKey.splice(0, playersKey.length);
+	isJsPlayers.splice(0, isJsPlayers.length);
 }
 
 function lockRoom() {
@@ -293,6 +293,7 @@ function addOtherPlayer(id) {
 }
 
 async function isJsStartMultiPlayerGame(level, crossworld) {
+	clearPlayersArray();
 	let roomExists = false;
     let ref = firebase.database().ref(`rooms`);
     const snapshot = await ref.once('value');
@@ -342,11 +343,11 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 }
 
 function removeRoom() {
+	clearPlayersArray();
 	try {
 		if (typeof(roomRef) !== "undefined") roomRef.remove();
 	}
 	catch(err) {console.log(err);}
-	clearPlayersArray();
 }
 
 function leaveWithoutDanger(updateRoomStep)
@@ -396,8 +397,8 @@ function isJsConnected()
 }
 
 function isJsClearPrevMutliPlayerGame() {
+	clearPlayersArray();
 	try {
-		clearPlayersArray();
 		players[playerId].isJsPlayerCount = 0;
 		players[playerId].isJsAvoidChangeRoom = 0;
 		players[playerId].isJsMultiPlayerStarted = 0;

@@ -29,14 +29,15 @@ var langIndex = 0; // English
 var userLang = navigator.language || navigator.userLanguage;
 if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
 
-var paramRscLink = "https://is-daouda.github.io/html5_multi/";
+var paramRscLink = rscLink;
 var isJsParam1, isJsParam2, isJsParam3;
+var strLoadingError;
 
 function loadObjDesc() {
 	var txtFile = new XMLHttpRequest();
 	var allParam = "";
 	txtFile.onreadystatechange = function () {
-		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status == 200) {
+		if (txtFile.readyState === XMLHttpRequest.DONE && txtFile.status === 200) {
 			allParam = txtFile.responseText;
 			var paramList = allParam.split('\n');
 			
@@ -46,6 +47,7 @@ function loadObjDesc() {
 			isJsParam1 = paramList[6];
 			isJsParam2 = paramList[7];
 			isJsParam3 = paramList[8];
+			strLoadingError = paramList[9 + langIndex];
 		}
 	}
 	txtFile.open("GET", paramRscLink + "param.txt", true);
@@ -61,6 +63,543 @@ function hideLoadingScreen() {
 	if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
 }
 // <<< I Can Transform v2.5 ---
+
+////////////////////////////////////////////////////////////////////////////
+//						---	MULTIPLAYER >>>
+////////////////////////////////////////////////////////////////////////////
+
+// ---------------------- DATABASE ----------------------
+function initMultiPlayerDB() {
+	const firebaseConfig = {
+	apiKey: "AIzaSyCKAOqjqn-0IUAtbaf7603yPRV-qlZRsP4",
+		authDomain: "ict-html5.firebaseapp.com",
+		databaseURL: "https://ict-html5-default-rtdb.firebaseio.com",
+		projectId: "ict-html5",
+		storageBucket: "ict-html5.appspot.com",
+		messagingSenderId: "792013620073",
+		appId: "1:792013620073:web:480e1943e47fc9b3fd73f8"
+	};
+	  
+	firebase.initializeApp(firebaseConfig);
+}
+
+// ---------------------- VARIABLES ----------------------
+var playerId;
+var playerRef;
+var players = {};
+var playersKey = {};
+
+var roomRef;	
+var rooms;
+var roomId;
+
+var isJsPlayers = {};
+var canLockRoom = true;
+var playerQuit = 0;
+
+const isJsROOM_TIME_OUT = (50 * 59);
+var timeWaitCount = -1;
+var TIME_WAIT_MAX = 0;
+var TIME_QUIT_ROOM = 10;
+const TIME_WAIT_DEFAULT = 7;
+var timerAction = "";
+
+// ---------------------- TIMER FUNCTIONS ----------------------
+function timerStop() {
+	timeWaitCount = -1;
+}
+
+function timerSetAction(action, time = TIME_WAIT_DEFAULT) {
+	timeWaitCount = 0;
+	TIME_WAIT_MAX = time;
+	timerAction = action;
+}
+
+// ---------------------- IN GAME FUNCTIONS ----------------------
+function isJsGetOtherPlayerX(id) {
+	return isJsPlayers[id].x;
+}
+
+function isJsGetOtherPlayerY(id) {
+	return isJsPlayers[id].y;
+}
+
+function isJsGetOtherPlayerXScale(id) {
+	return isJsPlayers[id].xscale;
+}
+
+function isJsGetOtherPlayerYScale(id) {
+	return isJsPlayers[id].yscale;
+}
+
+function isJsGetOtherPlayerAngle(id) {
+	return isJsPlayers[id].angle;
+}
+
+function isJsGetOtherPlayerFrame(id) {
+	return isJsPlayers[id].frame;
+}
+
+function isJsGetOtherPlayerDisqualify(id) {
+	return isJsPlayers[id].disqualify;
+}
+
+function isJsGetOtherPlayerQuit(id) {
+	return isJsPlayers[id].quit;
+}
+
+function isJsGetOtherPlayerFinish(id) {
+	return isJsPlayers[id].finish;
+}
+
+function isJsGetOtherPlayerLevelTime(id) {
+	return isJsPlayers[id].levelTime;
+}
+
+function isJsGetOtherPlayerPoint(id) {
+	return isJsPlayers[id].point;
+}
+
+function isJsGetOtherPlayerUsername(id, codeIndex) {
+	switch(codeIndex) {
+		case 0: return isJsPlayers[id].username_code0; break;
+		case 1: return isJsPlayers[id].username_code1; break;
+		case 2: return isJsPlayers[id].username_code2; break;
+		case 3: return isJsPlayers[id].username_code3; break;
+		case 4: return isJsPlayers[id].username_code4; break;
+		case 5: return isJsPlayers[id].username_code5; break;
+		case 6: return isJsPlayers[id].username_code6; break;
+		case 7: return isJsPlayers[id].username_code7; break;
+		case 8: return isJsPlayers[id].username_code8; break;
+		case 9: return isJsPlayers[id].username_code9; break;
+		default: return -1;
+	}
+}
+
+function isJsSetPlayerData(point, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
+							usernameCode5, usernameCode6, usernameCode7, usernameCode8, usernameCode9) {
+	players[playerId].point = point;
+	players[playerId].username_code0 = usernameCode0;
+	players[playerId].username_code1 = usernameCode1;
+	players[playerId].username_code2 = usernameCode2;
+	players[playerId].username_code3 = usernameCode3;
+	players[playerId].username_code4 = usernameCode4;
+	players[playerId].username_code5 = usernameCode5;
+	players[playerId].username_code6 = usernameCode6;
+	players[playerId].username_code7 = usernameCode7;
+	players[playerId].username_code8 = usernameCode8;
+	players[playerId].username_code9 = usernameCode9;
+	playerRef.set(players[playerId]);
+}
+
+function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, disqualify, finish, levelTime) {
+	players[playerId].x = x;
+	players[playerId].y = y;
+	players[playerId].xscale = xscale;
+	players[playerId].yscale = yscale;
+	players[playerId].angle = angle;
+	players[playerId].frame = frame;
+	players[playerId].disqualify = disqualify;
+	players[playerId].finish = finish;
+	players[playerId].levelTime = levelTime;
+	playerRef.set(players[playerId]);
+}
+
+function updateIsJsPlayers(key) {
+	if (playersKey[key]) {
+		for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
+			if (isJsPlayers[id].id === key) {
+				isJsPlayers[id] = players[key];
+				isJsPlayers[id].isJsId = id;
+			}
+		}
+	}
+}
+
+function isJsGameStarted() {
+	players[playerId].isJsRoomStep = 4;
+	playerRef.set(players[playerId]);
+}
+
+function isJsPlayerReady() {
+	players[playerId].ready = 1;
+	playerRef.set(players[playerId]);
+}
+
+function isJsRoomStepValue() {
+	return players[playerId].isJsRoomStep;
+}
+
+function isJsRoomStepUpdate(value) {
+	playerRef.update({
+				isJsRoomStep: value
+	});
+}
+
+function isJsGameLevelValue() {
+	return players[playerId].isJsGameLevel;
+}
+
+function isJsCrossWorldValue() {
+	return players[playerId].isJsCrossWorld;
+}
+
+function isJsAvoidChangeRoomValue() {
+	return players[playerId].isJsAvoidChangeRoom;
+}
+
+function isJsPlayerCountValue() {
+	return players[playerId].isJsPlayerCount;
+}
+
+function isJsAllPlayersReady() {
+	let playerReadyCount = 0;
+	Object.keys(players).forEach((key) => {
+		if (players[key].roomId === roomId && players[key].ready === 1) {
+			playerReadyCount++;
+		}
+	});
+	
+	for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
+		try {
+			if (players[isJsPlayers[id].id].ready === 1) {/*Check if player is connected*/}
+		}
+		catch(err) {
+			if (isJsPlayers[id].quit === 0) {
+				console.log("ERROR: A Player has left the game!");
+				isJsPlayers[id].quit = 1;			
+			}
+			playerReadyCount++;
+		}
+	}
+	return ((playerReadyCount > players[playerId].isJsPlayerCount) ? 1 : 0);
+}
+
+// ---------------------- MAIN MENU FUNCTIONS ----------------------
+function lockRoom() {
+	if (canLockRoom) {
+		roomRef.update({
+					locked: 1
+		});
+		canLockRoom = false;
+	}
+}
+
+function addOtherPlayer(id) {
+	if (players[playerId].isJsPlayerCount < 3) {
+		if (!playersKey[id]) {
+			playersKey[id] = id;
+			isJsPlayers[players[playerId].isJsPlayerCount] = players[id];
+			isJsPlayers[players[playerId].isJsPlayerCount].isJsId = players[playerId].isJsPlayerCount; // Allows to check data					
+			players[playerId].isJsPlayerCount++;
+
+			let tempTime = TIME_WAIT_DEFAULT;
+			if (players[playerId].isJsPlayerCount === 3) {
+				lockRoom();
+				tempTime = 1;
+			}
+			timerSetAction("action_start_game", tempTime);
+			playerRef.set(players[playerId]);		
+		}
+	}	
+}
+
+async function isJsStartMultiPlayerGame(level, crossworld) {
+	let roomExists = false;
+    let ref = firebase.database().ref(`rooms`);
+    const snapshot = await ref.once('value');
+	try {
+		rooms = snapshot.val() || {};
+		Object.keys(rooms).forEach((key) => {
+			const room = rooms[key];
+			if (typeof(room) !== "undefined") {
+				if (room.locked === 0) {
+					roomId = room.id;
+					roomExists = true;
+					canLockRoom = false;
+					players[playerId].isJsGameLevel = room.level;
+					players[playerId].isJsCrossWorld = room.crossworld;
+					roomRef = firebase.database().ref(`rooms/${roomId}`);
+				}
+			}
+		});
+		if (!roomExists) {
+			roomId = firebase.database().ref().child('rooms').push().key;
+			roomRef = firebase.database().ref(`rooms/${roomId}`);
+			roomRef.set({
+				id: roomId,
+				level: level,
+				crossworld: crossworld,
+				id_player: playerId,
+				player_quit: 0,
+				locked: 0
+			});
+			
+			players[playerId].isJsGameLevel = level;
+			players[playerId].isJsCrossWorld = crossworld;
+			timerSetAction("action_quit_room", TIME_QUIT_ROOM);
+		}
+	}
+	catch(err) {console.log(err);}
+	canLockRoom = true;
+	players[playerId].isJsRoomStep = 2;
+	players[playerId].isJsMultiPlayerStarted = 1;
+	players[playerId].isJsAvoidChangeRoom = ((roomExists) ? 0 : 1);
+	players[playerId].isJsPlayerCount = 0;
+	players[playerId].quit = 0;
+	players[playerId].finish = 0;
+	players[playerId].ready = 0;
+	players[playerId].roomId = roomId;
+	playerRef.set(players[playerId]);
+}
+
+function removeRoom() {
+	try {
+		if (typeof(roomRef) !== "undefined") roomRef.remove();
+	}
+	catch(err) {console.log(err);}
+	let it = 0;
+	Object.keys(players).forEach((key) => {
+		delete playersKey[key];
+		delete isJsPlayers[i];
+		it++;
+	});
+}
+
+function leaveWithoutDanger(updateRoomStep)
+{
+	removeRoom();
+	roomId = "";
+	if (updateRoomStep) {
+		players[playerId].isJsMultiPlayerStarted = 0;
+		players[playerId].isJsRoomStep = 0;
+		playerRef.set(players[playerId]);
+	}
+}
+
+function isJsPlayerLeave() {
+	try {
+		if (players[playerId].isJsRoomStep > 0) {				
+			let quitWithPenalize = 0;
+			
+			if (players[playerId].isJsRoomStep === 4) {
+				players[playerId].disqualify = 1;
+				quitWithPenalize = 1;
+			}
+			else {
+				if (players[playerId].isJsPlayerCount > 0) {
+					quitWithPenalize = 1;
+				}
+			}
+			players[playerId].isJsMultiPlayerStarted = 0;
+			players[playerId].isJsRoomStep = 0;
+			players[playerId].quit = quitWithPenalize;
+			playerRef.set(players[playerId]);
+		}
+	}
+	catch(err) {console.log(err);}
+}
+
+function isJsConnected()
+{
+   try {
+       players[playerId].isJsRoomStep = 1;
+   }
+   catch(err) {
+       console.log("ERROR: Player disconnected!");
+       return 0;
+   }
+   return 1;
+}
+
+function isJsClearPrevMutliPlayerGame() {
+	try {
+		let it = 0;
+		Object.keys(players).forEach((key) => {
+			delete playersKey[key];
+			delete isJsPlayers[it];
+			it++;
+		});
+		players[playerId].isJsPlayerCount = 0;
+		players[playerId].isJsAvoidChangeRoom = 0;
+		players[playerId].isJsMultiPlayerStarted = 0;
+		players[playerId].isJsRoomStep = 0;
+		players[playerId].quit = 0;
+		players[playerId].disqualify = 0;
+		players[playerId].ready = 0;
+		players[playerId].roomId = playerId;
+		playerRef.set(players[playerId]);			
+	}
+	catch(err) {console.log("ERROR: Clear data : " + err);}
+}
+
+// ---------------------------------------------------
+// ---------------------- TIMER ----------------------
+// ---------------------------------------------------
+var timeToRestart = 0;
+const MAX_TIME = 70;
+const RESTART_TIME = 5;
+
+function chrono() {
+	// ------- PAGE AUTO RESTART -------
+	if (document.body.className === "loading_page") {
+		if (timeToRestart > -1) timeToRestart++;
+		if (timeToRestart > MAX_TIME) {
+			document.getElementById('loading_msg').innerHTML = strLoadingError;
+			if (timeToRestart > MAX_TIME + RESTART_TIME) {
+				window.location.reload();
+				timeToRestart = -1;
+			}
+		}
+	}
+
+	// ------- MULTIPLAYER -------
+	if (timeWaitCount > -1) timeWaitCount++;
+	if (timeWaitCount > TIME_WAIT_MAX) {
+		if (timerAction === "action_start_game") {
+			lockRoom();
+			isJsRoomStepUpdate(3);
+		}
+		else if (timerAction === "action_quit_room") {
+			leaveWithoutDanger(true);
+		}
+		else console.log("ERROR : UNKNOW ACTION !");
+		timerStop();
+	}
+}
+setInterval("chrono()", 1000);
+
+// ---------------------- MULTIPLAYER INIT FUNCTIONS ----------------------
+function initMultiPlayer() {
+	
+	function initMultiPlayerSubFunctions() {
+		const allPlayersRef = firebase.database().ref(`players`);
+
+		allPlayersRef.on("value", (snapshot) => {
+			try {
+				players = snapshot.val() || {};
+				if (typeof(players[playerId]) !== "undefined") {
+					if (players[playerId].isJsMultiPlayerStarted === 1) {				
+						Object.keys(players).forEach((key) => {					
+							if (players[key].roomId === roomId && players[key].id !== playerId) {
+								if (players[playerId].isJsRoomStep === 2) {
+									addOtherPlayer(key);
+								}
+								else if (players[playerId].isJsRoomStep === 4) {
+									updateIsJsPlayers(key);
+								}
+							}
+						});
+					}
+				}
+			}
+			catch(err) {console.log("ERROR: Players loop() : " + err)}
+		});
+		
+		allPlayersRef.on("child_removed", (snapshot) => {
+			if (typeof(players[playerId]) !== "undefined") {
+				if (players[playerId].isJsMultiPlayerStarted === 1) {
+					const key = snapshot.val().id;
+					if (key === playerId) {
+						isJsPlayerLeave();
+					}
+					else if (players[playerId].isJsRoomStep === 4) {
+						if (playersKey[key]) {
+							for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
+								if (isJsPlayers[id].id === key) {
+									isJsPlayers[id].quit = 1;
+								}
+							}
+						}					
+					}
+				}
+			}
+		});
+	}
+
+	firebase.auth().onAuthStateChanged((user) => {
+	console.log(user)
+		if (user) {
+			//You're logged in!
+			playerId = user.uid;
+			playerRef = firebase.database().ref(`players/${playerId}`);
+
+			playerRef.set({
+				id: playerId,
+				isJsId: 0,
+				isJsRoomStep: 0,
+				isJsMultiPlayerStarted: 0,
+				isJsGameLevel: 0,
+				isJsCrossWorld: 0,
+				isJsAvoidChangeRoom: 0,
+				isJsPlayerCount: 0,
+				roomId: "0",
+				ready: 0,
+				quit: 0,			
+				x: 0,
+				y: 0,
+				xscale: 1,
+				yscale: 1,
+				angle: 0,
+				frame: 0,
+				levelTime: 0,
+				disqualify: 0,
+				finish: 0,
+				point: 0,
+				username_code0: -1,
+				username_code1: -1,
+				username_code2: -1,
+				username_code3: -1,
+				username_code4: -1,
+				username_code5: -1,
+				username_code6: -1,
+				username_code7: -1,
+				username_code8: -1,
+				username_code9: -1
+			})
+
+			//Remove me from Firebase when I diconnect
+			playerRef.onDisconnect().remove();
+
+			//Begin the game now that we are signed in
+			initMultiPlayerSubFunctions();
+		}
+		else {
+		}
+	})
+
+	firebase.auth().signInAnonymously().catch((error) => {
+		var errorCode = error.code;
+		var errorMessage = error.message;
+		// ...
+		console.log(errorCode, errorMessage);
+	});
+}
+
+// ---------------------- MULTIPLAYER LIBRARIES ----------------------
+let myScript1 = document.createElement("script");
+myScript1.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
+document.body.appendChild(myScript1);
+
+myScript1.addEventListener("load", () => {
+	let myScript2 = document.createElement("script");
+	myScript2.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js");
+	document.body.appendChild(myScript2);
+
+	myScript2.addEventListener("load", () => {
+		let myScript3 = document.createElement("script");
+		myScript3.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js");
+		document.body.appendChild(myScript3);
+		
+		myScript3.addEventListener("load", () => {
+			initMultiPlayerDB();
+			initMultiPlayer();
+			}, false);
+		}, false);
+}, false);
+////////////////////////////////////////////////////////////////////////////
+//						<<<	MULTIPLAYER ---
+////////////////////////////////////////////////////////////////////////////
 
 function showMsg() {
 	var a = document.createElement('div');

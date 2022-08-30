@@ -97,10 +97,10 @@ function isJsAndroidShowInterstitialAds() {
 }
 
 // Ads
-function isJsShowGameAds() {
+function isJsShowGameAds() {/*
 	if (isJsUseAndroidAds() === 1) {
 		isJsAndroidShowInterstitialAds();
-	}
+	}*/
 }
 
 function hideAds() {
@@ -191,7 +191,6 @@ var isJsPlayers = {};
 var canLockRoom = true;
 var playerQuit = 0;
 
-const isJsROOM_TIME_OUT = (50 * 59);
 var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
 var TIME_QUIT_ROOM = 10;
@@ -759,7 +758,7 @@ window.Module = {
 	postRun: [],
 	canvas: canvas,
 	onRuntimeInitialized: function() {
-		isJsShowGameAds();
+		//isJsShowGameAds();
 		hideLoadingScreen();
 		
 		for(ms of [0, 100, 1000, 3000]) {

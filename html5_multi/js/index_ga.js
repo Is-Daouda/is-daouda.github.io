@@ -4,7 +4,7 @@ var isJsGameState = 2;
 var isJsInitGame = 0;
 var showError = 0;
 var landscapeMode = false;
-var rscLink = "https://is-daouda.github.io/html5_multi/";
+var rscLink = "";
 
 var sdkState = 0;
 var GameArterSdk = new GamearterInstance({

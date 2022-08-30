@@ -297,6 +297,11 @@ function isJsAllPlayersReady() {
 }
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
+function clearPlayersArray() {
+	while(playersKey.length > 0) {playersKey.pop();}
+	while(isJsPlayers.length > 0) {isJsPlayers.pop();}
+}
+
 function lockRoom() {
 	if (canLockRoom) {
 		roomRef.update({
@@ -379,12 +384,7 @@ function removeRoom() {
 		if (typeof(roomRef) !== "undefined") roomRef.remove();
 	}
 	catch(err) {console.log(err);}
-	let it = 0;
-	Object.keys(players).forEach((key) => {
-		delete playersKey[key];
-		delete isJsPlayers[i];
-		it++;
-	});
+	clearPlayersArray();
 }
 
 function leaveWithoutDanger(updateRoomStep)
@@ -435,12 +435,7 @@ function isJsConnected()
 
 function isJsClearPrevMutliPlayerGame() {
 	try {
-		let it = 0;
-		Object.keys(players).forEach((key) => {
-			delete playersKey[key];
-			delete isJsPlayers[it];
-			it++;
-		});
+		clearPlayersArray();
 		players[playerId].isJsPlayerCount = 0;
 		players[playerId].isJsAvoidChangeRoom = 0;
 		players[playerId].isJsMultiPlayerStarted = 0;

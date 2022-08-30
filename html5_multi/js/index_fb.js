@@ -309,8 +309,8 @@ function isJsAllPlayersReady() {
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
 function clearPlayersArray() {
-	playersKey.splice(0, playersKey.length);
-	isJsPlayers.splice(0, isJsPlayers.length);
+	Object.keys(playersKey).forEach(key => delete playersKey[key]);
+	Object.keys(isJsPlayers).forEach(key => delete isJsPlayers[key]);
 }
 
 function lockRoom() {

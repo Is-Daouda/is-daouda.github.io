@@ -552,7 +552,7 @@ function chrono() {
 	}
 
 	// ------- MULTIPLAYER -------
-	if (timeNotifCount > 0) timeWaitCount--;
+	if (timeNotifCount > 0) timeNotifCount--;
 	if (timeNotifCount === 0) {
 		timerNotifStop();
 	}

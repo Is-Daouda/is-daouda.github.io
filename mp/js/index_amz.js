@@ -625,7 +625,7 @@ function initMultiPlayer() {
 	}
 
 	firebase.auth().onAuthStateChanged((user) => {
-	console.log(user)
+	//console.log(user)
 		if (user) {
 			playerId = user.uid;
 			playerRef = firebase.database().ref(`players/${playerId}`);

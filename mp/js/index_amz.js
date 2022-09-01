@@ -581,8 +581,8 @@ function initMultiPlayer() {
 			try {
 				players = snapshot.val() || {};
 				if (typeof(players[playerId]) !== "undefined") {
-					if (players[playerId].isJsMultiPlayerStarted === 1) {				
-						Object.keys(players).forEach((key) => {					
+					Object.keys(players).forEach((key) => {
+						if (players[playerId].isJsMultiPlayerStarted === 1) {				
 							if (players[key].roomId === roomId && players[key].id !== playerId) {
 								if (players[playerId].isJsRoomStep === 2) {
 									addOtherPlayer(key);
@@ -591,14 +591,13 @@ function initMultiPlayer() {
 									updateIsJsPlayers(key);
 								}
 							}
-						});
-					}
-					else {
-						if (/*players[key].id !== playerId && */players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
-							console.log("call");
-							timerNotifStart(1);
 						}
-					}
+						else {
+							if (players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
+								timerNotifStart(1);
+							}
+						}
+					});
 				}
 			}
 			catch(err) {console.log("ERROR: Players loop() : " + err)}

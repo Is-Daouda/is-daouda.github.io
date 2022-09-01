@@ -95,7 +95,7 @@ function timerStop() {
 function timerNotifStart(notifIndex) {
 	if (timeNotifCount === -1) {
 		isJsMultiPlayerNotif = notifIndex;
-		timeNotifCount = 3;	
+		timeNotifCount = 5;
 	}
 }
 

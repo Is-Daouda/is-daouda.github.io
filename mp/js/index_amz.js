@@ -492,6 +492,7 @@ function isJsPlayerLeave() {
 				}
 			}
 			players[playerId].isJsMultiPlayerStarted = 0;
+			players[playerId].isJsAvoidChangeRoom = 0;
 			players[playerId].isJsRoomStep = 0;
 			players[playerId].quit = quitWithPenalize;
 			playerRef.set(players[playerId]);
@@ -593,7 +594,7 @@ function initMultiPlayer() {
 						});
 					}
 					else {
-						if (players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
+						if (/*players[key].id !== playerId && */players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
 							console.log("call");
 							timerNotifStart(1);
 						}

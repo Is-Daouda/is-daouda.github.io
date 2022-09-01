@@ -182,7 +182,7 @@ var roomId;
 
 var isJsPlayers = {};
 var canLockRoom = true;
-var isJsMultiPlayerNotif = 0;
+var isJsMultiPlayerNotif = 1;
 
 var timeNotifCount = -1;
 var timeWaitCount = -1;

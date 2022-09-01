@@ -497,7 +497,7 @@ function chrono() {
 		else if (timerAction === "action_quit_room") {
 			leaveWithoutDanger(true);
 		}
-		else console.log("ERROR : UNKNOW ACTION !");
+		else console.log("ERROR: UNKNOW ACTION !");
 		timerStop();
 	}
 }
@@ -705,7 +705,8 @@ window.Module = {
 	postRun: [],
 	canvas: canvas,
 	onRuntimeInitialized: function() {
-		hideObj();
+		try {hideObj();}
+		catch(err) {console.log("ERROR: " + err);}
 		isJsShowGameAds();
 		hideLoadingScreen();
 		

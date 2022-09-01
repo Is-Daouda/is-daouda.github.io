@@ -593,8 +593,7 @@ function initMultiPlayer() {
 						});
 					}
 					else {
-						if (players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[playerId].isJsAvoidChangeRoom === 1) {
-							console.log("call");
+						if (players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
 							timerNotifStart(1);
 						}
 					}

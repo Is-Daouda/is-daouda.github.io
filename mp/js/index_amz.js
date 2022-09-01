@@ -182,7 +182,7 @@ var roomId;
 
 var isJsPlayers = {};
 var canLockRoom = true;
-var isJsMultiPlayerNotif = 1;
+var isJsMultiPlayerNotif = 0;
 
 var timeNotifCount = -1;
 var timeWaitCount = -1;
@@ -594,7 +594,6 @@ function initMultiPlayer() {
 						}
 						else {
 							if (players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
-								console.log("call");
 								timerNotifStart(1);
 							}
 						}
@@ -628,7 +627,6 @@ function initMultiPlayer() {
 	firebase.auth().onAuthStateChanged((user) => {
 	console.log(user)
 		if (user) {
-			//You're logged in!
 			playerId = user.uid;
 			playerRef = firebase.database().ref(`players/${playerId}`);
 
@@ -684,7 +682,6 @@ function initMultiPlayer() {
 	});
 }
 
-
 // ---------------------- MULTIPLAYER LIBRARIES ----------------------
 let myScript1 = document.createElement("script");
 myScript1.setAttribute("src", "https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js");
@@ -710,6 +707,7 @@ myScript1.addEventListener("load", () => {
 //						<<<	MULTIPLAYER ---
 ////////////////////////////////////////////////////////////////////////////
 
+// Common functions
 function showMsg() {
 	var a = document.createElement('div');
 	a.setAttribute('id', 'rotate_screen');

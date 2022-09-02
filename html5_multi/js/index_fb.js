@@ -127,8 +127,9 @@ var roomId;
 
 var isJsPlayers = {};
 var canLockRoom = true;
-var playerQuit = 0;
+var isJsMultiPlayerNotif = 0;
 
+var timeNotifCount = -1;
 var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
 var TIME_QUIT_ROOM = 10;
@@ -138,6 +139,18 @@ var timerAction = "";
 // ---------------------- TIMER FUNCTIONS ----------------------
 function timerStop() {
 	timeWaitCount = -1;
+}
+
+function timerNotifStart(notifIndex) {
+	if (timeNotifCount === -1) {
+		isJsMultiPlayerNotif = notifIndex;
+		timeNotifCount = 5;
+	}
+}
+
+function timerNotifStop() {
+	isJsMultiPlayerNotif = 0;
+	timeNotifCount = -1;
 }
 
 function timerSetAction(action, time = TIME_WAIT_DEFAULT) {
@@ -424,6 +437,7 @@ function isJsPlayerLeave() {
 				}
 			}
 			players[playerId].isJsMultiPlayerStarted = 0;
+			players[playerId].isJsAvoidChangeRoom = 0;
 			players[playerId].isJsRoomStep = 0;
 			players[playerId].quit = quitWithPenalize;
 			playerRef.set(players[playerId]);
@@ -467,7 +481,7 @@ var timeToRestart = 0;
 const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
-function chrono() {
+function chrono() {	
 	// ------- PAGE AUTO RESTART -------
 	if (document.body.className === "loading_page") {
 		if (timeToRestart > -1) timeToRestart++;
@@ -481,6 +495,10 @@ function chrono() {
 	}
 
 	// ------- MULTIPLAYER -------
+	if (timeNotifCount > 0) timeNotifCount--;
+	if (timeNotifCount === 0) {
+		timerNotifStop();
+	}
 	if (timeWaitCount > -1) timeWaitCount++;
 	if (timeWaitCount > TIME_WAIT_MAX) {
 		if (timerAction === "action_start_game") {
@@ -490,7 +508,7 @@ function chrono() {
 		else if (timerAction === "action_quit_room") {
 			leaveWithoutDanger(true);
 		}
-		else console.log("ERROR : UNKNOW ACTION !");
+		else console.log("ERROR: UNKNOW ACTION !");
 		timerStop();
 	}
 }
@@ -506,8 +524,8 @@ function initMultiPlayer() {
 			try {
 				players = snapshot.val() || {};
 				if (typeof(players[playerId]) !== "undefined") {
-					if (players[playerId].isJsMultiPlayerStarted === 1) {				
-						Object.keys(players).forEach((key) => {					
+					Object.keys(players).forEach((key) => {
+						if (players[playerId].isJsMultiPlayerStarted === 1) {				
 							if (players[key].roomId === roomId && players[key].id !== playerId) {
 								if (players[playerId].isJsRoomStep === 2) {
 									addOtherPlayer(key);
@@ -516,8 +534,13 @@ function initMultiPlayer() {
 									updateIsJsPlayers(key);
 								}
 							}
-						});
-					}
+						}
+						else {
+							if (players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
+								timerNotifStart(1);
+							}
+						}
+					});
 				}
 			}
 			catch(err) {console.log("ERROR: Players loop() : " + err)}
@@ -545,9 +568,8 @@ function initMultiPlayer() {
 	}
 
 	firebase.auth().onAuthStateChanged((user) => {
-	console.log(user)
+	//console.log(user)
 		if (user) {
-			//You're logged in!
 			playerId = user.uid;
 			playerRef = firebase.database().ref(`players/${playerId}`);
 
@@ -628,6 +650,7 @@ myScript1.addEventListener("load", () => {
 //						<<<	MULTIPLAYER ---
 ////////////////////////////////////////////////////////////////////////////
 
+// Common functions
 function showMsg() {
 	var a = document.createElement('div');
 	a.setAttribute('id', 'rotate_screen');

@@ -325,11 +325,16 @@ function clearPlayersArray() {
 	Object.keys(isJsPlayers).forEach(key => delete isJsPlayers[key]);
 }
 
+function isJsGetPlayersNumber() {
+	return Object.keys(players).length;
+}
+
 function lockRoom() {
 	if (canLockRoom) {
-		roomRef.update({
-					locked: 1
-		});
+		if (typeof(rooms[roomId]) !== "undefined") {
+			rooms[roomId].locked = 1;
+			roomRef.set(rooms[roomId]);		
+		}
 		canLockRoom = false;
 	}
 }

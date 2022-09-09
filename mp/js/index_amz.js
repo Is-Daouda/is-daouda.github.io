@@ -386,8 +386,11 @@ function isJsGetPlayersNumber() {
 
 function lockRoom() {
 	if (canLockRoom) {
-		rooms[roomId].locked = 1;
-		roomRef.set(rooms[roomId]);
+		try {
+			rooms[roomId].locked = 1;
+			roomRef.set(rooms[roomId]);		
+		}
+		catch(err) {console.log(err);}
 		canLockRoom = false;
 	}
 }

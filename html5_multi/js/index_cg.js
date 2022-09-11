@@ -409,6 +409,10 @@ function isJsPlayerLeave() {
 				if (players[playerId].isJsPlayerCount > 0) {
 					quitWithPenalize = 1;
 				}
+				else {
+					if (players[playerId].isJsAvoidChangeRoom === 1) removeRoom();
+					timerStop();
+				}
 			}
 			players[playerId].isJsMultiPlayerStarted = 0;
 			players[playerId].isJsAvoidChangeRoom = 0;

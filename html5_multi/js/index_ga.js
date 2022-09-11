@@ -412,6 +412,7 @@ function leaveWithoutDanger(updateRoomStep)
 	if (updateRoomStep) {
 		players[playerId].isJsMultiPlayerStarted = 0;
 		players[playerId].isJsRoomStep = 0;
+		players[playerId].roomId = playerId;
 		playerRef.set(players[playerId]);
 	}
 }
@@ -434,6 +435,7 @@ function isJsPlayerLeave() {
 			players[playerId].isJsAvoidChangeRoom = 0;
 			players[playerId].isJsRoomStep = 0;
 			players[playerId].quit = quitWithPenalize;
+			players[playerId].roomId = playerId;
 			playerRef.set(players[playerId]);
 		}
 	}

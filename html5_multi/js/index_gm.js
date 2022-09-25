@@ -155,6 +155,10 @@ function isJsGetOtherPlayerPoint(id) {
 	return isJsPlayers[id].point;
 }
 
+function isJsGetOtherPlayerLevel(id) {
+	return isJsPlayers[id].playerLevel;
+}
+
 function isJsGetOtherPlayerUsername(id, codeIndex) {
 	switch(codeIndex) {
 		case 0: return isJsPlayers[id].username_code0; break;
@@ -171,9 +175,10 @@ function isJsGetOtherPlayerUsername(id, codeIndex) {
 	}
 }
 
-function isJsSetPlayerData(point, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
+function isJsSetPlayerData(point, playerLevel, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
 							usernameCode5, usernameCode6, usernameCode7, usernameCode8, usernameCode9) {
 	players[playerId].point = point;
+	players[playerId].playerLevel = playerLevel;
 	players[playerId].username_code0 = usernameCode0;
 	players[playerId].username_code1 = usernameCode1;
 	players[playerId].username_code2 = usernameCode2;
@@ -443,7 +448,7 @@ var timeToRestart = 0;
 const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
-function chrono() {	
+function chrono() {
 	// ------- PAGE AUTO RESTART -------
 	if (document.body.className === "loading_page") {
 		if (timeToRestart > -1) timeToRestart++;
@@ -557,6 +562,7 @@ function initMultiPlayer() {
 				disqualify: 0,
 				finish: 0,
 				point: 0,
+				playerLevel: 0,
 				username_code0: -1,
 				username_code1: -1,
 				username_code2: -1,

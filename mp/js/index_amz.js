@@ -619,7 +619,7 @@ function initMultiPlayer() {
 							// Friendly Game
 							if (players[playerId].isJsLinkCode > 0 && players[key].isJsLinkCode === players[playerId].isJsLinkCode &&
 								players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
-								timerNotifStart(1);
+								timerNotifStart(3); // Value 2 is allows to check if players are connected
 							}
 							else // Normal Game
 							if (players[key].isJsLinkCode === 0 && players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {

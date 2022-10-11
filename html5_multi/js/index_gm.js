@@ -83,7 +83,7 @@ var isJsMultiPlayerNotif = 0;
 var timeNotifCount = -1;
 var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
-var TIME_QUIT_ROOM = 10;
+var TIME_QUIT_ROOM = 15;
 const TIME_WAIT_DEFAULT = 7;
 var timerAction = "";
 
@@ -95,7 +95,7 @@ function timerStop() {
 function timerNotifStart(notifIndex) {
 	if (timeNotifCount === -1) {
 		isJsMultiPlayerNotif = notifIndex;
-		timeNotifCount = 7;
+		timeNotifCount = 10;
 	}
 }
 
@@ -175,21 +175,25 @@ function isJsGetOtherPlayerUsername(id, codeIndex) {
 	}
 }
 
-function isJsSetPlayerData(point, playerLevel, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
+function isJsSetPlayerData(linkCode, point, playerLevel, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
 							usernameCode5, usernameCode6, usernameCode7, usernameCode8, usernameCode9) {
-	players[playerId].point = point;
-	players[playerId].playerLevel = playerLevel;
-	players[playerId].username_code0 = usernameCode0;
-	players[playerId].username_code1 = usernameCode1;
-	players[playerId].username_code2 = usernameCode2;
-	players[playerId].username_code3 = usernameCode3;
-	players[playerId].username_code4 = usernameCode4;
-	players[playerId].username_code5 = usernameCode5;
-	players[playerId].username_code6 = usernameCode6;
-	players[playerId].username_code7 = usernameCode7;
-	players[playerId].username_code8 = usernameCode8;
-	players[playerId].username_code9 = usernameCode9;
-	playerRef.set(players[playerId]);
+	try {
+		players[playerId].isJsLinkCode = linkCode;
+		players[playerId].point = point;
+		players[playerId].playerLevel = playerLevel;
+		players[playerId].username_code0 = usernameCode0;
+		players[playerId].username_code1 = usernameCode1;
+		players[playerId].username_code2 = usernameCode2;
+		players[playerId].username_code3 = usernameCode3;
+		players[playerId].username_code4 = usernameCode4;
+		players[playerId].username_code5 = usernameCode5;
+		players[playerId].username_code6 = usernameCode6;
+		players[playerId].username_code7 = usernameCode7;
+		players[playerId].username_code8 = usernameCode8;
+		players[playerId].username_code9 = usernameCode9;
+		playerRef.set(players[playerId]);
+	}
+	catch(err) {console.log(err);}
 }
 
 function isJsSetPlayerInGameData(x, y, xscale, yscale, angle, frame, disqualify, finish, levelTime) {
@@ -210,7 +214,6 @@ function updateIsJsPlayers(key) {
 		for(id = 0; id < players[playerId].isJsPlayerCount; id++) {
 			if (isJsPlayers[id].id === key) {
 				isJsPlayers[id] = players[key];
-				isJsPlayers[id].isJsId = id;
 			}
 		}
 	}
@@ -250,6 +253,10 @@ function isJsAvoidChangeRoomValue() {
 
 function isJsPlayerCountValue() {
 	return players[playerId].isJsPlayerCount;
+}
+
+function isJsLinkCodeValue() {
+	return players[playerId].isJsLinkCode;
 }
 
 function isJsAllPlayersReady() {
@@ -300,7 +307,6 @@ function addOtherPlayer(id) {
 		if (!playersKey[id]) {
 			playersKey[id] = id;
 			isJsPlayers[players[playerId].isJsPlayerCount] = players[id];
-			isJsPlayers[players[playerId].isJsPlayerCount].isJsId = players[playerId].isJsPlayerCount; // Allows to check data					
 			players[playerId].isJsPlayerCount++;
 
 			let tempTime = TIME_WAIT_DEFAULT;
@@ -324,7 +330,7 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 		Object.keys(rooms).forEach((key) => {
 			const room = rooms[key];
 			if (typeof(room) !== "undefined") {
-				if (room.locked === 0) {
+				if (room.locked === 0 && room.isJsLinkCode === players[playerId].isJsLinkCode) {
 					roomId = room.id;
 					roomExists = true;
 					canLockRoom = false;
@@ -339,6 +345,7 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 			roomRef = firebase.database().ref(`rooms/${roomId}`);
 			roomRef.set({
 				id: roomId,
+				isJsLinkCode: players[playerId].isJsLinkCode,
 				level: level,
 				crossworld: crossworld,
 				id_player: playerId,
@@ -448,7 +455,7 @@ var timeToRestart = 0;
 const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
-function chrono() {
+function chrono() {	
 	// ------- PAGE AUTO RESTART -------
 	if (document.body.className === "loading_page") {
 		if (timeToRestart > -1) timeToRestart++;
@@ -492,8 +499,8 @@ function initMultiPlayer() {
 				players = snapshot.val() || {};
 				if (typeof(players[playerId]) !== "undefined") {
 					Object.keys(players).forEach((key) => {
-						if (players[playerId].isJsMultiPlayerStarted === 1) {				
-							if (players[key].roomId === roomId && players[key].id !== playerId) {
+						if (players[playerId].isJsMultiPlayerStarted === 1) {
+							if (players[key].roomId === roomId && players[key].isJsLinkCode === players[playerId].isJsLinkCode && players[key].id !== playerId) {
 								if (players[playerId].isJsRoomStep === 2) {
 									addOtherPlayer(key);
 								}
@@ -502,8 +509,14 @@ function initMultiPlayer() {
 								}
 							}
 						}
-						else {
-							if (players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
+						else {							
+							// Friendly Game
+							if (players[playerId].isJsLinkCode > 0 && players[key].isJsLinkCode === players[playerId].isJsLinkCode &&
+								players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
+								timerNotifStart(3); // Value 2 is allows to check if players are connected
+							}
+							else // Normal Game
+							if (players[key].isJsLinkCode === 0 && players[key].id !== playerId && players[key].isJsRoomStep === 2 && players[key].isJsAvoidChangeRoom === 1) {
 								timerNotifStart(1);
 							}
 						}
@@ -542,7 +555,7 @@ function initMultiPlayer() {
 
 			playerRef.set({
 				id: playerId,
-				isJsId: 0,
+				isJsLinkCode: 0,
 				isJsRoomStep: 0,
 				isJsMultiPlayerStarted: 0,
 				isJsGameLevel: 0,

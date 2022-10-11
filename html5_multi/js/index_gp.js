@@ -453,7 +453,6 @@ function isJsPlayerLeave() {
 			players[playerId].quit = quitWithPenalize;
 			players[playerId].roomId = playerId;
 			playerRef.set(players[playerId]);
-			alert(players[playerId].quit);
 		}
 	}
 	catch(err) {console.log(err);}

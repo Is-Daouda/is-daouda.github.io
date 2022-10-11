@@ -439,7 +439,7 @@ function isJsClearPrevMutliPlayerGame() {
 		players[playerId].isJsAvoidChangeRoom = 0;
 		players[playerId].isJsMultiPlayerStarted = 0;
 		players[playerId].isJsRoomStep = 0;
-		players[playerId].quit = 0;
+		//players[playerId].quit = 0;
 		players[playerId].disqualify = 0;
 		players[playerId].ready = 0;
 		players[playerId].roomId = playerId;

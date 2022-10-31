@@ -497,11 +497,20 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 	playerRef.set(players[playerId]);
 }
 
-function removeRoom() {
+async function removeRoom() {
 	clearPlayersArray();
 	try {
 		if (typeof(roomRef) !== "undefined") {
-			if (rooms[roomId].locked === 0)	roomRef.remove();
+			let ref = firebase.database().ref(`rooms`);
+			const snapshot = await ref.once('value');
+			try {
+				rooms = snapshot.val() || {};
+				if (rooms[roomId].locked === 0)	roomRef.remove();
+			}
+			catch(err) {
+				roomRef.remove();
+				console.log(err);
+			}
 		}
 	}
 	catch(err) {console.log(err);}

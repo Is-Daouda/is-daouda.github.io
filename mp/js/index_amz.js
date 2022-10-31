@@ -412,6 +412,7 @@ function lockRoom() {
 }
 
 async function isJsCreateAI() {
+	timerAction = "";
 	timerStop();
     let ref = firebase.database().ref(`rooms`);
     const snapshot = await ref.once('value');

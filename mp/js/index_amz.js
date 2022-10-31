@@ -500,7 +500,9 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 function removeRoom() {
 	clearPlayersArray();
 	try {
-		if (typeof(roomRef) !== "undefined") roomRef.remove();
+		if (typeof(roomRef) !== "undefined") {
+			if (rooms[roomId].locked === 0)	roomRef.remove();
+		}
 	}
 	catch(err) {console.log(err);}
 }
@@ -566,9 +568,9 @@ function isJsClearPrevMutliPlayerGame() {
 		players[playerId].isJsPlayerCount = 0;
 		players[playerId].isJsAvoidChangeRoom = 0;
 		players[playerId].isJsMultiPlayerStarted = 0;
-		//players[playerId].isJsRoomStep = 0;
-		//players[playerId].quit = 0;
-		//players[playerId].disqualify = 0;
+		players[playerId].isJsRoomStep = 0;
+		players[playerId].quit = 0;
+		players[playerId].disqualify = 0;
 		players[playerId].ready = 0;
 		players[playerId].roomId = playerId;
 		playerRef.set(players[playerId]);			

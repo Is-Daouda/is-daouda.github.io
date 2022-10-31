@@ -412,11 +412,11 @@ function lockRoom() {
 }
 
 function isJsCreateAI() {
+	timerStop();
 	rooms[roomId].useAI = 1;
 	rooms[roomId].locked = 1;
 	roomRef.set(rooms[roomId]);
 	isJsRoomStepUpdate(3);
-	timerStop();
 }
 
 function addOtherPlayer(id) {

@@ -516,7 +516,7 @@ function leaveWithoutDanger(updateRoomStep)
 	}
 }
 
-function isJsPlayerLeave() {
+function isJsPlayerLeave(disconnectPlayer) {
 	try {
 		if (players[playerId].isJsRoomStep > 0) {				
 			let quitWithPenalize = 0;
@@ -534,9 +534,11 @@ function isJsPlayerLeave() {
 					timerStop();
 				}
 			}
-			players[playerId].isJsMultiPlayerStarted = 0;
-			players[playerId].isJsAvoidChangeRoom = 0;
-			players[playerId].isJsRoomStep = 0;
+			if (disconnectPlayer) {
+				players[playerId].isJsMultiPlayerStarted = 0;
+				players[playerId].isJsAvoidChangeRoom = 0;
+				players[playerId].isJsRoomStep = 0;			
+			}
 			players[playerId].quit = quitWithPenalize;
 			players[playerId].roomId = playerId;
 			playerRef.set(players[playerId]);
@@ -658,7 +660,7 @@ function initMultiPlayer() {
 				if (players[playerId].isJsMultiPlayerStarted === 1) {
 					const key = snapshot.val().id;
 					if (key === playerId) {
-						isJsPlayerLeave();
+						isJsPlayerLeave(true);
 					}
 					else if (players[playerId].isJsRoomStep === 4) {
 						if (playersKey[key]) {

@@ -411,11 +411,18 @@ function lockRoom() {
 	}
 }
 
-function isJsCreateAI() {
+var dateSysVar;
+async function isJsCreateAI() {
 	timerStop();
-	rooms[roomId].useAI = 1;
-	rooms[roomId].locked = 1;
-	roomRef.set(rooms[roomId]);
+    let ref = firebase.database().ref(`rooms`);
+    const snapshot = await ref.once('value');
+	try {
+		rooms = snapshot.val() || {};
+		rooms[roomId].useAI = 1;
+		rooms[roomId].locked = 1;
+		roomRef.set(rooms[roomId]);
+	}
+	catch(err) {console.log(err);}
 	isJsRoomStepUpdate(3);
 }
 
@@ -439,6 +446,7 @@ function addOtherPlayer(id) {
 
 async function isJsStartMultiPlayerGame(level, crossworld) {
 	clearPlayersArray();
+	dateSysVar = getDateSys();
 	let roomExists = false;
     let ref = firebase.database().ref(`rooms`);
     const snapshot = await ref.once('value');
@@ -469,7 +477,7 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 				player_quit: 0,
 				useAI: 0,
 				locked: 0,
-				date: getDateSys()
+				date: dateSysVar
 			});
 			
 			players[playerId].isJsGameLevel = level;

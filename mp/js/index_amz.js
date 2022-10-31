@@ -411,7 +411,6 @@ function lockRoom() {
 	}
 }
 
-var dateSysVar;
 async function isJsCreateAI() {
 	timerStop();
     let ref = firebase.database().ref(`rooms`);
@@ -446,7 +445,6 @@ function addOtherPlayer(id) {
 
 async function isJsStartMultiPlayerGame(level, crossworld) {
 	clearPlayersArray();
-	dateSysVar = getDateSys();
 	let roomExists = false;
     let ref = firebase.database().ref(`rooms`);
     const snapshot = await ref.once('value');
@@ -477,7 +475,7 @@ async function isJsStartMultiPlayerGame(level, crossworld) {
 				player_quit: 0,
 				useAI: 0,
 				locked: 0,
-				date: dateSysVar
+				date: getDateSys()
 			});
 			
 			players[playerId].isJsGameLevel = level;

@@ -84,7 +84,7 @@ var timeNotifCount = -1;
 var timeWaitCount = -1;
 var TIME_WAIT_MAX = 0;
 var TIME_QUIT_ROOM = 15;
-const TIME_WAIT_DEFAULT = 7;
+const TIME_WAIT_DEFAULT = 5;
 var timerAction = "";
 
 // ---------------------- TIMER FUNCTIONS ----------------------

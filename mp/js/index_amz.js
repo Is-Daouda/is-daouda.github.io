@@ -514,6 +514,7 @@ function isJsGetOtherProfilesData(id, value) {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
 				if (profile.isJsProfileId === id) {
+					console.log(profile.username_code7);
 					switch(value) {
 						case 0: return profile.username_code0; break;
 						case 1: return profile.username_code1; break;

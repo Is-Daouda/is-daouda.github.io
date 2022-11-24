@@ -411,7 +411,7 @@ function isJsAllPlayersReady() {
 }
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
-async function createPlayerProfile() {
+async function isJsCreatePlayerProfile() {
 	try {
 		let profileCount = 0;	
 		let ref = firebase.database().ref(`profiles`);
@@ -461,10 +461,6 @@ async function createPlayerProfile() {
 	return -1; // Error: Can't create profile.
 }
 
-function isJsCreatePlayerProfile() {
-	return createPlayerProfile().then(x => {return x;});
-}
-
 async function isJsLoadPlayerProfile(id) {
 	try {
 		let ref = firebase.database().ref(`profiles`);
@@ -484,7 +480,7 @@ async function isJsLoadPlayerProfile(id) {
 	catch(err) {console.log(err);}
 }
 
-async function profileMax() {
+async function isJsProfileMax() {
 	let profileCount = 0;
 	try {
 		let ref = firebase.database().ref(`profiles`);
@@ -500,10 +496,6 @@ async function profileMax() {
 	}
 	catch(err) {console.log(err);}
 	return profileCount;
-}
-
-function isJsProfileMax() {
-	return profileMax().then(x => {return x;});
 }
 
 function isJsGetOtherProfilesData(id, value) {

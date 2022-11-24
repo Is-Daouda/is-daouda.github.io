@@ -454,10 +454,14 @@ async function isJsCreatePlayerProfile() {
 			data_5: "",
 			data_6: "",
 			data_7: ""
-		});	
+		});
+		
+		// Force array update
+		ref = firebase.database().ref(`profiles`);
+		const snapshotUpdate = await ref.once('value');
+		profiles = snapshotUpdate.val() || {};
 	}
 	catch(err) {console.log(err);}
-	
 	return isJsGlobalProfileCount;
 }
 
@@ -479,27 +483,6 @@ async function isJsLoadPlayerProfile(id) {
 	}
 	catch(err) {console.log(err);}
 	return 0;
-}
-
-var isJsUpdateProfileMax = false;
-async function isJsProfileMax() {
-	if (isJsUpdateProfileMax) isJsGlobalProfileCount = 0;
-	try {
-		let ref = firebase.database().ref(`profiles`);
-		const snapshot = await ref.once('value');
-		profiles = snapshot.val() || {};
-		if (isJsUpdateProfileMax) {
-			Object.keys(profiles).forEach((key) => {
-				const profile = profiles[key];
-				if (typeof(profile) !== "undefined") {
-					isJsGlobalProfileCount++;
-				}
-			});		
-		}
-	}
-	catch(err) {console.log(err);}
-	if (!isJsUpdateProfileMax) isJsUpdateProfileMax = true;
-	return isJsGlobalProfileCount;
 }
 
 function isJsGetOtherProfilesData(id, value) {

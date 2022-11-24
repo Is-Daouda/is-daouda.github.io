@@ -454,7 +454,11 @@ async function isJsCreatePlayerProfile() {
 			data_5: "",
 			data_6: "",
 			data_7: ""
-		});		
+		});	
+
+		ref = firebase.database().ref(`profiles`);
+		const snapshotUpdate = await ref.once('value');
+		profiles = snapshotUpdate.val() || {};		
 	}
 	catch(err) {console.log(err);}
 	

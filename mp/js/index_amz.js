@@ -481,7 +481,7 @@ async function isJsLoadPlayerProfile(id) {
 	return 0;
 }
 
-async function isJsProfileMax(update) {
+async function isJsProfileMax(update = true) {
 	if (update) isJsGlobalProfileCount = 0;
 	try {
 		let ref = firebase.database().ref(`profiles`);

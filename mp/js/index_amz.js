@@ -481,6 +481,7 @@ async function isJsLoadPlayerProfile(id) {
 	return 0;
 }
 
+var isJsCallProfileMax = -1;
 async function isJsProfileMax(update = true) {
 	if (update) isJsGlobalProfileCount = 0;
 	try {
@@ -748,6 +749,11 @@ function chrono() {
 	}
 
 	// ------- MULTIPLAYER -------
+	if (isJsCallProfileMax > 0) {
+		isJsProfileMax((isJsCallProfileMax === 1) ? true : false);
+		isJsCallProfileMax = -1;
+	}
+	
 	if (timeNotifCount > 0) timeNotifCount--;
 	if (timeNotifCount === 0) {
 		timerNotifStop();

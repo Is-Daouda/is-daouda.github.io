@@ -524,7 +524,7 @@ function isJsGetOtherProfilesData(id, value) {
 						case 4: return profile.username_code4;
 						case 5: return profile.username_code5;
 						case 6: return profile.username_code6;
-						case 7: return profile.username_code7;
+						case 7: console.log(profile.username_code7); return profile.username_code7;
 						case 8: return profile.username_code8;
 						case 9: return profile.username_code9;
 						case 10: return profile.point;

@@ -411,11 +411,11 @@ function isJsAllPlayersReady() {
 }
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
-var globalProfileCount = -1;
+var isJsGlobalProfileCount = -1;
 
 async function isJsCreatePlayerProfile() {
 	try {
-		globalProfileCount = 0;	
+		isJsGlobalProfileCount = 0;	
 		let ref = firebase.database().ref(`profiles`);
 		const snapshot = await ref.once('value');
 		profiles = snapshot.val() || {};
@@ -423,7 +423,7 @@ async function isJsCreatePlayerProfile() {
 		Object.keys(profiles).forEach((key) => {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
-				globalProfileCount++;
+				isJsGlobalProfileCount++;
 			}
 		});
 		
@@ -431,7 +431,7 @@ async function isJsCreatePlayerProfile() {
 		profileRef = firebase.database().ref(`profiles/${profileId}`);
 		profileRef.set({
 			id: profileId,
-			isJsProfileId: globalProfileCount,
+			isJsProfileId: isJsGlobalProfileCount,
 			dateCreate: getDateSys(),
 			datePlay: "",
 			point: 0,
@@ -458,7 +458,7 @@ async function isJsCreatePlayerProfile() {
 	}
 	catch(err) {console.log(err);}
 	
-	return globalProfileCount; // Error: Can't create profile.
+	return isJsGlobalProfileCount;
 }
 
 async function isJsLoadPlayerProfile(id) {
@@ -482,7 +482,7 @@ async function isJsLoadPlayerProfile(id) {
 }
 
 async function isJsProfileMax() {
-	globalProfileCount = 0;
+	isJsGlobalProfileCount = 0;
 	try {
 		let ref = firebase.database().ref(`profiles`);
 		const snapshot = await ref.once('value');
@@ -491,16 +491,16 @@ async function isJsProfileMax() {
 		Object.keys(profiles).forEach((key) => {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
-				globalProfileCount++;
+				isJsGlobalProfileCount++;
 			}
 		});
 	}
 	catch(err) {console.log(err);}
-	return globalProfileCount;
+	return isJsGlobalProfileCount;
 }
 
 function isJsGetOtherProfilesData(id, value) {
-	let result;
+	let result = -1;
 	try {
 		Object.keys(profiles).forEach((key) => {
 			const profile = profiles[key];

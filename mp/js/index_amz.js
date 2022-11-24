@@ -471,6 +471,7 @@ async function isJsLoadPlayerProfile(id) {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
 				if (profile.isJsProfileId === id) {
+					console.log("id : " + profile.id);
 					profileId = profile.id;
 					profileRef = firebase.database().ref(`profiles/${profileId}`);
 					return;
@@ -482,7 +483,7 @@ async function isJsLoadPlayerProfile(id) {
 }
 
 async function isJsProfileMax() {
-	let profileCount = 0;
+	let gloablProfileCount = 0;
 	try {
 		let ref = firebase.database().ref(`profiles`);
 		const snapshot = await ref.once('value');
@@ -491,13 +492,12 @@ async function isJsProfileMax() {
 		Object.keys(profiles).forEach((key) => {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
-				profileCount++;
+				gloablProfileCount++;
 			}
-		});	
+		});
+		console.log("count : " + gloablProfileCount);
 	}
 	catch(err) {console.log(err);}
-
-	return profileCount;
 }
 
 function isJsGetOtherProfilesData(id, value) {

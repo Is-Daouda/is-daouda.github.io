@@ -768,8 +768,13 @@ setInterval("chrono()", 1000);
 function initMultiPlayer() {
 	
 	function initMultiPlayerSubFunctions() {
-		const allPlayersRef = firebase.database().ref(`players`);
+	
+		const allProfilesRef = firebase.database().ref(`profiles`);
+		allProfilesRef.on("value", (snapshot) => {
+			profiles = snapshot.val() || {};
+		});
 
+		const allPlayersRef = firebase.database().ref(`players`);
 		allPlayersRef.on("value", (snapshot) => {
 			try {
 				players = snapshot.val() || {};

@@ -89,6 +89,10 @@ var playerRef;
 var players = {};
 var playersKey = {};
 
+var profileRef;
+var profiles;
+var profileId;
+
 var roomRef;	
 var rooms;
 var roomId;
@@ -201,6 +205,21 @@ function isJsGetOtherPlayerUsername(id, codeIndex) {
 function isJsSetPlayerData(linkCode, point, playerLevel, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
 							usernameCode5, usernameCode6, usernameCode7, usernameCode8, usernameCode9) {
 	try {
+		profiles[profileId].datePlay = getDateSys();
+		profiles[profileId].point = point;
+		profiles[profileId].playerLevel = playerLevel;
+		profiles[profileId].username_code0 = usernameCode0;
+		profiles[profileId].username_code1 = usernameCode1;
+		profiles[profileId].username_code2 = usernameCode2;
+		profiles[profileId].username_code3 = usernameCode3;
+		profiles[profileId].username_code4 = usernameCode4;
+		profiles[profileId].username_code5 = usernameCode5;
+		profiles[profileId].username_code6 = usernameCode6;
+		profiles[profileId].username_code7 = usernameCode7;
+		profiles[profileId].username_code8 = usernameCode8;
+		profiles[profileId].username_code9 = usernameCode9;
+		profileRef.set(profiles[profileId]);
+	
 		players[playerId].isJsLinkCode = linkCode;
 		players[playerId].point = point;
 		players[playerId].playerLevel = playerLevel;
@@ -305,6 +324,115 @@ function isJsAllPlayersReady() {
 }
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
+var isJsGlobalProfileCount = -1;
+
+function isJsProfileMaxValue() {
+	try {return Object.keys(profiles).length;}
+	catch(err) {return 0;}
+}
+
+async function isJsCreatePlayerProfile() {
+	try {
+		let ref = firebase.database().ref(`profiles`);
+		const snapshot = await ref.once('value');
+		profiles = snapshot.val() || {};
+		
+		isJsGlobalProfileCount = 0;	
+		Object.keys(profiles).forEach((key) => {
+			const profile = profiles[key];
+			if (typeof(profile) !== "undefined") {
+				isJsGlobalProfileCount++;
+			}
+		});
+		
+		profileId = firebase.database().ref().child('profiles').push().key;
+		profileRef = firebase.database().ref(`profiles/${profileId}`);
+		profileRef.set({
+			id: profileId,
+			isJsProfileId: isJsGlobalProfileCount,
+			dateCreate: getDateSys(),
+			datePlay: "",
+			point: 0,
+			playerLevel: 0,
+			locked: 0,
+			username_code0: -1,
+			username_code1: -1,
+			username_code2: -1,
+			username_code3: -1,
+			username_code4: -1,
+			username_code5: -1,
+			username_code6: -1,
+			username_code7: -1,
+			username_code8: -1,
+			username_code9: -1,
+			data_1: "",
+			data_2: "",
+			data_3: "",
+			data_4: "",
+			data_5: "",
+			data_6: "",
+			data_7: ""
+		});
+		
+		// Force array update
+		ref = firebase.database().ref(`profiles`);
+		const snapshotUpdate = await ref.once('value');
+		profiles = snapshotUpdate.val() || {};
+	}
+	catch(err) {console.log(err);}
+	return isJsGlobalProfileCount;
+}
+
+async function isJsLoadPlayerProfile(id) {
+	try {
+		let ref = firebase.database().ref(`profiles`);
+		const snapshot = await ref.once('value');
+		profiles = snapshot.val() || {};
+		
+		Object.keys(profiles).forEach((key) => {
+			const profile = profiles[key];
+			if (typeof(profile) !== "undefined") {
+				if (profile.isJsProfileId === id) {
+					profileId = profile.id;
+					profileRef = firebase.database().ref(`profiles/${profileId}`);
+				}
+			}
+		});
+	}
+	catch(err) {console.log(err);}
+	return 0;
+}
+
+function isJsGetOtherProfilesData(id, value) {
+	let result = -1;
+	try {
+		Object.keys(profiles).forEach((key) => {
+			const profile = profiles[key];
+			if (typeof(profile) !== "undefined") {
+				if (profile.isJsProfileId === id) {
+					switch(value) {
+						case 0: result = profile.username_code0; break;
+						case 1: result = profile.username_code1; break;
+						case 2: result = profile.username_code2; break;
+						case 3: result = profile.username_code3; break;
+						case 4: result = profile.username_code4; break;
+						case 5: result = profile.username_code5; break;
+						case 6: result = profile.username_code6; break;
+						case 7: result = profile.username_code7; break;
+						case 8: result = profile.username_code8; break;
+						case 9: result = profile.username_code9; break;
+						case 10: result = profile.point; break;
+						case 11: result = profile.playerLevel; break;
+						default: result = -1; break;
+					}
+				}
+			}
+		});
+	}
+	catch(err) {console.log(err);}
+	return result;
+}
+
 function clearPlayersArray() {
 	Object.keys(playersKey).forEach(key => delete playersKey[key]);
 	Object.keys(isJsPlayers).forEach(key => delete isJsPlayers[key]);
@@ -507,7 +635,7 @@ var timeToRestart = 0;
 const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
-function chrono() {
+function chrono() {	
 	// ------- PAGE AUTO RESTART -------
 	if (document.body.className === "loading_page") {
 		if (timeToRestart > -1) timeToRestart++;
@@ -544,8 +672,13 @@ setInterval("chrono()", 1000);
 function initMultiPlayer() {
 	
 	function initMultiPlayerSubFunctions() {
-		const allPlayersRef = firebase.database().ref(`players`);
+	
+		const allProfilesRef = firebase.database().ref(`profiles`);
+		allProfilesRef.on("value", (snapshot) => {
+			profiles = snapshot.val() || {};
+		});
 
+		const allPlayersRef = firebase.database().ref(`players`);
 		allPlayersRef.on("value", (snapshot) => {
 			try {
 				players = snapshot.val() || {};

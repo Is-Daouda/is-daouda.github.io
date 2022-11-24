@@ -411,9 +411,11 @@ function isJsAllPlayersReady() {
 }
 
 // ---------------------- MAIN MENU FUNCTIONS ----------------------
-async function createPlayerProfile() {
+var globalProfileCount = -1;
+
+async function isJsCreatePlayerProfile() {
 	try {
-		let profileCount = 0;	
+		globalProfileCount = 0;	
 		let ref = firebase.database().ref(`profiles`);
 		const snapshot = await ref.once('value');
 		profiles = snapshot.val() || {};
@@ -421,7 +423,7 @@ async function createPlayerProfile() {
 		Object.keys(profiles).forEach((key) => {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
-				profileCount++;
+				globalProfileCount++;
 			}
 		});
 		
@@ -429,7 +431,7 @@ async function createPlayerProfile() {
 		profileRef = firebase.database().ref(`profiles/${profileId}`);
 		profileRef.set({
 			id: profileId,
-			isJsProfileId: profileCount,
+			isJsProfileId: globalProfileCount,
 			dateCreate: getDateSys(),
 			datePlay: "",
 			point: 0,
@@ -452,19 +454,11 @@ async function createPlayerProfile() {
 			data_5: "",
 			data_6: "",
 			data_7: ""
-		});
-		
-		return profileCount;
+		});		
 	}
 	catch(err) {console.log(err);}
 	
-	return -1; // Error: Can't create profile.
-}
-
-var globalProfileCount;
-async function isJsCreatePlayerProfile() {
-	globalProfileCount = await createPlayerProfile();
-	return globalProfileCount;
+	return globalProfileCount; // Error: Can't create profile.
 }
 
 async function isJsLoadPlayerProfile(id) {
@@ -487,8 +481,8 @@ async function isJsLoadPlayerProfile(id) {
 	return 0;
 }
 
-async function profileMax() {
-	let profileCount = 0;
+async function isJsProfileMax() {
+	globalProfileCount = 0;
 	try {
 		let ref = firebase.database().ref(`profiles`);
 		const snapshot = await ref.once('value');
@@ -497,45 +491,42 @@ async function profileMax() {
 		Object.keys(profiles).forEach((key) => {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
-				profileCount++;
+				globalProfileCount++;
 			}
 		});
 	}
 	catch(err) {console.log(err);}
-	return profileCount;
-}
-
-async function isJsProfileMax() {
-	globalProfileCount = await profileMax();
 	return globalProfileCount;
 }
 
 function isJsGetOtherProfilesData(id, value) {
+	let result;
 	try {
 		Object.keys(profiles).forEach((key) => {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
 				if (profile.isJsProfileId === id) {
 					switch(value) {
-						case 0: return profile.username_code0;
-						case 1: return profile.username_code1;
-						case 2: return profile.username_code2;
-						case 3: return profile.username_code3;
-						case 4: return profile.username_code4;
-						case 5: return profile.username_code5;
-						case 6: return profile.username_code6;
-						case 7: console.log(profile.username_code7); return profile.username_code7;
-						case 8: return profile.username_code8;
-						case 9: return profile.username_code9;
-						case 10: return profile.point;
-						case 11: return profile.playerLevel;
-						default: return -1;
+						case 0: result = profile.username_code0; break;
+						case 1: result = profile.username_code1; break;
+						case 2: result = profile.username_code2; break;
+						case 3: result = profile.username_code3; break;
+						case 4: result = profile.username_code4; break;
+						case 5: result = profile.username_code5; break;
+						case 6: result = profile.username_code6; break;
+						case 7: result = profile.username_code7; break;
+						case 8: result = profile.username_code8; break;
+						case 9: result = profile.username_code9; break;
+						case 10: result = profile.point; break;
+						case 11: result = profile.playerLevel; break;
+						default: result = -1; break;
 					}
 				}
 			}
 		});
 	}
 	catch(err) {console.log(err);}
+	return result;
 }
 
 function clearPlayersArray() {

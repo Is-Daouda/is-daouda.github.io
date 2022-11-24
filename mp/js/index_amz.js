@@ -514,20 +514,19 @@ function isJsGetOtherProfilesData(id, value) {
 			const profile = profiles[key];
 			if (typeof(profile) !== "undefined") {
 				if (profile.isJsProfileId === id) {
-					console.log(profile.username_code7);
 					switch(value) {
-						case 0: return profile.username_code0; break;
-						case 1: return profile.username_code1; break;
-						case 2: return profile.username_code2; break;
-						case 3: return profile.username_code3; break;
-						case 4: return profile.username_code4; break;
-						case 5: return profile.username_code5; break;
-						case 6: return profile.username_code6; break;
-						case 7: return profile.username_code7; break;
-						case 8: return profile.username_code8; break;
-						case 9: return profile.username_code9; break;
-						case 10: return profile.point; break;
-						case 11: return profile.playerLevel; break;
+						case 0: return profile.username_code0;
+						case 1: return profile.username_code1;
+						case 2: return profile.username_code2;
+						case 3: return profile.username_code3;
+						case 4: return profile.username_code4;
+						case 5: return profile.username_code5;
+						case 6: return profile.username_code6;
+						case 7: return profile.username_code7;
+						case 8: return profile.username_code8;
+						case 9: return profile.username_code9;
+						case 10: return profile.point;
+						case 11: return profile.playerLevel;
 						default: return -1;
 					}
 				}

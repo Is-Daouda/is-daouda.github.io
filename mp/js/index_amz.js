@@ -464,6 +464,7 @@ async function createPlayerProfile() {
 var globalProfileCount;
 async function isJsCreatePlayerProfile() {
 	globalProfileCount = await createPlayerProfile();
+	return globalProfileCount;
 }
 
 async function isJsLoadPlayerProfile(id) {
@@ -506,6 +507,7 @@ async function profileMax() {
 
 async function isJsProfileMax() {
 	globalProfileCount = await profileMax();
+	return globalProfileCount;
 }
 
 function isJsGetOtherProfilesData(id, value) {

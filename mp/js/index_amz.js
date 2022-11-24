@@ -481,14 +481,14 @@ async function isJsLoadPlayerProfile(id) {
 	return 0;
 }
 
-var isJsCallProfileMax = -1;
-async function isJsProfileMax(update = true) {
-	if (update) isJsGlobalProfileCount = 0;
+var isJsUpdateProfileMax = false;
+async function isJsProfileMax() {
+	if (isJsUpdateProfileMax) isJsGlobalProfileCount = 0;
 	try {
 		let ref = firebase.database().ref(`profiles`);
 		const snapshot = await ref.once('value');
 		profiles = snapshot.val() || {};
-		if (update) {
+		if (isJsUpdateProfileMax) {
 			Object.keys(profiles).forEach((key) => {
 				const profile = profiles[key];
 				if (typeof(profile) !== "undefined") {
@@ -498,6 +498,7 @@ async function isJsProfileMax(update = true) {
 		}
 	}
 	catch(err) {console.log(err);}
+	if (!isJsUpdateProfileMax) isJsUpdateProfileMax = true;
 	return isJsGlobalProfileCount;
 }
 
@@ -749,11 +750,6 @@ function chrono() {
 	}
 
 	// ------- MULTIPLAYER -------
-	if (isJsCallProfileMax > 0) {
-		isJsProfileMax((isJsCallProfileMax === 1) ? true : false);
-		isJsCallProfileMax = -1;
-	}
-	
 	if (timeNotifCount > 0) timeNotifCount--;
 	if (timeNotifCount === 0) {
 		timerNotifStop();

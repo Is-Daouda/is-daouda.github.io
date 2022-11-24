@@ -478,6 +478,7 @@ async function isJsLoadPlayerProfile(id) {
 		});
 	}
 	catch(err) {console.log(err);}
+	return 0;
 }
 
 async function isJsProfileMax() {

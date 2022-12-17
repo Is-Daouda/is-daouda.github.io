@@ -69,7 +69,7 @@ function hideLoadingScreen() {
 	document.getElementById("screen_loading").remove();
 	document.documentElement.className = "game_page";
 	document.body.className = "game_page";
-	if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
+	//if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
 }
 // <<< I Can Transform v2.5 ---
 
@@ -877,7 +877,7 @@ function removeCover(event) {
 	}
 }
 
-document.getElementById('screen_cover').addEventListener("click", removeCover);	
+//document.getElementById('screen_cover').addEventListener("click", removeCover);	
 
 window.addEventListener("load", function() {
 	window.focus();

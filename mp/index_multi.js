@@ -863,7 +863,7 @@ function checkScreenOrientation() {
 function onResize() {
 	canvas.width = window.innerWidth;
 	canvas.height = window.innerHeight;
-	checkScreenOrientation();
+	//checkScreenOrientation();
 	isJsUpdateSize = 1;
 }
 

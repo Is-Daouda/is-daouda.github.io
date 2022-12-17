@@ -69,6 +69,7 @@ function hideLoadingScreen() {
 	document.getElementById("screen_loading").remove();
 	document.documentElement.className = "game_page";
 	document.body.className = "game_page";
+canvas.style.display = "block";
 isJsInitGame = 2;
 	//if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
 }

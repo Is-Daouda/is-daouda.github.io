@@ -8,7 +8,7 @@
 	<meta name="viewport" content="width=device-width, user-scalable=no">
 	<script src="js/index_gm_head.js"></script>
 </head>
-<body onload="openFullscreen();">
+<body>
 <div id="gamescreen">
 	<!-- Loading Page -->
 	<div id="screen_loading" class="start_screen">
@@ -40,18 +40,4 @@
 </div>
 </body>
 	<script src="js/index_gm.js"></script>
-
-<script>
-var elem = document.getElementById("gamescreen");
-function openFullscreen() {
-  if (elem.requestFullscreen) {
-    elem.requestFullscreen();
-  } else if (elem.webkitRequestFullscreen) { /* Safari */
-    elem.webkitRequestFullscreen();
-  } else if (elem.msRequestFullscreen) { /* IE11 */
-    elem.msRequestFullscreen();
-  }
-}
-</script>
-
 </html>

@@ -4,6 +4,19 @@ var isJsInitGame = 0;
 var normalScreen = (window.innerWidth > window.innerHeight);
 var rscLink = "https://is-daouda.github.io/html5_multi/";
 
+var elem = document.getElementById("gamescreen");
+function openFullscreen() {
+	if (elem.requestFullscreen) {
+		elem.requestFullscreen();
+	}
+	else if (elem.webkitRequestFullscreen) { /* Safari */
+		elem.webkitRequestFullscreen();
+ 	 }
+	else if (elem.msRequestFullscreen) { /* IE11 */
+		elem.msRequestFullscreen();
+	}
+}
+
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";
 document.body.className = "loading_page";
@@ -812,6 +825,7 @@ window.addEventListener("resize", onResize, true);
 
 function removeCover(event) {
    if (isJsInitGame === 1) {
+		openFullscreen();
 		document.getElementById('screen_cover').removeEventListener("click", removeCover);
 		document.getElementById('screen_cover').remove();
 		isJsInitGame = 2;

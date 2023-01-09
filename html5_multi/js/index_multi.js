@@ -25,11 +25,11 @@ window.SDK_OPTIONS = {
 	a.src = "https://api.gamemonetize.com/sdk.js", 
 	d.parentNode.insertBefore(a, d))
 })(document, "script", "gamemonetize-sdk");
-/*
+
 function isJsShowGameAds() {
 	if (typeof sdk !== 'undefined' && sdk.showBanner !== 'undefined') sdk.showBanner();
 }
-*/
+
 // --- I Can Transform v2.5 >>>
 document.documentElement.className = "loading_page";
 document.body.className = "loading_page";

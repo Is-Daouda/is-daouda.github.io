@@ -814,10 +814,15 @@ myScript1.addEventListener("load", () => {
 
 // Common functions
 function onResize() {
+	normalScreen = (window.innerWidth > window.innerHeight);
 	if (normalScreen) {
 		canvas.width = window.innerWidth;
 		canvas.height = window.innerHeight;
 		isJsUpdateSize = 1;			
+	}
+	else {
+		canvas.width = window.innerWidth;
+		canvas.height = window.innerWidth;
 	}
 }
 

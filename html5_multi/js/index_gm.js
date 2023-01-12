@@ -822,7 +822,7 @@ function onResize() {
 	}
 	else {
 		canvas.width = window.innerWidth;
-		canvas.height = window.innerWidth;
+		canvas.height = window.innerWidth - 160;
 	}
 	isJsUpdateSize = 1;
 }

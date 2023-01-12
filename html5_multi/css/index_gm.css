@@ -42,7 +42,7 @@ body {
 }
 
 @media only screen and (max-width: 640px) {
-	#canvas {
+	/*#canvas {
 		position: absolute;
 		top: 0;
 		bottom: 0;
@@ -50,8 +50,13 @@ body {
 		right: 0;
 		margin: auto;
 		width: 280px;
+	}*/
+	#canvas {
+position: relative;
+  width: 100%;
+  padding-top: 100%;
 	}
-	
+
 	.hmin_tag{
 		font-size: 0.5em;
 		font-weight: bold;

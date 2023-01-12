@@ -52,7 +52,7 @@ body {
 		width: 280px;
 	}*/
 #canvas {
-    position: relative;
+    position: absolute;
     width: 20%;
     height: 0;
     padding-bottom: 20%;

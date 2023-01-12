@@ -818,12 +818,13 @@ function onResize() {
 	if (normalScreen) {
 		canvas.width = window.innerWidth;
 		canvas.height = window.innerHeight;
-		isJsUpdateSize = 1;			
+		//isJsUpdateSize = 1;			
 	}
 	else {
 		canvas.width = window.innerWidth;
 		canvas.height = window.innerWidth;
 	}
+	isJsUpdateSize = 1;
 }
 
 window.addEventListener("resize", onResize, true);

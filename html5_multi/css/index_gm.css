@@ -51,6 +51,7 @@ body {
 		margin: auto;
 		width: 280px;
 	}
+
 	.hmin_tag{
 		font-size: 0.5em;
 		font-weight: bold;
@@ -66,6 +67,7 @@ body {
 		width:100vw;
 		height:100vh;
 	}
+
 	.hmin_tag{
 		font-size: 1.em;
 		font-weight: bold;

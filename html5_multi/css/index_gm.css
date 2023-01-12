@@ -42,7 +42,7 @@ body {
 }
 
 @media only screen and (max-width: 640px) {
-	#canvas {
+	/*#canvas {
 		position: absolute;
 		top: 0;
 		bottom: 0;
@@ -50,7 +50,7 @@ body {
 		right: 0;
 		margin: auto;
 		width: 280px;
-	}
+	}*/
 	
 	.hmin_tag{
 		font-size: 0.5em;
@@ -58,8 +58,17 @@ body {
 	}
 }
 
+#canvas {
+	position: absolute;
+	display: block;
+	margin:0;
+	padding:0;
+	width:100vw;
+	height:100vh;
+}
+
 @media only screen and (min-width: 640px) {
-	#canvas {
+	/*#canvas {
 		position: absolute;
 		display: block;
 		margin:0;
@@ -67,7 +76,7 @@ body {
 		width:100vw;
 		height:100vh;
 	}
-	
+	/*
 	.hmin_tag{
 		font-size: 1.em;
 		font-weight: bold;

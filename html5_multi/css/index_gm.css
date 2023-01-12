@@ -51,6 +51,12 @@ body {
 		margin: auto;
 		width: 280px;
 	}*/
+#canvas {
+    position: relative;
+    width: 20%;
+    height: 0;
+    padding-bottom: 20%;
+}
 	
 	.hmin_tag{
 		font-size: 0.5em;
@@ -58,17 +64,8 @@ body {
 	}
 }
 
-#canvas {
-	position: absolute;
-	display: block;
-	margin:0;
-	padding:0;
-	width:100vw;
-	height:100vh;
-}
-
 @media only screen and (min-width: 640px) {
-	/*#canvas {
+	#canvas {
 		position: absolute;
 		display: block;
 		margin:0;
@@ -76,7 +73,7 @@ body {
 		width:100vw;
 		height:100vh;
 	}
-	*/
+	
 	.hmin_tag{
 		font-size: 1.em;
 		font-weight: bold;

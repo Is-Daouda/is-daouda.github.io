@@ -213,7 +213,7 @@ function isJsGetOtherPlayerUsername(id, codeIndex) {
 
 function isJsSetPlayerData(linkCode, point, playerLevel, usernameCode0, usernameCode1, usernameCode2, usernameCode3, usernameCode4,
 							usernameCode5, usernameCode6, usernameCode7, usernameCode8, usernameCode9) {
-	try {
+	try {/*
 		profiles[profileId].datePlay = getDateSys();
 		profiles[profileId].point = point;
 		profiles[profileId].playerLevel = playerLevel;
@@ -227,7 +227,7 @@ function isJsSetPlayerData(linkCode, point, playerLevel, usernameCode0, username
 		profiles[profileId].username_code7 = usernameCode7;
 		profiles[profileId].username_code8 = usernameCode8;
 		profiles[profileId].username_code9 = usernameCode9;
-		profileRef.set(profiles[profileId]);
+		profileRef.set(profiles[profileId]);*/
 	
 		players[playerId].isJsLinkCode = linkCode;
 		players[playerId].point = point;

@@ -1,0 +1,349 @@
+*,
+*::after,
+*::before {
+	box-sizing: border-box;
+}
+
+html, body {
+	background-color: black;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+.game_page {
+	margin: 0px;
+	border: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
+
+.loading_page {
+	background: black;
+	display: flex;
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+body {
+	-ms-touch-action:none;
+	touch-action:none;
+}
+
+/* @media min size removed */
+
+#canvas {
+	position: absolute;
+	display: block;
+	margin:0;
+	padding:0;
+	width:100vw;
+	height:100vh;
+}
+
+.start_screen {
+	display:flex;
+	justify-content:center;
+	align-items:center;
+	width:100%;
+	height:100%;
+	background-color: black;
+}
+
+#rotate_screen {
+   background: url("https://is-daouda.github.io/gxtg/rotate_screen.png") no-repeat center center;
+	width:100%;
+	height:100%;
+}
+
+.hmin_tag{
+	font-size: 1.em;
+	font-weight: bold;
+}
+
+.h1_tag{
+	font-size: 2.4em;
+	font-weight: bold;
+}
+
+/* loading */
+#load {
+	position:absolute;
+	width:600px;
+	height:36px;
+	left:50%;
+	top:40%;
+	margin-left:-300px;
+	overflow:visible;
+	-webkit-user-select:none;
+	-moz-user-select:none;
+	-ms-user-select:none;
+	user-select:none;
+	cursor:default;
+}
+
+#load div {
+	position:absolute;
+	width:20px;
+	height:36px;
+	opacity:0;
+	font-family:Helvetica, Arial, sans-serif;
+	font-size: 1.8em;
+	animation:move 2s linear infinite;
+	-o-animation:move 2s linear infinite;
+	-moz-animation:move 2s linear infinite;
+	-webkit-animation:move 2s linear infinite;
+	transform:rotate(180deg);
+	-o-transform:rotate(180deg);
+	-moz-transform:rotate(180deg);
+	-webkit-transform:rotate(180deg);
+	color:#35C4F0;
+}
+
+#load div:nth-child(2) {
+	animation-delay:0.2s;
+	-o-animation-delay:0.2s;
+	-moz-animation-delay:0.2s;
+	-webkit-animation-delay:0.2s;
+}
+#load div:nth-child(3) {
+	animation-delay:0.4s;
+	-o-animation-delay:0.4s;
+	-webkit-animation-delay:0.4s;
+	-webkit-animation-delay:0.4s;
+}
+#load div:nth-child(4) {
+	animation-delay:0.6s;
+	-o-animation-delay:0.6s;
+	-moz-animation-delay:0.6s;
+	-webkit-animation-delay:0.6s;
+}
+#load div:nth-child(5) {
+	animation-delay:0.8s;
+	-o-animation-delay:0.8s;
+	-moz-animation-delay:0.8s;
+	-webkit-animation-delay:0.8s;
+}
+#load div:nth-child(6) {
+	animation-delay:1s;
+	-o-animation-delay:1s;
+	-moz-animation-delay:1s;
+	-webkit-animation-delay:1s;
+}
+#load div:nth-child(7) {
+	animation-delay:1.2s;
+	-o-animation-delay:1.2s;
+	-moz-animation-delay:1.2s;
+	-webkit-animation-delay:1.2s;
+}
+
+@keyframes move {
+  0% {
+    left:0;
+    opacity:0;
+  }
+  35% {
+    left: 41%; 
+    -moz-transform:rotate(0deg);
+    -webkit-transform:rotate(0deg);
+    -o-transform:rotate(0deg);
+    transform:rotate(0deg);
+    opacity:1;
+  }
+  65% {
+    left:59%; 
+    -moz-transform:rotate(0deg); 
+    -webkit-transform:rotate(0deg); 
+    -o-transform:rotate(0deg);
+    transform:rotate(0deg); 
+    opacity:1;
+  }
+  100% {
+    left:100%; 
+    -moz-transform:rotate(-180deg); 
+    -webkit-transform:rotate(-180deg); 
+    -o-transform:rotate(-180deg); 
+    transform:rotate(-180deg);
+    opacity:0;
+  }
+}
+
+@-moz-keyframes move {
+  0% {
+    left:0; 
+    opacity:0;
+  }
+  35% {
+    left:41%; 
+    -moz-transform:rotate(0deg); 
+    transform:rotate(0deg);
+    opacity:1;
+  }
+  65% {
+    left:59%; 
+    -moz-transform:rotate(0deg); 
+    transform:rotate(0deg);
+    opacity:1;
+  }
+  100% {
+    left:100%; 
+    -moz-transform:rotate(-180deg); 
+    transform:rotate(-180deg);
+    opacity:0;
+  }
+}
+
+@-webkit-keyframes move {
+  0% {
+    left:0; 
+    opacity:0;
+  }
+  35% {
+    left:41%; 
+    -webkit-transform:rotate(0deg); 
+    transform:rotate(0deg); 
+    opacity:1;
+  }
+  65% {
+    left:59%; 
+    -webkit-transform:rotate(0deg); 
+    transform:rotate(0deg); 
+    opacity:1;
+  }
+  100% {
+    left:100%;
+    -webkit-transform:rotate(-180deg); 
+    transform:rotate(-180deg); 
+    opacity:0;
+  }
+}
+
+@-o-keyframes move {
+  0% {
+    left:0; 
+    opacity:0;
+  }
+  35% {
+    left:41%; 
+    -o-transform:rotate(0deg); 
+    transform:rotate(0deg); 
+    opacity:1;
+  }
+  65% {
+    left:59%; 
+    -o-transform:rotate(0deg); 
+    transform:rotate(0deg); 
+    opacity:1;
+  }
+  100% {
+    left:100%; 
+    -o-transform:rotate(-180deg); 
+    transform:rotate(-180deg); 
+    opacity:0;
+  }
+}
+
+/* Blink text*/
+.hmin_tag {
+	text-shadow: 0 0 10px #fff;
+	animation: blink 4.8s infinite both;
+}
+
+.hmin_tag:nth-of-type(2) {
+	animation: none;
+	letter-spacing: -14px;
+	margin: 0 auto;
+	opacity: 0.1;
+	padding-left: 41px;
+	position: absolute;
+	top: 50%;
+	transform: translatey(-50%);
+}
+
+.h1_tag {
+	text-shadow: 0 0 10px #fff;
+	animation: blink 4.8s infinite both;
+}
+
+.h1_tag:nth-of-type(2) {
+	animation: none;
+	letter-spacing: -14px;
+	margin: 0 auto;
+	opacity: 0.1;
+	padding-left: 41px;
+	position: absolute;
+	top: 50%;
+	transform: translatey(-50%);
+}
+
+@keyframes blink {
+	0%,
+	50%,
+	100% {
+		opacity: 0.2;
+	}
+	25%,
+	75% {
+		opacity: 1;
+	}
+}
+
+.p_tag {
+	position: absolute;
+	font-family: monospace;
+}
+
+.p_tag {
+	color: white;
+	font-size: 1.2em;
+	bottom: 10%;
+	width: 100%;
+	text-align: center;
+}
+
+/* game cover */
+* {
+	box-sizing: border-box;
+}
+
+.bg-image {
+	/* The image used */
+	background-image: url("https://is-daouda.github.io/gxtg/image.png");
+
+	/* Add the blur effect */
+	filter: blur(3px);
+	-webkit-filter: blur(3px);
+
+	/* Full height */
+	height: 100%;
+
+	/* Center and scale the image nicely */
+	background-position: center;
+	background-repeat: no-repeat;
+	background-size: cover;  
+}
+
+/* Position text in the middle of the page/image */
+.bg-text {
+	background-color: rgb(0,0,0); /* Fallback color */
+	background-color: rgba(0,0,0, 0.6); /* Black w/opacity/see-through */
+	color: white;
+	font-weight: bold;
+	border: 3px solid #f1f1f1;
+	border-radius: 20px;
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 2;
+	width: 80%;
+	padding: 20px;
+	text-align: center;
+}

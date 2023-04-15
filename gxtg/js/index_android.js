@@ -67,7 +67,7 @@ function isJsShowInterstitialAds() {
 
 // Ads
 function isJsShowGameAds() {
-	if (isJsUseAndroidAds() === 1) {
+	if (isJsUseAds() === 1) {
 		isJsShowInterstitialAds();
 	}
 }

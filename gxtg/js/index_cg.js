@@ -110,7 +110,7 @@ function hideLoadingScreen() {
 // ---------------------- TIMER ----------------------
 // ---------------------------------------------------
 var timeToRestart = 0;
-const MAX_TIME = 5; // 70;
+const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
 function chrono() {	

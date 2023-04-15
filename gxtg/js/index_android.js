@@ -4,7 +4,7 @@ var isJsGameState = 2;
 var isJsInitGame = 0;
 var showError = 0;
 var landscapeMode = false;
-var rscLink = ""; //"https://is-daouda.github.io/gxtg/";
+var rscLink = "https://is-daouda.github.io/gxtg/";
 
 // Android Support
 var ANDROID_VERSION = true;

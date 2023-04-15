@@ -6,6 +6,7 @@ var showError = 0;
 var landscapeMode = false;
 var rscLink = "https://is-daouda.github.io/gxtg/";
 var isJsPreload = 0;
+var timeToClearBanner = 0;
 
 const crazysdk = window.CrazyGames.CrazySDK.getInstance(); //Getting the SDK
 crazysdk.init(); //Initializing the SDK, call as early as possible
@@ -56,16 +57,21 @@ function isJsUseAds() {
 
 function isJsShowBannerAds(visible) {
 	if (visible === 1) {
-		crazysdk.requestBanner([
-		{
-			containerId: "banner-container",
-			size: "320x50",
-		}, ]);
+		if (timeToClearBanner === 0) {
+			crazysdk.requestBanner([
+			{
+				containerId: "banner-container",
+				size: "320x50",
+			}, ]);
+			timeToClearBanner = 60;
+		}
 		document.getElementById('banner-container').style.display = "block";
 	}
 	else {
 		document.getElementById('banner-container').style.display = "none";
-		crazysdk.clearAllBanners();
+		if (timeToClearBanner === 0) {
+			crazysdk.clearAllBanners();
+		}
 	}
 }
 
@@ -113,7 +119,9 @@ var timeToRestart = 0;
 const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
-function chrono() {	
+function chrono() {
+	if (timeToClearBanner > 0) timeToClearBanner--;
+	
 	// ------- PAGE AUTO RESTART -------
 	if (document.body.className === "loading_page") {
 		if (timeToRestart > -1) timeToRestart++;

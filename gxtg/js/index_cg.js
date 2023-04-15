@@ -59,7 +59,7 @@ function isJsShowBannerAds(visible) {
 		crazysdk.requestBanner([
 		{
 			containerId: "banner-container",
-			size: "300x50",
+			size: "320x50",
 		}, ]);
 		document.getElementById('banner-container').style.display = "block";
 	}

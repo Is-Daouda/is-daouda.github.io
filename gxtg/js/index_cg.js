@@ -203,6 +203,7 @@ window.Module = {
 	canvas: canvas,
 	onRuntimeInitialized: function() {
 		hideLoadingScreen();
+		isJsShowGameAds();
 		
 		for(ms of [0, 100, 1000, 3000]) {
 			window.setTimeout(onResize, ms);

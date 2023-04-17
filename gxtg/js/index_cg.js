@@ -8,8 +8,8 @@ var rscLink = "https://is-daouda.github.io/gxtg/";
 var isJsPreload = 0;
 var timeToClearBanner = 0;
 
-const crazysdk = window.CrazyGames.CrazySDK.getInstance(); //Getting the SDK
-crazysdk.init(); //Initializing the SDK, call as early as possible
+const crazysdk = window.CrazyGames.CrazySDK.getInstance(); // Getting the SDK
+crazysdk.init(); // Initializing the SDK, call as early as possible
 
 function isJsGamePlayStart() {
 	crazysdk.gameplayStart();

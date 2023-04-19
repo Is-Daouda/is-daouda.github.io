@@ -33,7 +33,8 @@ function setGameState(state) {
 
 function isJsAndroidCloseApp()
 {
-	Android.closeApp();
+window.open("https://play.google.com/store/apps/details?id=com.isdaouda.gravytxthegravytoid");
+	//Android.closeApp();
 }
 
 function isJsOpenGameLink()

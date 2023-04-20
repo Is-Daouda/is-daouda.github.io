@@ -33,12 +33,12 @@ function setGameState(state) {
 
 function isJsAndroidCloseApp()
 {
-window.open("https://play.google.com/store/apps/details?id=com.isdaouda.gravytxthegravytoid");
-	//Android.closeApp();
+	Android.closeApp();
 }
 
-function isJsOpenGameLink()
+function isJsOpenGamePage()
 {
+//window.open("https://play.google.com/store/apps/details?id=com.isdaouda.gravytxthegravytoid");
 	Android.openGamePage();
 }
 

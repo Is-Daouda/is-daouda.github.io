@@ -7,6 +7,7 @@ var landscapeMode = false;
 var rscLink = "https://is-daouda.github.io/gxtg/";
 var isJsPreload = 0;
 var timeToClearBanner = 0;
+var SHOW_LOGO = true;
 
 const crazysdk = window.CrazyGames.CrazySDK.getInstance(); // Getting the SDK
 crazysdk.init(); // Initializing the SDK, call as early as possible
@@ -20,11 +21,17 @@ function isJsGamePlayStop() {
 }
 
 function isJsGameLoadingStart() {
-	crazysdk.sdkGameLoadingStart();
+	try {
+		crazysdk.sdkGameLoadingStart();
+	}
+	catch(err) {console.log("Loading Start...");}
 }
 
 function isJsGameLoadingStop() {
-	crazysdk.sdkGameLoadingStop();
+	try {
+		crazysdk.sdkGameLoadingStop();
+	}
+	catch(err) {console.log("Loading Stop");}
 }
 
 function isJsHappyMoment() {

@@ -19,9 +19,20 @@ function isJsGamePlayStop() {
 	crazysdk.gameplayStop();
 }
 
+function isJsGameLoadingStart() {
+	crazysdk.sdkGameLoadingStart();
+}
+
+function isJsGameLoadingStop() {
+	crazysdk.sdkGameLoadingStop();
+}
+
 function isJsHappyMoment() {
 	crazysdk.happytime();
 }
+
+// Loading for binary files
+isJsGameLoadingStart();
 
 // Ads
 function isJsShowGameAds() {

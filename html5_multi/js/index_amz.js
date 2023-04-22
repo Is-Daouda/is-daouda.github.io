@@ -65,6 +65,11 @@ function isJsAndroidCloseApp()
 	Android.closeApp();
 }
 
+function isJsOpenGamePage()
+{
+	Android.openGamePage();
+}
+
 var isJsBackKeyPressed = 0;
 
 function backKeyPressed() {

@@ -40,6 +40,7 @@ function openFullscreen() {
 	}
 }
 
+/*
 var sdkState = 0;
 window.SDK_OPTIONS = {
 	gameId: "n4kqbaxolqc7oqp6324wenfbg85v8uri",
@@ -59,6 +60,7 @@ window.SDK_OPTIONS = {
 	a.src = "https://api.gamemonetize.com/sdk.js", 
 	d.parentNode.insertBefore(a, d))
 })(document, "script", "gamemonetize-sdk");
+*/
 
 function isJsShowGameAds() {
 	if (typeof sdk !== 'undefined' && sdk.showBanner !== 'undefined') sdk.showBanner();

@@ -27,18 +27,6 @@ function openFullscreen() {
 		}	
 	}
 }
-var elem = document.getElementById("gamescreen");
-function openFullscreen() {
-	if (elem.requestFullscreen) {
-		elem.requestFullscreen();
-	}
-	else if (elem.webkitRequestFullscreen) { /* Safari */
-		elem.webkitRequestFullscreen();
- 	 }
-	else if (elem.msRequestFullscreen) { /* IE11 */
-		elem.msRequestFullscreen();
-	}
-}
 
 var sdkState = 0;
 window.SDK_OPTIONS = {
@@ -137,7 +125,7 @@ window.addEventListener("resize", onResize, true);
 
 function removeCover(event) {
    if (isJsInitGame === 1) {
-		// openFullscreen();
+		openFullscreen();
 		document.getElementById('screen_cover').removeEventListener("click", removeCover);
 		document.getElementById('screen_cover').remove();
 		isJsInitGame = 2;

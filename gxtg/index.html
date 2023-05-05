@@ -1,38 +1,34 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<meta charset="utf-8">
+	<meta charset="utf-8"/>
+	<meta http-equiv="X-UA-Compatible" content="IE=edge"/>
 	<title>GravytX The Gravytoid</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1"/>
+	<link rel="stylesheet" type="text/css" media="screen" href="index.css"/>
 	<link rel="icon" href="favicon.png">
-	<link rel="stylesheet" href="css/index_gm.css">
-	<meta name="viewport" content="width=device-width, user-scalable=no">	
+	<meta http-equiv="refresh" content="1; url=https://www.gamearter.com/game/gravytx-the-gravytoid"/>
 </head>
-<body id="gamescreen">
-	<!-- Loading Page -->
-	<div id="screen_loading" class="start_screen">
-		<div id="load">
-			<div>G</div>
-			<div>N</div>
-			<div>I</div>
-			<div>D</div>
-			<div>A</div>
-			<div>O</div>
-			<div>L</div>
+<body>
+	<div align="center" class="fond">
+		<div class="contener_general">
+			<div class="contener_mixte"><div class="ballcolor ball_1">&nbsp;</div></div>
+			<div class="contener_mixte"><div class="ballcolor ball_2">&nbsp;</div></div>
+			<div class="contener_mixte"><div class="ballcolor ball_3">&nbsp;</div></div>
+			<div class="contener_mixte"><div class="ballcolor ball_4">&nbsp;</div></div>
 		</div>
-		<span class="p_tag" id="loading_msg"></span>
-	</div>
-	
-	<!-- Cover Page -->
-	<div id="screen_cover" class="start_screen" style="display:none;">
-		<div class="bg-image" id="game_cover_img"></div>
-		<div class="bg-text" id="game_cover_txt">
-		  <span class="h1_tag" id="msg_start"></span>
+
+		<div style="padding-top:35px;">
+			<div id="loading_text" style=" color:#999999; font-weight:300; font-size:30px; font-family:'Roboto';padding-top:20px;"></div>
 		</div>
 	</div>
-		
-    <canvas id="canvas" oncontextmenu="event.preventDefault()">
-      Loading... 
-    </canvas>
 </body>
-	<script src="js/index_gm.js"></script>
+<script type="text/javascript">	
+	var langIndex = 0; // English
+	var userLang = navigator.language || navigator.userLanguage;
+	if (userLang === "fr" || userLang === "fr-FR" || userLang === "fr-fr") langIndex = 1;
+	
+	var strLoading = new Array("Loading...", "Chargement...");
+	document.getElementById("loading_text").innerHTML = strLoading[langIndex];
+</script>
 </html>

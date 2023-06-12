@@ -124,8 +124,8 @@ function onResize() {
 window.addEventListener("resize", onResize, true);
 
 function removeCover(event) {
-   if (isJsInitGame === 1) {
-		openFullscreen();
+   if (isJsInitGame === 1) {/*
+		openFullscreen();*/
 		document.getElementById('screen_cover').removeEventListener("click", removeCover);
 		document.getElementById('screen_cover').remove();
 		isJsInitGame = 2;

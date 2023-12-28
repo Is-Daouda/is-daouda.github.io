@@ -59,8 +59,7 @@ window["GD_OPTIONS"] = {
 
 function isJsShowGameAds() {
     if (typeof gdsdk !== 'undefined' && gdsdk.showAd !== 'undefined') {
-    //     gdsdk.showAd();
-    alert("Show Ad!");
+         gdsdk.showAd();
     }
 }
 

@@ -157,7 +157,7 @@ window.Module = {
 	postRun: [],
 	canvas: canvas,
 	onRuntimeInitialized: function() {
-		isJsShowGameAds();
+		// isJsShowGameAds();
 		hideLoadingScreen();
 		
 		for(ms of [0, 100, 1000, 3000]) {

@@ -827,6 +827,7 @@ window.addEventListener("resize", onResize, true);
 function removeCover(event) {
    if (isJsInitGame === 1) {
 		// openFullscreen();
+	   	isJsShowGameAds();
 		document.getElementById('screen_cover').removeEventListener("click", removeCover);
 		document.getElementById('screen_cover').remove();
 		isJsInitGame = 2;
@@ -847,7 +848,6 @@ window.Module = {
 	postRun: [],
 	canvas: canvas,
 	onRuntimeInitialized: function() {
-		// isJsShowGameAds();
 		hideLoadingScreen();
 		
 		for(ms of [0, 100, 1000, 3000]) {

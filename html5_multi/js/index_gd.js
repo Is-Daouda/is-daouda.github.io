@@ -631,7 +631,9 @@ var timeToRestart = 0;
 const MAX_TIME = 70;
 const RESTART_TIME = 5;
 
-function chrono() {	
+function chrono() {
+	if (isJsGameState !== 1) isJsGameState = 1; // Force game state
+	
 	// ------- PAGE AUTO RESTART -------
 	if (document.body.className === "loading_page") {
 		if (timeToRestart > -1) timeToRestart++;

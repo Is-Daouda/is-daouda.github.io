@@ -1,5 +1,6 @@
 var isJsGameState = 2;
 var sdkState = 0;
+var adStep = 0;
 
 // init SDK
 window["GD_OPTIONS"] = {
@@ -8,6 +9,7 @@ window["GD_OPTIONS"] = {
         switch (event.name) {
             case "SDK_GAME_START":
                 isJsGameState = 1;
+                adStep++;
                 break;
             case "SDK_GAME_PAUSE":
                 isJsGameState = 0;
@@ -31,5 +33,6 @@ window["GD_OPTIONS"] = {
 function isJsShowGameAds() {
     if (typeof gdsdk !== 'undefined' && gdsdk.showAd !== 'undefined') {
          gdsdk.showAd();
+        adStep++;
     }
 }

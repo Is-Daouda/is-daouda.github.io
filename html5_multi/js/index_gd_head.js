@@ -30,8 +30,10 @@ window["GD_OPTIONS"] = {
     fjs.parentNode.insertBefore(js, fjs);
 }(document, 'script', 'gamedistribution-jssdk'));
 
+function isJsShowHTML5GameEndAd() {return 1;}
+
 function isJsShowGameAds() {
-    if (typeof gdsdk !== 'undefined' && gdsdk.showAd !== 'undefined') {
+	if (typeof gdsdk !== 'undefined' && gdsdk.showAd !== 'undefined') {
          gdsdk.showAd();
         adStep++;
     }

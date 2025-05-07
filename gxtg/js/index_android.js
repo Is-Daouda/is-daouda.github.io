@@ -1,3 +1,30 @@
+const cssLink = document.createElement('link');
+cssLink.rel = 'stylesheet';
+cssLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/nprogress/0.2.0/nprogress.min.css';
+document.head.appendChild(cssLink);
+
+const script = document.createElement('script');
+script.src = 'https://cdnjs.cloudflare.com/ajax/libs/nprogress/0.2.0/nprogress.min.js';
+script.onload = initNProgress;
+document.body.appendChild(script);
+
+function initNProgress() {
+	// NProgress style
+	const style = document.createElement('style');
+	style.textContent = `
+	#nprogress .bar {
+		background: gray !important;
+		height: 3px;
+	}
+	#nprogress .peg {
+		box-shadow: 0 0 10px white, 0 0 5px white;
+	}
+	`;
+	document.head.appendChild(style);
+	NProgress.start();
+}
+// <<< NProgress ---
+
 var canvas = document.getElementById('canvas');
 var isJsUpdateSize = 0;
 var isJsGameState = 2;
@@ -111,6 +138,7 @@ function hideLoadingScreen() {
 	document.getElementById("screen_loading").remove();
 	document.documentElement.className = "game_page";
 	document.body.className = "game_page";
+	NProgress.done();
 	if (landscapeMode) document.getElementById('screen_cover').style.display = "block";
 	
 	Android.mainPageLoaded();

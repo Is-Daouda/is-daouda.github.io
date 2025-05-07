@@ -45,7 +45,9 @@ body {
 		left: 0;
 		right: 0;
 		margin: auto;
-		width: 280px;
+		width: 100vw;
+		aspect-ratio: 1 / 1; 
+		display: block;
 	}
 
 	.hmin_tag{

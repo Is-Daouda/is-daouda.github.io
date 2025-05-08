@@ -13,7 +13,7 @@ function initNProgress() {
 	const style = document.createElement('style');
 	style.textContent = `
 	#nprogress .bar {
-		background: green !important;
+		background: gray !important;
 		height: 3px;
 	}
 	#nprogress .peg {

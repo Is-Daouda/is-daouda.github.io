@@ -4880,6 +4880,7 @@ button::-webkit-inner-spin-button {
                 lossAnimationTime += deltaTime;
                 if (lossAnimationTime >= lossAnimationDuration) {
                     // Animation complete, show game over screen
+					showAd();
                     gamePhase = 'gameover';
                     showGameOverScreen();
                 }

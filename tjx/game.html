@@ -2129,8 +2129,8 @@ button::-webkit-inner-spin-button {
         </div>
     </div>
 
-	<script src="mock.js"></script>
-	<script type="module" src="firebase.js"></script>
+	<script src="js/mock.js"></script>
+	<script type="module" src="js/firebase.js"></script>
     <script>
 		function showAd()
 		{
@@ -2144,6 +2144,13 @@ button::-webkit-inner-spin-button {
 				}
 			  });
 		}
+		
+		window.addEventListener("load", function() {
+			window.focus();
+			document.body.addEventListener("click", function(e) {
+				window.focus();
+			}, false);
+		});
 		
         /* ==================================================
          * GAME OVERVIEW: Turbo Jetpack X

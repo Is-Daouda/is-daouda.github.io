@@ -1317,6 +1317,11 @@ body, html {
             text-shadow: 0 0 10px rgba(205, 127, 50, 0.8);
         }
 
+.leaderboard-rank.rank-n {
+            color: #6b7280;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+        }
+
 .leaderboard-profile-pic {
             width: 50px;
             height: 50px;
@@ -3790,7 +3795,7 @@ button::-webkit-inner-spin-button {
                 for (let i = 0; i < response.entries.length; i++) {
                     const entry = response.entries[i];
                     const rank = i + 1;
-                    const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : '';
+                    const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-n';
                     
                     // Check if this is the current player's entry by comparing with the rank
                     const isCurrentPlayer = response.userRank === rank;
@@ -4914,7 +4919,9 @@ button::-webkit-inner-spin-button {
                 }
                 
                 // Update world offset based on player movement
-                const scrollSpeed = params.baseSpeed;
+                // Apply speed multiplier based on difficulty (increases every 500m)
+                const speedMultiplier = 1 + (Math.floor(distance / 500) * 0.15); // 15% speed increase per 500m
+                const scrollSpeed = params.baseSpeed * speedMultiplier;
                 const distanceDelta = scrollSpeed * deltaTime / 100;
                 worldOffset += scrollSpeed * deltaTime;
                 distance = worldOffset / 100; // Convert to meters

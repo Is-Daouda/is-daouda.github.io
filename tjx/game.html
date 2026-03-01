@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Turbo Jetpack X</title>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700&family=Poppins:wght@600&display=swap" rel="stylesheet">
-    
+    <script src="https://integration.gamepix.com/sdk/v3/gamepix.sdk.js"></script>
+	
     <style>/* CSS Reset */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2132,6 +2133,19 @@ button::-webkit-inner-spin-button {
 	<script src="mock.js"></script>
 	<script type="module" src="firebase.js"></script>
     <script>
+		function showAd()
+		{
+			GamePix.interstitialAd().then(function (res) {
+				if (res.success) {
+				  // Log the success if you want
+				  info();
+				} else {
+				  // Log the error if you want
+				  errorInfo();
+				}
+			  });
+		}
+		
         /* ==================================================
          * GAME OVERVIEW: Turbo Jetpack X
          * An endless runner where the player launches from a cannon and flies through
@@ -4836,6 +4850,7 @@ button::-webkit-inner-spin-button {
                 lossAnimationTime += deltaTime;
                 if (lossAnimationTime >= lossAnimationDuration) {
                     // Animation complete, show game over screen
+					showAd();
                     gamePhase = 'gameover';
                     showGameOverScreen();
                 }

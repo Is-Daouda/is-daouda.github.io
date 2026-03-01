@@ -6,7 +6,6 @@
     <title>Turbo Jetpack X</title>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@700&family=Poppins:wght@600&display=swap" rel="stylesheet">
     <script src="https://integration.gamepix.com/sdk/v3/gamepix.sdk.js"></script>
-	
     <style>/* CSS Reset */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2950,7 +2949,15 @@ button::-webkit-inner-spin-button {
                 
                 const reward = document.createElement('div');
                 reward.className = 'daily-challenge-reward';
-                reward.textContent = `+${challenge.reward} 🪙`;
+                const coinImg = document.createElement('img');
+                coinImg.src = assetCache['coin']?.img?.src || '';
+                coinImg.alt = 'Coins';
+                coinImg.style.width = '16px';
+                coinImg.style.height = '16px';
+                coinImg.style.objectFit = 'contain';
+                coinImg.style.marginRight = '4px';
+                reward.innerHTML = `+${challenge.reward} `;
+                reward.appendChild(coinImg);
                 
                 header.appendChild(name);
                 header.appendChild(reward);
@@ -3681,10 +3688,26 @@ button::-webkit-inner-spin-button {
                 } else {
                     const currentCost = calculateUpgradeCost(upgrade);
                     if (totalCoinsEarned >= currentCost) {
-                        costButton.textContent = currentCost.toLocaleString() + ' 🪙';
+                        const coinImg = document.createElement('img');
+                        coinImg.src = assetCache['coin']?.img?.src || '';
+                        coinImg.alt = 'Coins';
+                        coinImg.style.width = '16px';
+                        coinImg.style.height = '16px';
+                        coinImg.style.objectFit = 'contain';
+                        coinImg.style.marginLeft = '4px';
+                        costButton.textContent = currentCost.toLocaleString() + ' ';
+                        costButton.appendChild(coinImg);
                         costButton.onclick = () => { playSound('sfx_click', 0.5); purchaseUpgrade(key); };
                     } else {
-                        costButton.textContent = currentCost.toLocaleString() + ' 🪙';
+                        const coinImg = document.createElement('img');
+                        coinImg.src = assetCache['coin']?.img?.src || '';
+                        coinImg.alt = 'Coins';
+                        coinImg.style.width = '16px';
+                        coinImg.style.height = '16px';
+                        coinImg.style.objectFit = 'contain';
+                        coinImg.style.marginLeft = '4px';
+                        costButton.textContent = currentCost.toLocaleString() + ' ';
+                        costButton.appendChild(coinImg);
                         costButton.classList.add('disabled');
                         costButton.disabled = true;
                     }
@@ -4850,7 +4873,6 @@ button::-webkit-inner-spin-button {
                 lossAnimationTime += deltaTime;
                 if (lossAnimationTime >= lossAnimationDuration) {
                     // Animation complete, show game over screen
-					showAd();
                     gamePhase = 'gameover';
                     showGameOverScreen();
                 }

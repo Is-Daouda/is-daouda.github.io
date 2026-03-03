@@ -181,13 +181,13 @@ window.lib = {
 
 	// Récupère un asset par son ID [cite: 9]
 	getAsset: function(id) {
-		console.log(`[Lib] Récupération de l'asset: ${id}`);
+		// console.log(`[Lib] Récupération de l'asset: ${id}`);
 		return this.assets[id];
 	},
 
 	// Simule le système d'animation [cite: 10, 14]
 	getAnimationPlayer: function(assetId) {
-		console.log(`[Lib] Création d'un player d'animation pour: ${assetId}`);
+		// console.log(`[Lib] Création d'un player d'animation pour: ${assetId}`);
 		return {
 			update: (ts) => {},
 			draw: (ctx, x, y, w, h) => {
@@ -213,7 +213,7 @@ window.lib = {
             await window.firebaseAPI.addScore(playerName, score);
             return { success: true };
         }
-        console.error("Firebase non chargé");
+        // console.error("Firebase non chargé");
         return { success: false };
     },
 
@@ -238,7 +238,7 @@ window.lib = {
 					entries: formattedEntries 
 				};
 			} catch (error) {
-				console.error("[Lib] Erreur lors de la récupération :", error);
+				// console.error("[Lib] Erreur lors de la récupération :", error);
 				return { success: false, entries: [] };
 			}
 		}
@@ -248,7 +248,7 @@ window.lib = {
 	// Persistance des données utilisateur (Local Storage) [cite: 23, 24, 26]
 	saveUserGameState: async function(state) {
 		localStorage.setItem('astrocade_save', JSON.stringify(state));
-		console.log("[Lib] État sauvegardé localement.");
+		// console.log("[Lib] État sauvegardé localement.");
 		return { success: true, userId: "local-user", state: state };
 	},
 
@@ -266,11 +266,11 @@ window.lib = {
 	},
 	
 	log: function(message) {
-		console.log("%c[Log]", "color: #00ff00; font-weight: bold;", message);
+		// console.log("%c[Log]", "color: #00ff00; font-weight: bold;", message);
 	},
 	
 	showGameParameters: function(config) {
-		console.log("%c[Lib] showGameParameters", "color: #2196F3; font-weight: bold;", config);
+		// console.log("%c[Lib] showGameParameters", "color: #2196F3; font-weight: bold;", config);
 	}
 };
 
@@ -281,9 +281,9 @@ if (typeof window.setupGame === 'function') {
 // 4. Lancement automatique au chargement de la page 
 window.onload = () => {
 	if (typeof run === 'function') {
-		console.log("Lancement de run('play')...");
+		// console.log("Lancement de run('play')...");
 		run(window.mode);
 	} else {
-		console.error("[Error] La fonction run(mode) n'est pas définie dans votre code de jeu.");
+		// console.error("[Error] La fonction run(mode) n'est pas définie dans votre code de jeu.");
 	}
 };

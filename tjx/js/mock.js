@@ -21,160 +21,158 @@ window.gameConfig = {
 // 2. Mode de jeu [cite: 7]
 window.mode = 'play'; 
 
-let link = "";
-
 // 3. Définition de l'objet lib [cite: 1, 8]
 window.lib = {
 	// Mappe les assets du fichier 'asset_map' [cite: 29]
 	assets : {
 	  "player_character": {
-		"url": link + "assets/player_character.webp",
+		"url": "assets/player_character.webp",
 		"type": "image",
 		"aspect_ratio": [832, 1244]
 	  },
 	  "cannon": {
-		"url": link + "assets/cannon.webp",
+		"url": "assets/cannon.webp",
 		"type": "image",
 		"aspect_ratio": [851, 587]
 	  },
 	  "energy_reserve": {
-		"url": link + "assets/energy_reserve.webp",
+		"url": "assets/energy_reserve.webp",
 		"type": "image",
 		"aspect_ratio": [640, 634]
 	  },
 	  "coin": {
-		"url": link + "assets/coin.webp",
+		"url": "assets/coin.webp",
 		"type": "image",
 		"aspect_ratio": [859, 895]
 	  },
 	  "thorny_vine_top": {
-		"url": link + "assets/thorny_vine_top.webp",
+		"url": "assets/thorny_vine_top.webp",
 		"type": "image",
 		"aspect_ratio": [555, 1530]
 	  },
 	  "thorny_vine_bottom": {
-		"url": link + "assets/thorny_vine_bottom.webp",
+		"url": "assets/thorny_vine_bottom.webp",
 		"type": "image",
 		"aspect_ratio": [463, 1411]
 	  },
 	  "background_far": {
-		"url": link + "assets/background_far.webp",
+		"url": "assets/background_far.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "background_mid": {
-		"url": link + "assets/background_mid.webp",
+		"url": "assets/background_mid.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "background_foreground": {
-		"url": link + "assets/background_foreground.webp",
+		"url": "assets/background_foreground.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "ground": {
-		"url": link + "assets/ground.webp",
+		"url": "assets/ground.webp",
 		"type": "image",
 		"aspect_ratio": [1536, 1024]
 	  },
 	  "sfx_launch": {
-		"url": link + "assets/sfx_launch.mp3",
+		"url": "assets/sfx_launch.mp3",
 		"type": "audio"
 	  },
 	  "sfx_coin": {
-		"url": link + "assets/sfx_coin.mp3",
+		"url": "assets/sfx_coin.mp3",
 		"type": "audio"
 	  },
 	  "sfx_energy": {
-		"url": link + "assets/sfx_energy.mp3",
+		"url": "assets/sfx_energy.mp3",
 		"type": "audio"
 	  },
 	  "sfx_hit": {
-		"url": link + "assets/sfx_hit.mp3",
+		"url": "assets/sfx_hit.mp3",
 		"type": "audio"
 	  },
 	  "sfx_shield": {
-		"url": link + "assets/sfx_shield.mp3",
+		"url": "assets/sfx_shield.mp3",
 		"type": "audio"
 	  },
 	  "sfx_jetpack_powerup": {
-		"url": link + "assets/sfx_jetpack_powerup.mp3",
+		"url": "assets/sfx_jetpack_powerup.mp3",
 		"type": "audio"
 	  },
 	  "sfx_jetpack_thrust": {
-		"url": link + "assets/sfx_jetpack_thrust.mp3",
+		"url": "assets/sfx_jetpack_thrust.mp3",
 		"type": "audio"
 	  },
 	  "music_jungle": {
-		"url": link + "assets/music_jungle.mp3",
+		"url": "assets/music_jungle.mp3",
 		"type": "audio"
 	  },
 	  "menu_background": {
-		"url": link + "assets/menu_background.webp",
+		"url": "assets/menu_background.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "vulture": {
-		"url": link + "assets/vulture.webp",
+		"url": "assets/vulture.webp",
 		"type": "image",
 		"aspect_ratio": [938, 667]
 	  },
 	  "coconut": {
-		"url": link + "assets/meteorite.webp",
+		"url": "assets/meteorite.webp",
 		"type": "image",
 		"aspect_ratio": [796, 792]
 	  },
 	  "magnet_powerup": {
-		"url": link + "assets/magnet_powerup.webp",
+		"url": "assets/magnet_powerup.webp",
 		"type": "image",
 		"aspect_ratio": [939, 887]
 	  },
 	  "jetpack_powerup": {
-		"url": link + "assets/jetpack_powerup.webp",
+		"url": "assets/jetpack_powerup.webp",
 		"type": "image",
 		"aspect_ratio": [780, 880]
 	  },
 	  "background_forest_far_1": {
-		"url": link + "assets/background_forest_far_1.webp",
+		"url": "assets/background_forest_far_1.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "background_forest_mid_1": {
-		"url": link + "assets/background_forest_mid_1.webp",
+		"url": "assets/background_forest_mid_1.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "background_forest_foreground_1": {
-		"url": link + "assets/background_forest_foreground_1.webp",
+		"url": "assets/background_forest_foreground_1.webp",
 		"type": "image",
 		"aspect_ratio": [832, 1248]
 	  },
 	  "background_forest_far_2": {
-		"url": link + "assets/background_forest_far_2.webp",
+		"url": "assets/background_forest_far_2.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "background_forest_mid_2": {
-		"url": link + "assets/background_forest_mid_2.webp",
+		"url": "assets/background_forest_mid_2.webp",
 		"type": "image",
 		"aspect_ratio": [832, 1248]
 	  },
 	  "background_forest_foreground_2": {
-		"url": link + "assets/background_forest_foreground_2.webp",
+		"url": "assets/background_forest_foreground_2.webp",
 		"type": "image",
 		"aspect_ratio": [1024, 1536]
 	  },
 	  "sfx_click": {
-		"url": link + "assets/sfx_click.mp3",
+		"url": "assets/sfx_click.mp3",
 		"type": "audio"
 	  },
 	  "is_daouda_logo": {
-		"url": link + "assets/is_daouda_logo.png",
+		"url": "assets/is_daouda_logo.png",
 		"type": "image",
 		"aspect_ratio": [720, 540]
 	  },
 	  "logo_sound": {
-		"url": link + "assets/logo_sound.mp3",
+		"url": "assets/logo_sound.mp3",
 		"type": "audio"
 	  }
 	},

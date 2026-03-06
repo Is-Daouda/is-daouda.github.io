@@ -272,10 +272,10 @@ window.lib = {
             // On met aussi à jour la config globale en direct
             if (state.playerNickname) window.gameConfig.playerNickname = state.playerNickname;
             
-            console.log("💾 Sauvegardé dans IndexedDB");
+            // console.log("💾 Sauvegardé dans IndexedDB");
             return { success: true, state: state };
         } catch (e) {
-            console.error("Erreur IndexedDB Save:", e);
+            // console.error("Erreur IndexedDB Save:", e);
             return { success: false };
         }
     },
@@ -288,7 +288,7 @@ window.lib = {
                 const tx = db.transaction(STORE_NAME, "readonly");
                 const request = tx.objectStore(STORE_NAME).get("current_save");
                 request.onsuccess = () => {
-                    console.log("📂 Chargé depuis IndexedDB :", request.result);
+                    // console.log("📂 Chargé depuis IndexedDB :", request.result);
                     resolve({ success: true, state: request.result || null });
                 };
             });

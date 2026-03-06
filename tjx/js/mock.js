@@ -3,6 +3,20 @@
  * Simule l'environnement de la plateforme pour un usage hors-ligne.
  */
 
+// --- Gestionnaire IndexedDB ---
+const DB_NAME = "TurboJetpackXDB";
+const STORE_NAME = "gameState";
+
+// Fonction utilitaire pour ouvrir la base de données
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
 // 1. Configuration globale (extraite de votre fichier 'config') [cite: 27]
 window.gameConfig = {
   "theme": "tropical_green",
@@ -247,51 +261,49 @@ window.lib = {
 		return { success: false, entries: [] };
 	},
 
-	// Persistance des données utilisateur (Local Storage) [cite: 23, 24, 26]
+	// SAVE
 	saveUserGameState: async function(state) {
-        if (!state) return { success: false };
-
         try {
-            // 1. Sauvegarde via le SDK window.GamePix si disponible
-            if (window.GamePix && window.GamePix.localStorage) {
-                // window.GamePix attend souvent des paires clé/valeur simples
-                window.GamePix.localStorage.setItem('astrocade_save', JSON.stringify(state));
-                // console.log("💾 Sauvegardé via SDK GamePix");
-            }
+            const db = await openDB();
+            const tx = db.transaction(STORE_NAME, "readwrite");
+            // On enregistre tout l'objet sous la clé "current_save"
+            tx.objectStore(STORE_NAME).put(state, "current_save");
             
-            // 2. Double sauvegarde locale (sécurité)
-            localStorage.setItem('astrocade_save', JSON.stringify(state));
+            // On met aussi à jour la config globale en direct
+            if (state.playerNickname) window.gameConfig.playerNickname = state.playerNickname;
             
+            console.log("💾 Sauvegardé dans IndexedDB");
             return { success: true, state: state };
         } catch (e) {
-            // console.error("Erreur sauvegarde:", e);
+            console.error("Erreur IndexedDB Save:", e);
             return { success: false };
         }
     },
 
+    // CHARGEMENT
     getUserGameState: async function() {
-        let saved = null;
-
-        // 1. Tentative de lecture via GamePix
-        if (window.GamePix && window.GamePix.localStorage) {
-            saved = window.GamePix.localStorage.getItem('astrocade_save');
+        try {
+            const db = await openDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(STORE_NAME, "readonly");
+                const request = tx.objectStore(STORE_NAME).get("current_save");
+                request.onsuccess = () => {
+                    console.log("📂 Chargé depuis IndexedDB :", request.result);
+                    resolve({ success: true, state: request.result || null });
+                };
+            });
+        } catch (e) {
+            return { success: true, state: null };
         }
-
-        // 2. Secours via LocalStorage classique si GamePix est vide
-        if (!saved) {
-            saved = localStorage.getItem('astrocade_save');
-        }
-
-        return { 
-            success: true, 
-            state: saved ? JSON.parse(saved) : null 
-        };
     },
 
-	deleteUserGameState: async function() {
-		localStorage.removeItem('astrocade_save');
-		return { success: true };
-	},
+    // SUPPRESSION
+    deleteUserGameState: async function() {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).delete("current_save");
+        return { success: true };
+    },
 	
 	log: function(message) {
 		// console.log("%c[Log]", "color: #00ff00; font-weight: bold;", message);

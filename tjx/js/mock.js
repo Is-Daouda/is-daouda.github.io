@@ -208,14 +208,13 @@ window.lib = {
         const saved = localStorage.getItem('astrocade_save');
         const state = saved ? JSON.parse(saved) : {};
         const playerName = state.playerNickname || "Unknown";
-
+		if (window.GamePix) {
+			window.GamePix.updateScore(score); // Envoie le score au classement officiel window.GamePix
+		}
         if (window.firebaseAPI) {
             await window.firebaseAPI.addScore(playerName, score);
             return { success: true };
         }
-		if (window.GamePix) {
-			window.GamePix.updateScore(score); // Envoie le score au classement officiel window.GamePix
-		}
         console.error("Firebase non chargé");
         return { success: false };
     },

@@ -1,0 +1,7167 @@
+function showAd()
+{
+	GamePix.interstitialAd().then(function (res) {
+		if (res.success) {
+		  // Log the success if you want
+		  info();
+		} else {
+		  // Log the error if you want
+		  errorInfo();
+		}
+	  });
+}
+
+window.addEventListener("load", function() {
+	window.focus();
+	document.body.addEventListener("click", function(e) {
+		window.focus();
+	}, false);
+});
+
+/* ==================================================
+ * GAME OVERVIEW: Turbo Jetpack X
+ * An endless runner where the player launches from a cannon and flies through
+ * a jungle using a jetpack. Collect energy reserves to maintain fuel while
+ * avoiding thorny vines. Collect coins for points.
+ * 
+ * Edit Mode: Customize visual theme and gameplay parameters
+ * Play Mode: Launch from cannon, fly with jetpack, avoid obstacles, collect items
+ * 
+ * GAME STATE SHAPE: window.gameConfig = {
+ *   theme: 'tropical_green' | 'sunset_jungle' | 'misty_morning' | 'night_jungle',
+ *   playerColor: '#hexcolor',
+ *   coinColor: 'gold' | 'silver' | 'bronze' | 'rainbow',
+ *   fuelCapacity: 30-150,
+ *   fuelConsumptionRate: 'slow' | 'normal' | 'fast',
+ *   gravityStrength: 'light' | 'normal' | 'heavy',
+ *   startingSpeed: 'slow' | 'normal' | 'fast'
+ * }
+ * ==================================================
+ */
+
+// Asset cache
+const assetCache = {};
+let audioContext = new (window.AudioContext || window.webkitAudioContext)();
+const audioBuffers = {};
+let masterVolume = 0.7;
+let musicSource = null;
+let musicGainNode = null;
+let jetpackThrustSource = null;
+let jetpackThrustGainNode = null;
+
+// Game constants - will be set based on orientation
+let CANVAS_WIDTH = 720;
+let CANVAS_HEIGHT = 1280;
+let GROUND_Y = 1180;
+let PLAYABLE_HEIGHT = 1080;
+let PLAYER_START_X = 200;
+let CANNON_X = 100;
+let CANNON_Y = 640;
+let isLandscapeMode = false;
+
+// Function to update canvas dimensions based on orientation
+function updateCanvasDimensions() {
+	const width = window.innerWidth;
+	const height = window.innerHeight;
+	
+	// Detect if we're in landscape mode (width > height)
+	isLandscapeMode = width > height;
+	
+	if (isLandscapeMode) {
+		// Landscape: swap dimensions
+		CANVAS_WIDTH = 1280;
+		CANVAS_HEIGHT = 720;
+		GROUND_Y = 620;
+		PLAYABLE_HEIGHT = 520;
+		PLAYER_START_X = 400;
+		CANNON_X = 200;
+		CANNON_Y = 360;
+	} else {
+		// Portrait: original dimensions
+		CANVAS_WIDTH = 720;
+		CANVAS_HEIGHT = 1280;
+		GROUND_Y = 1180;
+		PLAYABLE_HEIGHT = 1080;
+		PLAYER_START_X = 200;
+		CANNON_X = 100;
+		CANNON_Y = 640;
+	}
+	
+
+}
+
+// Game state
+let canvas, ctx;
+let gameMode = 'play';
+let gamePhase = 'launch'; // 'launch' or 'flight' or 'gameover' or 'losing'
+let isPaused = false;
+let isCharging = false;
+let chargeTime = 0;
+let isJetpackActive = false;
+let lastTime = 0;
+let animationFrameId = null;
+let showMainMenu = true;
+let musicEnabled = true;
+let sfxEnabled = true;
+let tutorialShown = false;
+let lossAnimationTime = 0;
+let lossAnimationDuration = 0.6; // seconds
+let propulsionPhaseTime = 0; // Time spent in propulsion phase after launch
+
+// Background selection
+let currentBackgroundSet = Math.floor(Math.random() * 3); // 0 = original, 1 = forest_1, 2 = forest_2
+let nextBackgroundSet = Math.floor(Math.random() * 3); // Randomly select next background set
+let backgroundTransitionProgress = 0; // 0 to 1, where 1 means fully transitioned
+let lastBackgroundSwitchDistance = 0; // Distance at which we last switched backgrounds
+const BACKGROUND_SWITCH_INTERVAL = 500; // Switch backgrounds every 500m
+const BACKGROUND_TRANSITION_DURATION = 2; // Transition takes 2 seconds
+const backgroundSets = [
+	{ far: 'background_far', mid: 'background_mid', foreground: 'background_foreground' },
+	{ far: 'background_forest_far_1', mid: 'background_forest_mid_1', foreground: /*'background_forest_foreground_1'*/'background_forest_mid_1' },
+	{ far: 'background_forest_far_2', mid: 'background_forest_mid_2', foreground: 'background_forest_foreground_2' }
+];
+
+// Log available background sets for debugging
+lib.log('Background sets initialized: ' + backgroundSets.length + ' sets available');
+
+// Player state
+let player = {
+	x: CANNON_X,
+	y: CANNON_Y,
+	vx: 0,
+	vy: 0,
+	width: 80,
+	height: 80,
+	fuel: 75,
+	maxFuel: 75,
+	launchPower: 1, // Multiplier for forward speed based on cannon charge
+	isInvincible: false,
+	invincibilityTime: 0,
+	invincibilityDuration: 3, // seconds
+	randomCannonPower: 0.5 // Random power level (0.5 to 1.5)
+};
+
+// Game stats
+let score = 0;
+let distance = 0;
+let coinsCollected = 0;
+let comboCount = 0;
+let comboTimer = 0;
+let comboMultiplier = 1;
+const COMBO_DURATION = 2; // seconds
+let highScore = 0;
+let isNewRecord = false;
+
+// Upgrade/Shop system
+let totalCoinsEarned = 0; // Lifetime coins for shop purchases
+let upgrades = {
+	fuel_tank: { id: 'fuel_tank', name: 'Fuel Tank Upgrade', description: '+25 max fuel capacity', icon: '⛽', cost: 150, level: 0, maxLevel: 5, purchased: false },
+	jetpack_thrust: { id: 'jetpack_thrust', name: 'Jetpack Booster', description: '+10% jetpack thrust', icon: '🚀', cost: 250, level: 0, maxLevel: 5, purchased: false },
+	shield_duration: { id: 'shield_duration', name: 'Shield Extension', description: '+1 second invincibility', icon: '🛡️', cost: 500, level: 0, maxLevel: 5, purchased: false },
+	coin_magnet: { id: 'coin_magnet', name: 'Coin Magnet', description: '+25% coin collection range', icon: '🧲', cost: 750, level: 0, maxLevel: 3, purchased: false },
+	fuel_efficiency: { id: 'fuel_efficiency', name: 'Fuel Efficiency', description: '-15% fuel consumption', icon: '⚙️', cost: 300, level: 0, maxLevel: 4, purchased: false }
+};
+
+// Achievement system - 100 achievements
+let achievements = {
+	// Tier 1: Getting Started (1-10)
+	first_flight: { id: 'first_flight', name: 'First Flight', description: 'Launch the jetpack for the first time', icon: '🚀', unlocked: false, progress: 0, target: 1, unlockedAt: null },
+	coin_collector: { id: 'coin_collector', name: 'Coin Collector', description: 'Collect 50 coins total', icon: '🪙', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	energy_master: { id: 'energy_master', name: 'Energy Master', description: 'Collect 100 energy reserves total', icon: '⚡', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	speed_demon: { id: 'speed_demon', name: 'Speed Demon', description: 'Reach 1000m distance in a single game', icon: '💨', unlocked: false, progress: 0, target: 1000, unlockedAt: null },
+	invincible: { id: 'invincible', name: 'Invincible', description: 'Activate the invincibility shield', icon: '🛡️', unlocked: false, progress: 0, target: 1, unlockedAt: null },
+	high_roller: { id: 'high_roller', name: 'High Roller', description: 'Score 5000 points in a single game', icon: '🎯', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	combo_king: { id: 'combo_king', name: 'Combo King', description: 'Reach a combo multiplier of 5x or higher', icon: '👑', unlocked: false, progress: 0, target: 5, unlockedAt: null },
+	jetpack_collector: { id: 'jetpack_collector', name: 'Jetpack Collector', description: 'Collect a jetpack power-up', icon: '🎒', unlocked: false, progress: 0, target: 1, unlockedAt: null },
+	survivor: { id: 'survivor', name: 'Survivor', description: 'Survive for 500m without collecting any energy', icon: '🏃', unlocked: false, progress: 0, target: 500, unlockedAt: null },
+	perfect_run: { id: 'perfect_run', name: 'Perfect Run', description: 'Reach 2000m without hitting any obstacles', icon: '✨', unlocked: false, progress: 0, target: 2000, unlockedAt: null },
+	
+	// Tier 2: Coin Mastery (11-20)
+	coin_hoarder: { id: 'coin_hoarder', name: 'Coin Hoarder', description: 'Collect 200 coins total', icon: '🪙', unlocked: false, progress: 0, target: 200, unlockedAt: null },
+	coin_magnet: { id: 'coin_magnet', name: 'Coin Magnet', description: 'Collect 500 coins total', icon: '💰', unlocked: false, progress: 0, target: 500, unlockedAt: null },
+	coin_king: { id: 'coin_king', name: 'Coin King', description: 'Collect 1000 coins total', icon: '👑', unlocked: false, progress: 0, target: 1000, unlockedAt: null },
+	coin_emperor: { id: 'coin_emperor', name: 'Coin Emperor', description: 'Collect 2000 coins total', icon: '🏆', unlocked: false, progress: 0, target: 2000, unlockedAt: null },
+	coin_god: { id: 'coin_god', name: 'Coin God', description: 'Collect 5000 coins total', icon: '⭐', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	coin_legend: { id: 'coin_legend', name: 'Coin Legend', description: 'Collect 10000 coins total', icon: '✨', unlocked: false, progress: 0, target: 10000, unlockedAt: null },
+	coin_cluster: { id: 'coin_cluster', name: 'Coin Cluster', description: 'Collect 5 coins in a single game', icon: '🪙', unlocked: false, progress: 0, target: 5, unlockedAt: null },
+	coin_rush: { id: 'coin_rush', name: 'Coin Rush', description: 'Collect 20 coins in a single game', icon: '💨', unlocked: false, progress: 0, target: 20, unlockedAt: null },
+	coin_frenzy: { id: 'coin_frenzy', name: 'Coin Frenzy', description: 'Collect 50 coins in a single game', icon: '🌪️', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	coin_tornado: { id: 'coin_tornado', name: 'Coin Tornado', description: 'Collect 100 coins in a single game', icon: '🌀', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	
+	// Tier 3: Energy Expertise (21-30)
+	energy_collector: { id: 'energy_collector', name: 'Energy Collector', description: 'Collect 200 energy reserves total', icon: '⚡', unlocked: false, progress: 0, target: 200, unlockedAt: null },
+	energy_hoarder: { id: 'energy_hoarder', name: 'Energy Hoarder', description: 'Collect 500 energy reserves total', icon: '🔋', unlocked: false, progress: 0, target: 500, unlockedAt: null },
+	energy_king: { id: 'energy_king', name: 'Energy King', description: 'Collect 1000 energy reserves total', icon: '👑', unlocked: false, progress: 0, target: 1000, unlockedAt: null },
+	energy_emperor: { id: 'energy_emperor', name: 'Energy Emperor', description: 'Collect 2000 energy reserves total', icon: '🏆', unlocked: false, progress: 0, target: 2000, unlockedAt: null },
+	energy_god: { id: 'energy_god', name: 'Energy God', description: 'Collect 5000 energy reserves total', icon: '⭐', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	energy_legend: { id: 'energy_legend', name: 'Energy Legend', description: 'Collect 10000 energy reserves total', icon: '✨', unlocked: false, progress: 0, target: 10000, unlockedAt: null },
+	energy_rush: { id: 'energy_rush', name: 'Energy Rush', description: 'Collect 10 energy reserves in a single game', icon: '⚡', unlocked: false, progress: 0, target: 10, unlockedAt: null },
+	energy_surge: { id: 'energy_surge', name: 'Energy Surge', description: 'Collect 25 energy reserves in a single game', icon: '💥', unlocked: false, progress: 0, target: 25, unlockedAt: null },
+	energy_storm: { id: 'energy_storm', name: 'Energy Storm', description: 'Collect 50 energy reserves in a single game', icon: '⛈️', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	energy_tsunami: { id: 'energy_tsunami', name: 'Energy Tsunami', description: 'Collect 100 energy reserves in a single game', icon: '🌊', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	
+	// Tier 4: Distance Achievements (31-40)
+	distance_explorer: { id: 'distance_explorer', name: 'Distance Explorer', description: 'Reach 500m in a single game', icon: '🗺️', unlocked: false, progress: 0, target: 500, unlockedAt: null },
+	distance_adventurer: { id: 'distance_adventurer', name: 'Distance Adventurer', description: 'Reach 2000m in a single game', icon: '🧭', unlocked: false, progress: 0, target: 2000, unlockedAt: null },
+	distance_explorer_pro: { id: 'distance_explorer_pro', name: 'Explorer Pro', description: 'Reach 5000m in a single game', icon: '🌍', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	distance_world_traveler: { id: 'distance_world_traveler', name: 'World Traveler', description: 'Reach 10000m in a single game', icon: '✈️', unlocked: false, progress: 0, target: 10000, unlockedAt: null },
+	distance_legend: { id: 'distance_legend', name: 'Distance Legend', description: 'Reach 20000m in a single game', icon: '🚀', unlocked: false, progress: 0, target: 20000, unlockedAt: null },
+	distance_god: { id: 'distance_god', name: 'Distance God', description: 'Reach 50000m in a single game', icon: '⭐', unlocked: false, progress: 0, target: 50000, unlockedAt: null },
+	total_distance_100k: { id: 'total_distance_100k', name: '100K Club', description: 'Travel 100km total across all games', icon: '🏅', unlocked: false, progress: 0, target: 100000, unlockedAt: null },
+	total_distance_500k: { id: 'total_distance_500k', name: '500K Club', description: 'Travel 500km total across all games', icon: '🥇', unlocked: false, progress: 0, target: 500000, unlockedAt: null },
+	total_distance_1m: { id: 'total_distance_1m', name: '1M Club', description: 'Travel 1000km total across all games', icon: '👑', unlocked: false, progress: 0, target: 1000000, unlockedAt: null },
+	total_distance_5m: { id: 'total_distance_5m', name: '5M Club', description: 'Travel 5000km total across all games', icon: '🌟', unlocked: false, progress: 0, target: 5000000, unlockedAt: null },
+	
+	// Tier 5: Score Mastery (41-50)
+	score_climber: { id: 'score_climber', name: 'Score Climber', description: 'Score 10000 points in a single game', icon: '📈', unlocked: false, progress: 0, target: 10000, unlockedAt: null },
+	score_master: { id: 'score_master', name: 'Score Master', description: 'Score 25000 points in a single game', icon: '🎯', unlocked: false, progress: 0, target: 25000, unlockedAt: null },
+	score_legend: { id: 'score_legend', name: 'Score Legend', description: 'Score 50000 points in a single game', icon: '👑', unlocked: false, progress: 0, target: 50000, unlockedAt: null },
+	score_god: { id: 'score_god', name: 'Score God', description: 'Score 100000 points in a single game', icon: '⭐', unlocked: false, progress: 0, target: 100000, unlockedAt: null },
+	total_score_100k: { id: 'total_score_100k', name: 'Century Scorer', description: 'Score 100000 points total across all games', icon: '💯', unlocked: false, progress: 0, target: 100000, unlockedAt: null },
+	total_score_500k: { id: 'total_score_500k', name: 'Mega Scorer', description: 'Score 500000 points total across all games', icon: '🔥', unlocked: false, progress: 0, target: 500000, unlockedAt: null },
+	total_score_1m: { id: 'total_score_1m', name: 'Million Scorer', description: 'Score 1000000 points total across all games', icon: '💎', unlocked: false, progress: 0, target: 1000000, unlockedAt: null },
+	total_score_5m: { id: 'total_score_5m', name: 'Billion Scorer', description: 'Score 5000000 points total across all games', icon: '🌟', unlocked: false, progress: 0, target: 5000000, unlockedAt: null },
+	high_score_10: { id: 'high_score_10', name: 'High Score Holder', description: 'Achieve a high score of 10000 points', icon: '🏆', unlocked: false, progress: 0, target: 10000, unlockedAt: null },
+	high_score_50: { id: 'high_score_50', name: 'Elite Player', description: 'Achieve a high score of 50000 points', icon: '👑', unlocked: false, progress: 0, target: 50000, unlockedAt: null },
+	
+	// Tier 6: Combo Mastery (51-60)
+	combo_starter: { id: 'combo_starter', name: 'Combo Starter', description: 'Reach a combo multiplier of 2x', icon: '⚡', unlocked: false, progress: 0, target: 2, unlockedAt: null },
+	combo_builder: { id: 'combo_builder', name: 'Combo Builder', description: 'Reach a combo multiplier of 3x', icon: '🔥', unlocked: false, progress: 0, target: 3, unlockedAt: null },
+	combo_master: { id: 'combo_master', name: 'Combo Master', description: 'Reach a combo multiplier of 10x', icon: '👑', unlocked: false, progress: 0, target: 10, unlockedAt: null },
+	combo_legend: { id: 'combo_legend', name: 'Combo Legend', description: 'Reach a combo multiplier of 20x', icon: '⭐', unlocked: false, progress: 0, target: 20, unlockedAt: null },
+	combo_god: { id: 'combo_god', name: 'Combo God', description: 'Reach a combo multiplier of 50x', icon: '✨', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	total_combos_100: { id: 'total_combos_100', name: 'Combo Collector', description: 'Achieve 100 total combo multipliers across all games', icon: '🎯', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	total_combos_500: { id: 'total_combos_500', name: 'Combo Enthusiast', description: 'Achieve 500 total combo multipliers across all games', icon: '🔥', unlocked: false, progress: 0, target: 500, unlockedAt: null },
+	total_combos_1k: { id: 'total_combos_1k', name: 'Combo Addict', description: 'Achieve 1000 total combo multipliers across all games', icon: '💥', unlocked: false, progress: 0, target: 1000, unlockedAt: null },
+	total_combos_5k: { id: 'total_combos_5k', name: 'Combo Master Pro', description: 'Achieve 5000 total combo multipliers across all games', icon: '👑', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	combo_streak_10: { id: 'combo_streak_10', name: 'Streak Starter', description: 'Maintain a combo streak of 10 in a single game', icon: '🎯', unlocked: false, progress: 0, target: 10, unlockedAt: null },
+	
+	// Tier 7: Shield & Power-ups (61-70)
+	shield_collector: { id: 'shield_collector', name: 'Shield Collector', description: 'Activate the shield 10 times total', icon: '🛡️', unlocked: false, progress: 0, target: 10, unlockedAt: null },
+	shield_master: { id: 'shield_master', name: 'Shield Master', description: 'Activate the shield 50 times total', icon: '🛡️', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	shield_legend: { id: 'shield_legend', name: 'Shield Legend', description: 'Activate the shield 200 times total', icon: '⭐', unlocked: false, progress: 0, target: 200, unlockedAt: null },
+	jetpack_collector_pro: { id: 'jetpack_collector_pro', name: 'Jetpack Collector Pro', description: 'Collect 10 jetpack power-ups total', icon: '🎒', unlocked: false, progress: 0, target: 10, unlockedAt: null },
+	jetpack_master: { id: 'jetpack_master', name: 'Jetpack Master', description: 'Collect 50 jetpack power-ups total', icon: '🎒', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	jetpack_legend: { id: 'jetpack_legend', name: 'Jetpack Legend', description: 'Collect 200 jetpack power-ups total', icon: '⭐', unlocked: false, progress: 0, target: 200, unlockedAt: null },
+	shield_in_game: { id: 'shield_in_game', name: 'Shield Spree', description: 'Activate the shield 5 times in a single game', icon: '🛡️', unlocked: false, progress: 0, target: 5, unlockedAt: null },
+	jetpack_in_game: { id: 'jetpack_in_game', name: 'Jetpack Spree', description: 'Collect 3 jetpack power-ups in a single game', icon: '🎒', unlocked: false, progress: 0, target: 3, unlockedAt: null },
+	power_up_master: { id: 'power_up_master', name: 'Power-up Master', description: 'Collect 100 power-ups total (shields + jetpacks)', icon: '⚡', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	power_up_legend: { id: 'power_up_legend', name: 'Power-up Legend', description: 'Collect 500 power-ups total (shields + jetpacks)', icon: '⭐', unlocked: false, progress: 0, target: 500, unlockedAt: null },
+	
+	// Tier 8: Survival Challenges (71-80)
+	survivor_pro: { id: 'survivor_pro', name: 'Survivor Pro', description: 'Survive for 1000m without collecting any energy', icon: '🏃', unlocked: false, progress: 0, target: 1000, unlockedAt: null },
+	survivor_master: { id: 'survivor_master', name: 'Survivor Master', description: 'Survive for 2000m without collecting any energy', icon: '🏃', unlocked: false, progress: 0, target: 2000, unlockedAt: null },
+	survivor_legend: { id: 'survivor_legend', name: 'Survivor Legend', description: 'Survive for 5000m without collecting any energy', icon: '⭐', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	perfect_run_pro: { id: 'perfect_run_pro', name: 'Perfect Run Pro', description: 'Reach 5000m without hitting any obstacles', icon: '✨', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	perfect_run_master: { id: 'perfect_run_master', name: 'Perfect Run Master', description: 'Reach 10000m without hitting any obstacles', icon: '✨', unlocked: false, progress: 0, target: 10000, unlockedAt: null },
+	perfect_run_legend: { id: 'perfect_run_legend', name: 'Perfect Run Legend', description: 'Reach 20000m without hitting any obstacles', icon: '⭐', unlocked: false, progress: 0, target: 20000, unlockedAt: null },
+	no_damage_games: { id: 'no_damage_games', name: 'Untouchable', description: 'Complete 5 games without hitting any obstacles', icon: '🛡️', unlocked: false, progress: 0, target: 5, unlockedAt: null },
+	no_damage_games_pro: { id: 'no_damage_games_pro', name: 'Untouchable Pro', description: 'Complete 20 games without hitting any obstacles', icon: '⭐', unlocked: false, progress: 0, target: 20, unlockedAt: null },
+	no_damage_games_master: { id: 'no_damage_games_master', name: 'Untouchable Master', description: 'Complete 50 games without hitting any obstacles', icon: '👑', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	no_damage_games_legend: { id: 'no_damage_games_legend', name: 'Untouchable Legend', description: 'Complete 100 games without hitting any obstacles', icon: '✨', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	
+	// Tier 9: Gameplay Milestones (81-90)
+	games_played_10: { id: 'games_played_10', name: 'Getting Started', description: 'Play 10 games', icon: '🎮', unlocked: false, progress: 0, target: 10, unlockedAt: null },
+	games_played_50: { id: 'games_played_50', name: 'Dedicated Player', description: 'Play 50 games', icon: '🎮', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	games_played_100: { id: 'games_played_100', name: 'Hardcore Gamer', description: 'Play 100 games', icon: '🎮', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	games_played_500: { id: 'games_played_500', name: 'Obsessed Gamer', description: 'Play 500 games', icon: '👑', unlocked: false, progress: 0, target: 500, unlockedAt: null },
+	games_played_1000: { id: 'games_played_1000', name: 'Legend Gamer', description: 'Play 1000 games', icon: '⭐', unlocked: false, progress: 0, target: 1000, unlockedAt: null },
+	games_played_5000: { id: 'games_played_5000', name: 'Eternal Gamer', description: 'Play 5000 games', icon: '✨', unlocked: false, progress: 0, target: 5000, unlockedAt: null },
+	first_high_score: { id: 'first_high_score', name: 'First Victory', description: 'Achieve your first high score', icon: '🏆', unlocked: false, progress: 0, target: 1, unlockedAt: null },
+	high_score_streak_3: { id: 'high_score_streak_3', name: 'Hot Streak', description: 'Achieve 3 consecutive high scores', icon: '🔥', unlocked: false, progress: 0, target: 3, unlockedAt: null },
+	high_score_streak_10: { id: 'high_score_streak_10', name: 'On Fire', description: 'Achieve 10 consecutive high scores', icon: '🔥', unlocked: false, progress: 0, target: 10, unlockedAt: null },
+	high_score_streak_50: { id: 'high_score_streak_50', name: 'Unstoppable', description: 'Achieve 50 consecutive high scores', icon: '⭐', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	
+	// Tier 10: Ultimate Challenges (91-100)
+	ultimate_collector: { id: 'ultimate_collector', name: 'Ultimate Collector', description: 'Collect 20000 coins total', icon: '💰', unlocked: false, progress: 0, target: 20000, unlockedAt: null },
+	ultimate_energy: { id: 'ultimate_energy', name: 'Ultimate Energy', description: 'Collect 20000 energy reserves total', icon: '⚡', unlocked: false, progress: 0, target: 20000, unlockedAt: null },
+	ultimate_distance: { id: 'ultimate_distance', name: 'Ultimate Distance', description: 'Reach 100000m in a single game', icon: '🚀', unlocked: false, progress: 0, target: 100000, unlockedAt: null },
+	ultimate_score: { id: 'ultimate_score', name: 'Ultimate Score', description: 'Score 500000 points in a single game', icon: '💎', unlocked: false, progress: 0, target: 500000, unlockedAt: null },
+	ultimate_combo: { id: 'ultimate_combo', name: 'Ultimate Combo', description: 'Reach a combo multiplier of 100x', icon: '👑', unlocked: false, progress: 0, target: 100, unlockedAt: null },
+	ultimate_survivor: { id: 'ultimate_survivor', name: 'Ultimate Survivor', description: 'Survive for 10000m without collecting any energy', icon: '🏃', unlocked: false, progress: 0, target: 10000, unlockedAt: null },
+	ultimate_perfect: { id: 'ultimate_perfect', name: 'Ultimate Perfect', description: 'Reach 50000m without hitting any obstacles', icon: '✨', unlocked: false, progress: 0, target: 50000, unlockedAt: null },
+	ultimate_master: { id: 'ultimate_master', name: 'Ultimate Master', description: 'Unlock 50 achievements', icon: '👑', unlocked: false, progress: 0, target: 50, unlockedAt: null },
+	ultimate_legend: { id: 'ultimate_legend', name: 'Ultimate Legend', description: 'Unlock 75 achievements', icon: '⭐', unlocked: false, progress: 0, target: 75, unlockedAt: null },
+	ultimate_god: { id: 'ultimate_god', name: 'Ultimate God', description: 'Unlock all 100 achievements', icon: '✨', unlocked: false, progress: 0, target: 100, unlockedAt: null }
+};
+
+// Session tracking for achievements
+let sessionStats = {
+	distanceWithoutEnergy: 0,
+	lastEnergyDistance: 0,
+	maxCombo: 0,
+	obstaclesHit: 0,
+	sessionDistance: 0,
+	sessionScore: 0,
+	sessionCoins: 0,
+	sessionEnergy: 0,
+	hasLaunched: false,
+	hasActivatedShield: false,
+	hasCollectedJetpack: false
+};
+
+let newlyUnlockedAchievements = [];
+
+// Daily challenges system - Challenge pool for random generation
+const dailyChallengePool = {
+	distance: [
+		{ name: 'Short Sprint', description: 'Reach {target}m', target: 250, reward: 30, difficulty: 'easy' },
+		{ name: 'Distance Runner', description: 'Reach {target}m', target: 500, reward: 50, difficulty: 'normal' },
+		{ name: 'Long Journey', description: 'Reach {target}m', target: 1000, reward: 75, difficulty: 'hard' },
+		{ name: 'Epic Voyage', description: 'Reach {target}m', target: 2000, reward: 120, difficulty: 'very_hard' },
+		{ name: 'Marathon Flight', description: 'Reach {target}m', target: 3000, reward: 150, difficulty: 'extreme' }
+	],
+	coins: [
+		{ name: 'Coin Seeker', description: 'Collect {target} coins', target: 25, reward: 25, difficulty: 'easy' },
+		{ name: 'Coin Collector', description: 'Collect {target} coins', target: 50, reward: 40, difficulty: 'normal' },
+		{ name: 'Coin Hoarder', description: 'Collect {target} coins', target: 100, reward: 75, difficulty: 'hard' },
+		{ name: 'Coin Master', description: 'Collect {target} coins', target: 200, reward: 125, difficulty: 'very_hard' },
+		{ name: 'Coin Legend', description: 'Collect {target} coins', target: 300, reward: 175, difficulty: 'extreme' }
+	],
+	energy: [
+		{ name: 'Energy Starter', description: 'Collect {target} energy reserves', target: 15, reward: 20, difficulty: 'easy' },
+		{ name: 'Energy Hoarder', description: 'Collect {target} energy reserves', target: 30, reward: 50, difficulty: 'normal' },
+		{ name: 'Energy Master', description: 'Collect {target} energy reserves', target: 75, reward: 85, difficulty: 'hard' },
+		{ name: 'Energy Collector', description: 'Collect {target} energy reserves', target: 150, reward: 130, difficulty: 'very_hard' },
+		{ name: 'Energy Legend', description: 'Collect {target} energy reserves', target: 250, reward: 180, difficulty: 'extreme' }
+	],
+	combo: [
+		{ name: 'Combo Starter', description: 'Reach {target}x combo', target: 3, reward: 35, difficulty: 'easy' },
+		{ name: 'Combo Builder', description: 'Reach {target}x combo', target: 5, reward: 60, difficulty: 'normal' },
+		{ name: 'Combo Master', description: 'Reach {target}x combo', target: 10, reward: 100, difficulty: 'hard' },
+		{ name: 'Combo Legend', description: 'Reach {target}x combo', target: 15, reward: 140, difficulty: 'very_hard' },
+		{ name: 'Combo God', description: 'Reach {target}x combo', target: 20, reward: 180, difficulty: 'extreme' }
+	],
+	perfect: [
+		{ name: 'Clean Flight', description: 'Reach {target}m without hitting obstacles', target: 500, reward: 80, difficulty: 'hard' },
+		{ name: 'Perfect Run', description: 'Reach {target}m without hitting obstacles', target: 1000, reward: 150, difficulty: 'very_hard' },
+		{ name: 'Flawless Journey', description: 'Reach {target}m without hitting obstacles', target: 2000, reward: 220, difficulty: 'extreme' },
+		{ name: 'Untouchable', description: 'Reach {target}m without hitting obstacles', target: 3000, reward: 300, difficulty: 'extreme' }
+	],
+	survival: [
+		{ name: 'Fuel Efficient', description: 'Reach {target}m without collecting energy', target: 300, reward: 45, difficulty: 'normal' },
+		{ name: 'Energy Deprived', description: 'Reach {target}m without collecting energy', target: 750, reward: 90, difficulty: 'hard' },
+		{ name: 'Survivor', description: 'Reach {target}m without collecting energy', target: 1500, reward: 160, difficulty: 'very_hard' },
+		{ name: 'Endurance Master', description: 'Reach {target}m without collecting energy', target: 2500, reward: 240, difficulty: 'extreme' }
+	]
+};
+
+let dailyChallenges = [];
+let dailyChallengeResetTime = 0;
+let dailyChallengeProgress = {};
+let dailyChallengeCompletedThisSession = {}; // Track which challenges were completed this session
+let newlyCompletedChallenges = []; // Track newly completed challenges for notifications
+let lastGeneratedChallengeDate = null; // Track which date challenges were generated for
+
+// Boss system
+let bosses = [];
+let lastBossSpawnDistance = 0;
+const BOSS_SPAWN_DISTANCES = [5000, 10000, 20000, 50000]; // Boss spawn milestones
+
+// Difficulty scaling
+let difficultyMultiplier = 1;
+
+// World state
+let worldOffset = 0;
+let obstacles = [];
+let collectibles = [];
+let lastVineSpawn = 0;
+let lastMeteoriteSpawn = 0;
+let lastBirdSpawn = 0;
+let lastEnergySpawn = 0;
+let lastCoinSpawn = 0;
+let lastEllipseSpawn = 0;
+let lastJetpackSpawn = 0;
+let lastBossSpawn = 0;
+
+
+
+// Coin magnet state
+let coinMagnetActive = false;
+let coinMagnetTime = 0;
+let coinMagnetDuration = 8; // seconds
+let lastCoinMagnetSpawn = 0;
+let attractedCoins = []; // Coins being attracted to player
+
+// Background parallax
+let bgOffsets = {
+	far: 0,
+	mid: 0,
+	foreground: 0
+};
+
+// Theme colors
+const themes = {
+	tropical_green: { sky: '#87CEEB', tint: 'none' },
+	sunset_jungle: { sky: '#FF6B4A', tint: 'rgba(255, 140, 0, 0.2)' },
+	misty_morning: { sky: '#B0C4DE', tint: 'rgba(176, 196, 222, 0.3)' },
+	night_jungle: { sky: '#1a1a2e', tint: 'rgba(0, 0, 50, 0.4)' }
+};
+
+
+// Preload assets
+async function preloadAssets() {
+	const imageAssetIds = [
+		'player_character', 'cannon', 'energy_reserve', 'coin',
+		'thorny_vine_top', 'thorny_vine_bottom',
+		'background_far', 'background_mid', 'background_foreground', 
+		'background_forest_far_1', 'background_forest_mid_1', 'background_forest_foreground_1',
+		'background_forest_far_2', 'background_forest_mid_2', 'background_forest_foreground_2',
+		'ground', 'menu_background', 'coconut', 'magnet_powerup', 'vulture'
+	];
+
+	const audioAssetIds = [
+		'sfx_launch', 'sfx_coin', 'sfx_energy', 'sfx_hit', 'sfx_shield',
+		'sfx_jetpack_powerup', 'sfx_jetpack_thrust', 'music_jungle', 'sfx_click', 'logo_sound'
+	];
+
+	const loadPromises = imageAssetIds.map(id => {
+		return new Promise((resolve, reject) => {
+			const assetInfo = lib.getAsset(id);
+			if (!assetInfo) {
+
+				resolve();
+				return;
+			}
+
+			if (assetInfo.type === 'image') {
+				const img = new Image();
+				img.onload = () => {
+					assetCache[id] = {
+						img: img,
+						aspectRatio: assetInfo.aspect_ratio || [1, 1]
+					};
+					resolve();
+				};
+				img.onerror = () => {
+
+					resolve();
+				};
+				img.src = assetInfo.url;
+			} else {
+				resolve();
+			}
+		});
+	});
+
+	// Load audio assets
+	const audioLoadPromises = audioAssetIds.map(id => {
+		return new Promise((resolve) => {
+			const assetInfo = lib.getAsset(id);
+			if (!assetInfo) {
+				lib.log(`Audio asset ${id} not found`);
+				resolve();
+				return;
+			}
+			
+			if (!audioContext) {
+				lib.log(`Cannot load audio ${id}: AudioContext not available`);
+				resolve();
+				return;
+			}
+
+			fetch(assetInfo.url)
+				.then(response => response.arrayBuffer())
+				.then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer))
+				.then(audioBuffer => {
+					audioBuffers[id] = audioBuffer;
+
+					resolve();
+				})
+				.catch(error => {
+					lib.log(`Error loading audio ${id}: ${error}`);
+					resolve();
+				});
+		});
+	});
+
+	await Promise.all([...loadPromises, ...audioLoadPromises]);
+
+}
+
+// Play sound effect
+function playSound(soundId, volume = 1) {
+	if (!sfxEnabled || !audioBuffers[soundId]) {
+		return;
+	}
+	
+	if (!audioContext) {
+		lib.log('AudioContext not available, cannot play sound: ' + soundId);
+		return;
+	}
+
+	try {
+		const source = audioContext.createBufferSource();
+		const gainNode = audioContext.createGain();
+		
+		source.buffer = audioBuffers[soundId];
+		gainNode.gain.value = masterVolume * volume;
+		
+		source.connect(gainNode);
+		gainNode.connect(audioContext.destination);
+		
+		source.start(0);
+	} catch (error) {
+		lib.log('Error playing sound ' + soundId + ': ' + error);
+	}
+}
+
+// Start background music
+function startBackgroundMusic() {
+	if (!musicEnabled || !audioBuffers['music_jungle']) {
+		return;
+	}
+	
+	if (!audioContext) {
+		lib.log('AudioContext not available, cannot play music');
+		return;
+	}
+
+	try {
+		if (musicSource) {
+			musicSource.stop();
+		}
+
+		musicSource = audioContext.createBufferSource();
+		musicGainNode = audioContext.createGain();
+		
+		musicSource.buffer = audioBuffers['music_jungle'];
+		musicSource.loop = true;
+		musicGainNode.gain.value = masterVolume * 0.5; // Music at 50% volume
+		
+		musicSource.connect(musicGainNode);
+		musicGainNode.connect(audioContext.destination);
+		
+		musicSource.start(0);
+	} catch (error) {
+		lib.log('Error starting background music: ' + error);
+	}
+}
+
+// Stop background music
+function stopBackgroundMusic() {
+	if (musicSource) {
+		try {
+			musicSource.stop();
+			musicSource = null;
+		} catch (error) {
+
+		}
+	}
+}
+
+// Start jetpack thrust sound
+function startJetpackThrust() {
+	if (!audioBuffers['sfx_jetpack_thrust']) {
+		return;
+	}
+	
+	if (!audioContext) {
+		lib.log('AudioContext not available, cannot play jetpack thrust');
+		return;
+	}
+
+	try {
+		if (jetpackThrustSource) {
+			jetpackThrustSource.stop();
+		}
+
+		jetpackThrustSource = audioContext.createBufferSource();
+		jetpackThrustGainNode = audioContext.createGain();
+		
+		jetpackThrustSource.buffer = audioBuffers['sfx_jetpack_thrust'];
+		jetpackThrustSource.loop = true;
+		jetpackThrustGainNode.gain.value = masterVolume * 0.4; // Thrust at 40% volume
+		
+		jetpackThrustSource.connect(jetpackThrustGainNode);
+		jetpackThrustGainNode.connect(audioContext.destination);
+		
+		jetpackThrustSource.start(0);
+	} catch (error) {
+		lib.log('Error starting jetpack thrust: ' + error);
+	}
+}
+
+// Stop jetpack thrust sound
+function stopJetpackThrust() {
+	if (jetpackThrustSource) {
+		try {
+			jetpackThrustSource.stop();
+			jetpackThrustSource = null;
+		} catch (error) {
+
+		}
+	}
+}
+
+// Set master volume
+function setMasterVolume(volume) {
+	masterVolume = Math.max(0, Math.min(1, volume));
+	
+	if (musicGainNode) {
+		musicGainNode.gain.value = masterVolume * 0.5;
+	}
+	
+	if (jetpackThrustGainNode) {
+		jetpackThrustGainNode.gain.value = masterVolume * 0.4;
+	}
+}
+
+// Generate random daily challenges based on the current day
+function generateDailyChallenges() {
+	const now = Date.now();
+	const today = new Date(now).toDateString();
+	
+	// Use date as seed for random number generation to ensure same challenges all day
+	const dateHash = today.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+	
+	// Seeded random function
+	function seededRandom(seed) {
+		const x = Math.sin(seed) * 10000;
+		return x - Math.floor(x);
+	}
+	
+	// Generate 5 random challenges from different categories
+	const categories = ['distance', 'coins', 'energy', 'combo', 'perfect', 'survival'];
+	const selectedCategories = [];
+	const generatedChallenges = [];
+	
+	// Ensure we pick 5 different categories (or repeat if needed)
+	for (let i = 0; i < 5; i++) {
+		const categoryIndex = Math.floor(seededRandom(dateHash + i * 1000) * categories.length);
+		const category = categories[categoryIndex];
+		
+		// Get random challenge from this category
+		const pool = dailyChallengePool[category];
+		const challengeIndex = Math.floor(seededRandom(dateHash + i * 2000) * pool.length);
+		const baseChallenge = pool[challengeIndex];
+		
+		// Create unique ID for this challenge
+		const challengeId = `daily_${category}_${i}_${today.replace(/\s/g, '_')}`;
+		
+		const challenge = {
+			id: challengeId,
+			name: baseChallenge.name,
+			description: baseChallenge.description.replace('{target}', baseChallenge.target),
+			target: baseChallenge.target,
+			reward: baseChallenge.reward,
+			type: category,
+			completed: false,
+			difficulty: baseChallenge.difficulty
+		};
+		
+		generatedChallenges.push(challenge);
+		selectedCategories.push(category);
+	}
+	
+	dailyChallenges = generatedChallenges;
+	window.gameConfig.dailyChallengeDate = today;
+	lastGeneratedChallengeDate = today;
+	
+	lib.log(`Generated ${generatedChallenges.length} random daily challenges for ${today}`);
+
+}
+
+// Initialize daily challenges
+function initializeDailyChallenges() {
+	const now = Date.now();
+	const today = new Date(now).toDateString();
+	
+
+	
+	// Check if we need to generate new daily challenges
+	if (!window.gameConfig.dailyChallengeDate || window.gameConfig.dailyChallengeDate !== today) {
+		// Generate new random challenges for today
+
+		generateDailyChallenges();
+		dailyChallengeProgress = {};
+		dailyChallengeCompletedThisSession = {};
+
+	} else {
+		// Load progress from config - but first ensure challenges are generated
+
+		
+		// If dailyChallenges array is empty, regenerate them first
+		if (dailyChallenges.length === 0) {
+
+			generateDailyChallenges();
+		}
+		
+		if (window.gameConfig.dailyChallengeProgress) {
+			dailyChallengeProgress = window.gameConfig.dailyChallengeProgress;
+
+		}
+		if (window.gameConfig.dailyChallengeCompleted) {
+			dailyChallenges.forEach(challenge => {
+				challenge.completed = window.gameConfig.dailyChallengeCompleted[challenge.id] || false;
+			});
+
+		}
+	}
+	
+
+}
+
+// Update daily challenge progress
+function updateDailyChallengeProgress() {
+	if (gamePhase !== 'flight') return;
+	
+	for (const challenge of dailyChallenges) {
+		if (challenge.completed) continue; // Skip already completed challenges
+		
+		let progress = 0;
+		
+		switch (challenge.type) {
+			case 'distance':
+				progress = Math.floor(distance);
+				break;
+			case 'coins':
+				progress = sessionStats.sessionCoins;
+				break;
+			case 'combo':
+				progress = sessionStats.maxCombo;
+				break;
+			case 'energy':
+				progress = sessionStats.sessionEnergy;
+				break;
+			case 'perfect':
+				if (sessionStats.obstaclesHit === 0) {
+					progress = Math.floor(distance);
+				}
+				break;
+			case 'survival':
+				progress = sessionStats.distanceWithoutEnergy;
+				break;
+		}
+		
+		dailyChallengeProgress[challenge.id] = Math.max(dailyChallengeProgress[challenge.id] || 0, progress);
+		
+		// Check if challenge is completed
+		if (progress >= challenge.target && !challenge.completed) {
+			challenge.completed = true;
+			newlyCompletedChallenges.push(challenge.id);
+			dailyChallengeCompletedThisSession[challenge.id] = true;
+
+		}
+	}
+}
+
+// Get time until daily reset
+function getTimeUntilReset() {
+	const now = new Date();
+	const tomorrow = new Date(now);
+	tomorrow.setDate(tomorrow.getDate() + 1);
+	tomorrow.setHours(0, 0, 0, 0);
+	
+	const timeUntil = tomorrow - now;
+	const hours = Math.floor(timeUntil / (1000 * 60 * 60));
+	const minutes = Math.floor((timeUntil % (1000 * 60 * 60)) / (1000 * 60));
+	const seconds = Math.floor((timeUntil % (1000 * 60)) / 1000);
+	
+	return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+// Display daily challenges menu
+function displayDailyChallenges() {
+	const challengesList = document.getElementById('dailyChallengesList');
+	if (!challengesList) {
+		lib.log('ERROR: dailyChallengesList element not found');
+		return;
+	}
+	
+	lib.log(`displayDailyChallenges() called with ${dailyChallenges.length} challenges`);
+	
+	// Ensure daily challenges are initialized
+	if (dailyChallenges.length === 0) {
+
+		generateDailyChallenges();
+
+	}
+	
+	// If still empty, show error message
+	if (dailyChallenges.length === 0) {
+
+		challengesList.innerHTML = '<div style="color: #aaa; padding: 20px; text-align: center;">Failed to load daily challenges. Please try again.</div>';
+		return;
+	}
+	
+
+	
+	challengesList.innerHTML = '';
+	
+	let totalRewards = 0;
+	
+	for (const challenge of dailyChallenges) {
+		lib.log(`Processing challenge: ${challenge.name} (${challenge.type})`);
+		
+		const item = document.createElement('div');
+		item.className = 'daily-challenge-item';
+		
+		// Get current progress for this challenge
+		const progress = dailyChallengeProgress[challenge.id] || 0;
+		
+		// Check if challenge is completed by comparing progress to target
+		const isCompleted = progress >= challenge.target;
+		
+		if (isCompleted) {
+			item.classList.add('completed');
+			totalRewards += challenge.reward;
+			challenge.completed = true; // Update the challenge object
+		} else {
+			challenge.completed = false;
+		}
+		
+		const header = document.createElement('div');
+		header.className = 'daily-challenge-header';
+		
+		const name = document.createElement('div');
+		name.className = 'daily-challenge-name';
+		// Get translated name using challenge type and name as key
+		const nameKey = `challenge_${challenge.name.toLowerCase().replace(/\s+/g, '_')}`;
+		name.textContent = t(nameKey) || challenge.name;
+		
+		const reward = document.createElement('div');
+		reward.className = 'daily-challenge-reward';
+		const coinImg = document.createElement('img');
+		coinImg.src = assetCache['coin']?.img?.src || '';
+		coinImg.alt = 'Coins';
+		coinImg.style.width = '16px';
+		coinImg.style.height = '16px';
+		coinImg.style.objectFit = 'contain';
+		coinImg.style.marginRight = '4px';
+		reward.innerHTML = `+${challenge.reward} `;
+		reward.appendChild(coinImg);
+		
+		header.appendChild(name);
+		header.appendChild(reward);
+		
+		const description = document.createElement('div');
+		description.className = 'daily-challenge-description';
+		// Get translated description using challenge type and name as key
+		const descKey = `challenge_${challenge.name.toLowerCase().replace(/\s+/g, '_')}_desc`;
+		const translatedDesc = t(descKey) || challenge.description;
+		// Replace {target} with actual target value
+		description.textContent = translatedDesc.replace('{target}', challenge.target);
+		
+		const progressBar = document.createElement('div');
+		progressBar.className = 'daily-challenge-progress-bar';
+		
+		const progressPercent = Math.min((progress / challenge.target) * 100, 100);
+		
+		const progressFill = document.createElement('div');
+		progressFill.className = 'daily-challenge-progress-fill';
+		if (isCompleted) {
+			progressFill.classList.add('completed');
+			progressFill.textContent = t('daily_challenges_completed');
+		} else {
+			progressFill.textContent = `${progress}/${challenge.target}`;
+		}
+		progressFill.style.width = progressPercent + '%';
+		
+		progressBar.appendChild(progressFill);
+		
+		const progressText = document.createElement('div');
+		progressText.className = 'daily-challenge-progress-text';
+		progressText.textContent = `${progress}/${challenge.target}`;
+		
+		item.appendChild(header);
+		item.appendChild(description);
+		item.appendChild(progressBar);
+		item.appendChild(progressText);
+		
+		challengesList.appendChild(item);
+		
+
+	}
+	
+	lib.log(`Total rewards calculated: ${totalRewards}`);
+	
+	// Update total rewards
+	const rewardElement = document.getElementById('dailyChallengesRewardTotal');
+	if (rewardElement) {
+		rewardElement.textContent = totalRewards;
+		lib.log(`Updated reward element to: ${totalRewards}`);
+	}
+	
+	// Update reset timer
+	const resetElement = document.getElementById('dailyChallengesResetTimer');
+	if (resetElement) {
+		resetElement.textContent = getTimeUntilReset();
+	}
+	
+	// Update labels with translations
+	const resetLabel = document.querySelector('.daily-challenges-reset');
+	if (resetLabel) {
+		resetLabel.innerHTML = `${t('daily_challenges_reset')} <span id="dailyChallengesResetTimer">${getTimeUntilReset()}</span>`;
+	}
+	
+	const rewardsLabel = document.querySelector('.daily-challenges-rewards');
+	if (rewardsLabel) {
+		const coinIcon = document.getElementById('dailyChallengesCoinIcon');
+		const coinSrc = coinIcon ? coinIcon.src : '';
+		rewardsLabel.innerHTML = `<span>${t('daily_challenges_rewards')}</span><img id="dailyChallengesCoinIcon" src="${coinSrc}" alt="Coins" style="width: 24px; height: 24px; object-fit: contain;"><span id="dailyChallengesRewardTotal">${totalRewards}</span>`;
+	}
+	
+
+}
+
+// Show daily challenges menu
+function showDailyChallenges() {
+
+
+	
+	// Ensure daily challenges are initialized and generated
+	if (dailyChallenges.length === 0) {
+
+		generateDailyChallenges();
+
+	}
+	
+	// Double-check that challenges were generated
+	if (dailyChallenges.length === 0) {
+
+		// Force regeneration
+		const today = new Date().toDateString();
+		window.gameConfig.dailyChallengeDate = null; // Clear saved date to force regeneration
+		generateDailyChallenges();
+
+	}
+	
+
+	
+	document.getElementById('mainMenu').classList.remove('show');
+	document.getElementById('languageSelectionMenu').classList.remove('show');
+	document.getElementById('optionsMenu').classList.remove('show');
+	document.getElementById('shopMenu').classList.remove('show');
+	document.getElementById('leaderboardMenu').classList.remove('show');
+	document.getElementById('achievementsMenu').classList.remove('show');
+	document.getElementById('dailyChallengesMenu').classList.add('show');
+	
+	// Call display with error handling
+	try {
+		displayDailyChallenges();
+
+	} catch (error) {
+
+	}
+}
+
+// Close daily challenges menu
+function closeDailyChallenges() {
+	document.getElementById('dailyChallengesMenu').classList.remove('show');
+	document.getElementById('mainMenu').classList.add('show');
+}
+
+async function loadGameState() {
+	try {
+		const response = await lib.getUserGameState();
+		if (response.state) {
+			// Load high score
+			if (response.state.highScore !== undefined) {
+				highScore = response.state.highScore;
+
+			}
+			
+			// Load achievements
+			if (response.state.achievements) {
+				const savedAchievements = response.state.achievements;
+				for (const key in savedAchievements) {
+					if (achievements[key]) {
+						achievements[key] = { ...achievements[key], ...savedAchievements[key] };
+					}
+				}
+
+			}
+			
+			// Load shop data
+			if (response.state.shop) {
+				totalCoinsEarned = response.state.shop.totalCoinsEarned || 0;
+				const savedUpgrades = response.state.shop.upgrades || {};
+				for (const key in savedUpgrades) {
+					if (upgrades[key]) {
+						upgrades[key].level = savedUpgrades[key].level || 0;
+					}
+				}
+
+			}
+			
+			// Load daily challenges
+			if (response.state.dailyChallenges) {
+				window.gameConfig.dailyChallengeDate = response.state.dailyChallenges.date;
+				window.gameConfig.dailyChallengeProgress = response.state.dailyChallenges.progress || {};
+				window.gameConfig.dailyChallengeCompleted = response.state.dailyChallenges.completed || {};
+
+			}
+
+			// Load language
+			if (response.state.language !== undefined) {
+				window.gameConfig.language = response.state.language;
+
+			}
+
+			// Load language Chosen
+			if (response.state.languageChosen !== undefined) {
+				window.gameConfig.languageChosen = response.state.languageChosen;
+
+			}
+
+			// Load tutorial shown flag
+			if (response.state.tutorialShown !== undefined) {
+				window.gameConfig.tutorialShown = response.state.tutorialShown;
+
+			}
+
+			// Load music state
+			if (response.state.musicEnabled !== undefined) {
+				musicEnabled = response.state.musicEnabled;
+
+			}
+
+			// Load SFX state
+			if (response.state.sfxEnabled !== undefined) {
+				sfxEnabled = response.state.sfxEnabled;
+
+			}
+			
+			// Load nickname
+			if (response.state.playerNickname !== undefined) {
+				window.gameConfig.playerNickname = response.state.playerNickname;
+
+			}
+			
+			// Load nickname chosen flag
+			if (response.state.nicknameChosen !== undefined) {
+				window.gameConfig.nicknameChosen = response.state.nicknameChosen;
+
+			}
+		} else {
+			highScore = 0;
+
+		}
+	} catch (error) {
+
+		highScore = 0;
+	}
+}
+
+// Save game state (high score and achievements) to persistent storage
+async function saveGameState() {
+	try {
+		const saveData = {
+			highScore: highScore,
+			achievements: achievements,
+			shop: {
+				totalCoinsEarned: totalCoinsEarned,
+				upgrades: {}
+			},
+			dailyChallenges: {
+				date: window.gameConfig.dailyChallengeDate,
+				progress: dailyChallengeProgress,
+				completed: {}
+			},
+			language: window.gameConfig.language,
+			languageChosen: window.gameConfig.languageChosen,
+			tutorialShown: window.gameConfig.tutorialShown,
+			musicEnabled: musicEnabled,
+			sfxEnabled: sfxEnabled,
+			playerNickname: window.gameConfig.playerNickname,
+			nicknameChosen: window.gameConfig.nicknameChosen
+		};
+		
+		for (const key in upgrades) {
+			saveData.shop.upgrades[key] = {
+				level: upgrades[key].level
+			};
+		}
+		
+		// Save completed challenges
+		for (const challenge of dailyChallenges) {
+			saveData.dailyChallenges.completed[challenge.id] = challenge.completed;
+		}
+		
+		await lib.saveUserGameState(saveData);
+
+	} catch (error) {
+
+	}
+}
+
+// Initialize game state from config
+function initializeGameState() {
+
+	const config = window.gameConfig;
+	
+	// Randomly select a background set for this game
+	currentBackgroundSet = Math.floor(Math.random() * backgroundSets.length);
+	nextBackgroundSet = (currentBackgroundSet + 1) % backgroundSets.length;
+	backgroundTransitionProgress = 0;
+	lastBackgroundSwitchDistance = 0;
+
+	
+	// Stop all sounds
+	stopBackgroundMusic();
+	stopJetpackThrust();
+	
+	// Set player fuel based on config + fuel tank upgrades
+	const baseFuel = config.fuelCapacity;
+	const fuelBonus = upgrades.fuel_tank.level * 25;
+	player.maxFuel = baseFuel + fuelBonus;
+	player.fuel = player.maxFuel;
+	
+	// Set shield duration with upgrades
+	player.invincibilityDuration = 5 + (upgrades.shield_duration.level * 1);
+	
+	// Reset player position
+	player.x = CANNON_X;
+	player.y = CANNON_Y;
+	player.vx = 0;
+	player.vy = 0;
+	player.isInvincible = false;
+	player.invincibilityTime = 0;
+	
+	// Reset game stats (but keep high score and achievements)
+	score = 0;
+	distance = 0;
+	coinsCollected = 0;
+	comboCount = 0;
+	comboTimer = 0;
+	comboMultiplier = 1;
+	isNewRecord = false;
+	
+	// Reset session stats for achievements
+	sessionStats = {
+		distanceWithoutEnergy: 0,
+		lastEnergyDistance: 0,
+		maxCombo: 0,
+		obstaclesHit: 0,
+		sessionDistance: 0,
+		sessionScore: 0,
+		sessionCoins: 0,
+		sessionEnergy: 0,
+		hasLaunched: false,
+		hasActivatedShield: false,
+		hasCollectedJetpack: false
+	};
+	newlyUnlockedAchievements = [];
+	
+	// Reset world
+	worldOffset = 0;
+	obstacles = [];
+	collectibles = [];
+	lastVineSpawn = 0;
+	lastMeteoriteSpawn = 0;
+	lastBirdSpawn = 0;
+	lastEnergySpawn = 0;
+	lastCoinSpawn = 0;
+	lastEllipseSpawn = 0;
+	lastJetpackSpawn = 0;
+	lastCoinMagnetSpawn = 0;
+	coinMagnetActive = false;
+	coinMagnetTime = 0;
+	attractedCoins = [];
+	
+	// Reset parallax
+	bgOffsets = { far: 0, mid: 0, foreground: 0 };
+	
+	// Reset phase
+	gamePhase = 'launch';
+	isCharging = false;
+	chargeTime = 0;
+	isJetpackActive = false;
+	isPaused = false;
+	propulsionPhaseTime = 0; // Reset propulsion phase timer
+	
+	// Exit main menu mode
+	showMainMenu = false;
+
+	
+	// Hide all menus
+	const mainMenu = document.getElementById('mainMenu');
+	const gameOverScreen = document.getElementById('gameOver');
+	const pauseOverlay = document.getElementById('pauseOverlay');
+	const languageMenu = document.getElementById('languageSelectionMenu');
+	const tutorialOverlay = document.getElementById('tutorialOverlay');
+	
+	if (mainMenu) mainMenu.classList.remove('show');
+	if (gameOverScreen) gameOverScreen.classList.remove('show');
+	if (pauseOverlay) pauseOverlay.classList.remove('show');
+	if (languageMenu) {
+		languageMenu.classList.remove('show');
+		languageMenu.style.display = 'none';
+	}
+	if (tutorialOverlay) tutorialOverlay.classList.remove('show');
+	
+
+	
+	// Display HUD and fuel gauge immediately when game starts
+	const hud = document.querySelector('.hud');
+	const fuelGauge = document.querySelector('.fuel-gauge');
+	const launchInstruction = document.getElementById('launchInstruction');
+	const chargeMeter = document.getElementById('chargeMeter');
+	const pauseButton = document.getElementById('pauseButton');
+	
+	if (hud) {
+		hud.style.display = 'flex';
+		hud.style.visibility = 'visible';
+		hud.style.opacity = '1';
+	}
+	if (fuelGauge) {
+		fuelGauge.style.display = 'block';
+		fuelGauge.style.visibility = 'visible';
+		fuelGauge.style.opacity = '1';
+	}
+	if (launchInstruction) {
+		launchInstruction.style.display = 'block';
+		launchInstruction.style.visibility = 'visible';
+		launchInstruction.style.opacity = '1';
+	}
+	if (chargeMeter) {
+		chargeMeter.classList.remove('show');
+	}
+	if (pauseButton) {
+		pauseButton.classList.remove('show');
+	}
+
+	// Update UI to ensure everything is in correct state
+	updateUI();
+
+}
+
+// Get gameplay parameters from config
+function getGameplayParams() {
+	const config = window.gameConfig;
+	
+	const consumptionRates = { slow: 0.3, normal: 0.5, fast: 0.8 };
+	const gravityStrengths = { light: 0.6, normal: 1, heavy: 1.4 };
+	const speeds = { slow: 0.7, normal: 1, fast: 1.3 };
+	
+	// Apply upgrade effects
+	let fuelConsumption = 20 * (consumptionRates[config.fuelConsumptionRate] || 0.5);
+	let jetpackThrust = 1200;
+	
+	// Fuel efficiency upgrade reduces consumption by 15% per level
+	fuelConsumption *= (1 - (upgrades.fuel_efficiency.level * 0.15));
+	
+	// Jetpack thrust upgrade increases thrust by 10% per level
+	jetpackThrust *= (1 + (upgrades.jetpack_thrust.level * 0.1));
+	
+	return {
+		fuelConsumption: fuelConsumption,
+		gravity: 800 * (gravityStrengths[config.gravityStrength] || 1),
+		jetpackThrust: jetpackThrust,
+		baseSpeed: 350 * (speeds[config.startingSpeed] || 1) * player.launchPower
+	};
+}
+
+// Update UI elements
+function updateUI() {
+	const hud = document.querySelector('.hud');
+	const fuelGauge = document.querySelector('.fuel-gauge');
+	const launchInstruction = document.getElementById('launchInstruction');
+	
+	// Show HUD and fuel gauge during launch and flight phases
+	if (gamePhase === 'launch' || gamePhase === 'flight') {
+		// Show HUD
+		if (hud) {
+			hud.style.display = 'flex';
+			hud.style.visibility = 'visible';
+			hud.style.opacity = '1';
+		}
+		if (fuelGauge) {
+			fuelGauge.style.display = 'block';
+			fuelGauge.style.visibility = 'visible';
+			fuelGauge.style.opacity = '1';
+		}
+		
+		document.getElementById('distanceDisplay').textContent = Math.floor(distance) + 'm';
+		document.getElementById('scoreDisplay').textContent = score;
+		
+		const fuelPercent = (player.fuel / player.maxFuel) * 100;
+		document.getElementById('fuelBar').style.width = fuelPercent + '%';
+		
+		// Update combo display
+		const comboDisplay = document.getElementById('comboDisplay');
+		if (comboCount > 0) {
+			comboDisplay.textContent = 'COMBO x' + comboCount;
+			comboDisplay.style.display = 'block';
+		} else {
+			comboDisplay.style.display = 'none';
+		}
+		
+		// Difficulty display is hidden
+		const difficultyDisplay = document.getElementById('difficultyDisplay');
+		difficultyDisplay.style.display = 'none';
+	} else {
+		// Hide HUD during game over and losing phases
+		if (hud) {
+			hud.style.display = 'none';
+			hud.style.visibility = 'hidden';
+			hud.style.opacity = '0';
+		}
+		if (fuelGauge) {
+			fuelGauge.style.display = 'none';
+			fuelGauge.style.visibility = 'hidden';
+			fuelGauge.style.opacity = '0';
+		}
+		if (launchInstruction) {
+			launchInstruction.style.display = 'none';
+			launchInstruction.style.visibility = 'hidden';
+			launchInstruction.style.opacity = '0';
+		}
+	}
+}
+
+// Show main menu
+function showMenu() {
+	showMainMenu = true;
+
+	
+	// Hide all menus first
+	document.getElementById('languageSelectionMenu').classList.remove('show');
+	document.getElementById('splashScreen').classList.remove('show');
+	document.getElementById('optionsMenu').classList.remove('show');
+	document.getElementById('achievementsMenu').classList.remove('show');
+	document.getElementById('gameOver').classList.remove('show');
+	document.getElementById('pauseOverlay').classList.remove('show');
+	document.getElementById('shopMenu').classList.remove('show');
+	document.getElementById('leaderboardMenu').classList.remove('show');
+	document.getElementById('dailyChallengesMenu').classList.remove('show');
+	document.getElementById('tutorialOverlay').classList.remove('show');
+	
+	// Then show main menu
+	const mainMenu = document.getElementById('mainMenu');
+	mainMenu.classList.add('show');
+	mainMenu.style.display = 'flex';
+	mainMenu.style.visibility = 'visible';
+	mainMenu.style.opacity = '1';
+	mainMenu.style.zIndex = '100';
+	
+	// Set menu background image
+	setMenuBackground();
+	
+	// Update high score display
+	document.getElementById('menuHighScore').textContent = highScore;
+	
+
+}
+
+// Set menu background image
+function setMenuBackground() {
+	const mainMenu = document.getElementById('mainMenu');
+	if (!mainMenu) return;
+	
+	// Try to use the menu_background asset
+	const asset = assetCache['menu_background'];
+	if (asset && asset.img && asset.img.src) {
+		// Set background image directly from asset URL (avoids CORS taint issues)
+		mainMenu.style.backgroundImage = `url('${asset.img.src}')`;
+		mainMenu.style.backgroundSize = 'cover';
+		mainMenu.style.backgroundPosition = 'center';
+		mainMenu.style.backgroundRepeat = 'no-repeat';
+		mainMenu.style.backgroundAttachment = 'fixed';
+	} else {
+		// Fallback to gradient if image not available
+		mainMenu.style.background = 'linear-gradient(135deg, #1a472a 0%, #2d5a3d 100%)';
+		mainMenu.style.backgroundImage = 'none';
+	}
+	
+	// Create decorative coins overlay
+	createMainMenuCoins();
+}
+
+// Start game
+function startGame() {
+
+	
+	// Hide all menus
+	const mainMenu = document.getElementById('mainMenu');
+	const languageMenu = document.getElementById('languageSelectionMenu');
+	const optionsMenu = document.getElementById('optionsMenu');
+	const achievementsMenu = document.getElementById('achievementsMenu');
+	const shopMenu = document.getElementById('shopMenu');
+	const leaderboardMenu = document.getElementById('leaderboardMenu');
+	const dailyChallengesMenu = document.getElementById('dailyChallengesMenu');
+	const pauseOverlay = document.getElementById('pauseOverlay');
+	const gameOverScreen = document.getElementById('gameOver');
+	const tutorialOverlay = document.getElementById('tutorialOverlay');
+	
+	if (mainMenu) {
+		mainMenu.classList.remove('show');
+		mainMenu.style.display = 'none';
+	}
+	if (languageMenu) {
+		languageMenu.classList.remove('show');
+		languageMenu.style.display = 'none';
+	}
+	if (optionsMenu) optionsMenu.classList.remove('show');
+	if (achievementsMenu) achievementsMenu.classList.remove('show');
+	if (shopMenu) shopMenu.classList.remove('show');
+	if (leaderboardMenu) leaderboardMenu.classList.remove('show');
+	if (dailyChallengesMenu) dailyChallengesMenu.classList.remove('show');
+	if (pauseOverlay) pauseOverlay.classList.remove('show');
+	if (gameOverScreen) gameOverScreen.classList.remove('show');
+
+
+	
+	// Set showMainMenu to false FIRST before any other logic
+	showMainMenu = false;
+
+	
+	// Check if tutorial has been shown before
+	if (!window.gameConfig.tutorialShown) {
+		// Show tutorial overlay only on first game start
+		if (tutorialOverlay) {
+			tutorialOverlay.style.display = 'flex';
+			tutorialOverlay.style.visibility = 'visible';
+			tutorialOverlay.style.opacity = '1';
+			tutorialOverlay.classList.add('show');
+		} else {
+			tutorialShown = true;
+			initializeGameState();
+		}
+	} else {
+		lib.log('Tutorial already shown, starting game directly');
+		tutorialShown = true;
+		initializeGameState();
+	}
+}
+
+// Close tutorial and start the game
+function closeTutorial() {
+
+	tutorialShown = true;
+	
+	// Mark tutorial as shown in config
+	window.gameConfig.tutorialShown = true;
+	
+	const tutorialOverlay = document.getElementById('tutorialOverlay');
+	if (tutorialOverlay) {
+		tutorialOverlay.classList.remove('show');
+		tutorialOverlay.style.display = 'none';
+		tutorialOverlay.style.visibility = 'hidden';
+
+	}
+	
+	lib.log('Tutorial closed, starting game');
+	try {
+		showMainMenu = false;
+
+		initializeGameState();
+
+	} catch (error) {
+
+	}
+}
+
+function showOptions() {
+	document.getElementById('mainMenu').classList.remove('show');
+	document.getElementById('languageSelectionMenu').classList.remove('show');
+	document.getElementById('shopMenu').classList.remove('show');
+	document.getElementById('leaderboardMenu').classList.remove('show');
+	document.getElementById('dailyChallengesMenu').classList.remove('show');
+	document.getElementById('achievementsMenu').classList.remove('show');
+	document.getElementById('optionsMenu').classList.add('show');
+	
+	// Update toggle states
+	const musicToggle = document.getElementById('musicToggle');
+	const sfxToggle = document.getElementById('sfxToggle');
+	
+	if (musicEnabled) {
+		musicToggle.classList.add('on');
+	} else {
+		musicToggle.classList.remove('on');
+	}
+	
+	if (sfxEnabled) {
+		sfxToggle.classList.add('on');
+	} else {
+		sfxToggle.classList.remove('on');
+	}
+	
+	// Update language display
+	const languageDisplay = document.getElementById('languageDisplay');
+	if (languageDisplay) {
+		languageDisplay.textContent = currentLanguage === 'fr' ? 'Français' : 'English';
+	}
+}
+
+// Show shop menu
+function showShop() {
+	document.getElementById('mainMenu').classList.remove('show');
+	document.getElementById('languageSelectionMenu').classList.remove('show');
+	document.getElementById('optionsMenu').classList.remove('show');
+	document.getElementById('leaderboardMenu').classList.remove('show');
+	document.getElementById('dailyChallengesMenu').classList.remove('show');
+	document.getElementById('achievementsMenu').classList.remove('show');
+	document.getElementById('shopMenu').classList.add('show');
+	displayShopUpgrades();
+}
+
+// Display shop upgrades
+function displayShopUpgrades() {
+	const upgradesList = document.getElementById('upgradesList');
+	upgradesList.innerHTML = '';
+	
+	// Update coins display - cap at 9,999,999,999
+	const displayCoins = Math.min(totalCoinsEarned, 9999999999);
+	document.getElementById('shopCoinsDisplay').textContent = displayCoins.toLocaleString();
+	
+	// Map upgrade keys to translation keys
+	const upgradeTranslationMap = {
+		'fuel_tank': { name: 'shop_fuel_tank', desc: 'shop_fuel_tank_desc' },
+		'jetpack_thrust': { name: 'shop_jetpack_thrust', desc: 'shop_jetpack_thrust_desc' },
+		'shield_duration': { name: 'shop_shield_duration', desc: 'shop_shield_duration_desc' },
+		'coin_magnet': { name: 'shop_coin_magnet', desc: 'shop_coin_magnet_desc' },
+		'fuel_efficiency': { name: 'shop_fuel_efficiency', desc: 'shop_fuel_efficiency_desc' }
+	};
+	
+	// Display all upgrades
+	for (const key in upgrades) {
+		const upgrade = upgrades[key];
+		
+		const item = document.createElement('div');
+		item.className = 'upgrade-item';
+		
+		if (upgrade.level >= upgrade.maxLevel) {
+			item.classList.add('purchased');
+		}
+		
+		const info = document.createElement('div');
+		info.className = 'upgrade-info';
+		
+		const name = document.createElement('div');
+		name.className = 'upgrade-name';
+		// Get translated name
+		const translationKey = upgradeTranslationMap[key];
+		const translatedName = translationKey ? t(translationKey.name) : upgrade.name;
+		name.textContent = upgrade.icon + ' ' + translatedName;
+		
+		const description = document.createElement('div');
+		description.className = 'upgrade-description';
+		// Get translated description
+		const translatedDesc = translationKey ? t(translationKey.desc) : upgrade.description;
+		description.textContent = translatedDesc;
+		
+		const level = document.createElement('div');
+		level.className = 'upgrade-level';
+		const levelText = currentLanguage === 'fr' ? `Niveau ${upgrade.level}/${upgrade.maxLevel}` : `Level ${upgrade.level}/${upgrade.maxLevel}`;
+		level.textContent = levelText;
+		
+		info.appendChild(name);
+		info.appendChild(description);
+		info.appendChild(level);
+		
+		const costButton = document.createElement('button');
+		costButton.className = 'upgrade-cost';
+		
+		if (upgrade.level >= upgrade.maxLevel) {
+			costButton.textContent = t('shop_max');
+			costButton.classList.add('purchased');
+			costButton.disabled = true;
+		} else {
+			const currentCost = calculateUpgradeCost(upgrade);
+			if (totalCoinsEarned >= currentCost) {
+				const coinImg = document.createElement('img');
+				coinImg.src = assetCache['coin']?.img?.src || '';
+				coinImg.alt = 'Coins';
+				coinImg.style.width = '16px';
+				coinImg.style.height = '16px';
+				coinImg.style.objectFit = 'contain';
+				coinImg.style.marginLeft = '4px';
+				costButton.textContent = currentCost.toLocaleString() + ' ';
+				costButton.appendChild(coinImg);
+				costButton.onclick = () => { playSound('sfx_click', 0.5); purchaseUpgrade(key); };
+			} else {
+				const coinImg = document.createElement('img');
+				coinImg.src = assetCache['coin']?.img?.src || '';
+				coinImg.alt = 'Coins';
+				coinImg.style.width = '16px';
+				coinImg.style.height = '16px';
+				coinImg.style.objectFit = 'contain';
+				coinImg.style.marginLeft = '4px';
+				costButton.textContent = currentCost.toLocaleString() + ' ';
+				costButton.appendChild(coinImg);
+				costButton.classList.add('disabled');
+				costButton.disabled = true;
+			}
+		}
+		
+		item.appendChild(info);
+		item.appendChild(costButton);
+		upgradesList.appendChild(item);
+	}
+}
+
+// Calculate upgrade cost based on level
+function calculateUpgradeCost(upgrade) {
+	// Base cost increases exponentially with level
+	// Level 0: base cost
+	// Level 1: base cost * 2.5
+	// Level 2: base cost * 6.25
+	// Level 3: base cost * 15.625
+	// etc.
+	const baseCost = upgrade.cost;
+	const multiplier = Math.pow(2.5, upgrade.level);
+	return Math.floor(baseCost * multiplier);
+}
+
+// Purchase upgrade
+function purchaseUpgrade(upgradeKey) {
+	const upgrade = upgrades[upgradeKey];
+	
+	if (upgrade.level >= upgrade.maxLevel) {
+
+		return;
+	}
+	
+	const currentCost = calculateUpgradeCost(upgrade);
+	
+	if (totalCoinsEarned < currentCost) {
+
+		return;
+	}
+	
+	// Deduct coins
+	totalCoinsEarned -= currentCost;
+	
+	// Increase level
+	upgrade.level++;
+	
+	// Apply upgrade effects
+	applyUpgradeEffects(upgradeKey);
+	
+	// Save shop state
+	saveShopState();
+	
+	// Refresh display
+	displayShopUpgrades();
+	
+
+}
+
+// Apply upgrade effects
+function applyUpgradeEffects(upgradeKey) {
+	const upgrade = upgrades[upgradeKey];
+	
+	switch (upgradeKey) {
+		case 'fuel_tank':
+			// Increase max fuel capacity by 25 per level
+			window.gameConfig.fuelCapacity += 25;
+			break;
+		case 'jetpack_thrust':
+			// Jetpack thrust is applied during gameplay
+			break;
+		case 'shield_duration':
+			// Shield duration is applied during gameplay
+			break;
+		case 'coin_magnet':
+			// Coin magnet is applied during gameplay
+			break;
+		case 'fuel_efficiency':
+			// Fuel efficiency is applied during gameplay
+			break;
+	}
+}
+
+// Save shop state (delegates to saveGameState which handles all persistence)
+async function saveShopState() {
+	await saveGameState();
+}
+
+// Show leaderboard menu
+async function showLeaderboard() {
+	document.getElementById('mainMenu').classList.remove('show');
+	document.getElementById('languageSelectionMenu').classList.remove('show');
+	document.getElementById('optionsMenu').classList.remove('show');
+	document.getElementById('shopMenu').classList.remove('show');
+	document.getElementById('dailyChallengesMenu').classList.remove('show');
+	document.getElementById('achievementsMenu').classList.remove('show');
+	document.getElementById('leaderboardMenu').classList.add('show');
+	await loadLeaderboard();
+}
+
+// Load and display leaderboard
+async function loadLeaderboard() {
+	const leaderboardContent = document.getElementById('leaderboardContent');
+	leaderboardContent.innerHTML = '<div class="leaderboard-loading">Loading leaderboard...</div>';
+	
+	try {
+		const response = await lib.getTopNEntriesFromLeaderboard(100);
+		
+		if (!response.entries || response.entries.length === 0) {
+			leaderboardContent.innerHTML = '<div class="leaderboard-empty">No scores yet. Be the first to set a record!</div>';
+			return;
+		}
+		
+		// Display player rank if available
+		let html = '';
+		if (response.userRank !== null && response.userRank !== undefined) {
+			html += `<div class="leaderboard-player-rank">Your Rank: #${response.userRank}</div>`;
+		}
+		
+		// Display leaderboard entries
+		html += '<div class="leaderboard-list">';
+		
+		for (let i = 0; i < response.entries.length; i++) {
+			const entry = response.entries[i];
+			const rank = i + 1;
+			const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-n';
+			
+			// Check if this is the current player's entry by comparing with the rank
+			const isCurrentPlayer = response.userRank === rank;
+			const entryClass = isCurrentPlayer ? 'leaderboard-entry current-player' : 'leaderboard-entry';
+			
+			html += `
+				<div class="${entryClass}">
+					<div class="leaderboard-rank ${rankClass}">#${rank}</div>
+					
+					<div class="leaderboard-info">
+						<div class="leaderboard-username">${entry.username || 'Player'}</div>
+					</div>
+					<div class="leaderboard-score">${entry.score}</div>
+				</div>
+			`;
+		}
+		
+		html += '</div>';
+		leaderboardContent.innerHTML = html;
+		
+	} catch (error) {
+
+		leaderboardContent.innerHTML = `<div class="leaderboard-error">Failed to load leaderboard. ${error.message}</div>`;
+	}
+}
+
+// Close leaderboard menu
+function closeLeaderboard() {
+	document.getElementById('leaderboardMenu').classList.remove('show');
+	document.getElementById('mainMenu').classList.add('show');
+}
+
+// Show achievements menu
+function showAchievementsMenu() {
+
+	
+	const mainMenu = document.getElementById('mainMenu');
+	const languageMenu = document.getElementById('languageSelectionMenu');
+	const optionsMenu = document.getElementById('optionsMenu');
+	const shopMenu = document.getElementById('shopMenu');
+	const leaderboardMenu = document.getElementById('leaderboardMenu');
+	const dailyChallengesMenu = document.getElementById('dailyChallengesMenu');
+	const achievementsMenu = document.getElementById('achievementsMenu');
+	
+	// Hide all other menus
+	if (mainMenu) mainMenu.classList.remove('show');
+	if (languageMenu) {
+		languageMenu.classList.remove('show');
+		languageMenu.style.display = 'none';
+	}
+	if (optionsMenu) optionsMenu.classList.remove('show');
+	if (shopMenu) shopMenu.classList.remove('show');
+	if (leaderboardMenu) leaderboardMenu.classList.remove('show');
+	if (dailyChallengesMenu) dailyChallengesMenu.classList.remove('show');
+	
+	// Show achievements menu
+	if (achievementsMenu) {
+		// Ensure it's visible with explicit styling
+		achievementsMenu.style.display = 'flex';
+		achievementsMenu.style.visibility = 'visible';
+		achievementsMenu.style.opacity = '1';
+		achievementsMenu.style.zIndex = '100';
+		achievementsMenu.style.position = 'absolute';
+		achievementsMenu.style.top = '0';
+		achievementsMenu.style.left = '0';
+		achievementsMenu.style.width = '100%';
+		achievementsMenu.style.height = '100%';
+		achievementsMenu.classList.add('show');
+		
+		// Update the title
+		const achievementsMenuTitle = achievementsMenu.querySelector('h1');
+		if (achievementsMenuTitle) {
+			achievementsMenuTitle.textContent = '🏆 ' + t('achievements_title');
+		}
+		
+		displayMenuAchievements();
+		lib.log('Achievements menu displayed');
+	}
+}
+
+// Back to main menu from options
+function backToMenu() {
+
+	
+	// Hide all menus with explicit styling
+	const languageMenu = document.getElementById('languageSelectionMenu');
+	const optionsMenu = document.getElementById('optionsMenu');
+	const achievementsMenu = document.getElementById('achievementsMenu');
+	const shopMenu = document.getElementById('shopMenu');
+	const leaderboardMenu = document.getElementById('leaderboardMenu');
+	const dailyChallengesMenu = document.getElementById('dailyChallengesMenu');
+	const mainMenu = document.getElementById('mainMenu');
+	
+	if (languageMenu) {
+		languageMenu.classList.remove('show');
+		languageMenu.style.display = 'none';
+		languageMenu.style.visibility = 'hidden';
+	}
+	if (optionsMenu) optionsMenu.classList.remove('show');
+	if (achievementsMenu) {
+		achievementsMenu.classList.remove('show');
+		achievementsMenu.style.display = 'none';
+		achievementsMenu.style.visibility = 'hidden';
+		lib.log('Achievements menu hidden');
+	}
+	if (shopMenu) shopMenu.classList.remove('show');
+	if (leaderboardMenu) leaderboardMenu.classList.remove('show');
+	if (dailyChallengesMenu) dailyChallengesMenu.classList.remove('show');
+	
+	// Show main menu with explicit styling
+	if (mainMenu) {
+		mainMenu.classList.add('show');
+		mainMenu.style.display = 'flex';
+		mainMenu.style.visibility = 'visible';
+		mainMenu.style.opacity = '1';
+		mainMenu.style.zIndex = '100';
+	}
+	
+	document.getElementById('menuHighScore').textContent = highScore;
+}
+
+// Toggle music
+function toggleMusic() {
+	musicEnabled = !musicEnabled;
+	const toggle = document.getElementById('musicToggle');
+	saveGameState();
+	
+	if (musicEnabled) {
+		toggle.classList.add('on');
+		if (gamePhase === 'flight' && !isPaused) {
+			startBackgroundMusic();
+		}
+	} else {
+		toggle.classList.remove('on');
+		stopBackgroundMusic();
+	}
+}
+
+// Toggle SFX
+function toggleSFX() {
+	sfxEnabled = !sfxEnabled;
+	const toggle = document.getElementById('sfxToggle');
+	saveGameState();
+
+	if (sfxEnabled) {
+		toggle.classList.add('on');
+	} else {
+		toggle.classList.remove('on');
+		// Stop all SFX sounds when disabled
+		stopJetpackThrust();
+	}
+}
+
+// Show reset confirmation dialog
+function showResetConfirmation() {
+	document.getElementById('confirmationDialog').classList.add('show');
+}
+
+// Cancel reset
+function cancelReset() {
+	document.getElementById('confirmationDialog').classList.remove('show');
+}
+
+// Confirm reset
+async function confirmReset() {
+	document.getElementById('confirmationDialog').classList.remove('show');
+	
+	highScore = 0;
+	
+	// Reset all achievements
+	for (const key in achievements) {
+		achievements[key].unlocked = false;
+		achievements[key].progress = 0;
+		achievements[key].unlockedAt = null;
+	}
+	
+	// Reset shop data
+	totalCoinsEarned = 0;
+	for (const key in upgrades) {
+		upgrades[key].level = 0;
+	}
+	
+	// Save reset state
+	await saveGameState();
+	
+	// Update display
+	document.getElementById('menuHighScore').textContent = highScore;
+	
+	lib.log('Game data reset successfully');
+}
+
+// Reset game data (legacy function, now shows confirmation)
+function resetGameData() {
+	showResetConfirmation();
+}
+
+// Display achievements in menu
+function displayMenuAchievements() {
+	const achievementsList = document.getElementById('menuAchievementsList');
+	achievementsList.innerHTML = '';
+	
+	// Count unlocked achievements
+	let unlockedCount = 0;
+	for (const key in achievements) {
+		if (achievements[key].unlocked) {
+			unlockedCount++;
+		}
+	}
+	
+	// Update summary with translation
+	const summaryText = currentLanguage === 'fr' 
+		? `${unlockedCount}/100 Réalisations Débloquées`
+		: `${unlockedCount}/100 Achievements Unlocked`;
+	const summaryElement = document.getElementById('menuAchievementsSummary');
+	if (summaryElement) {
+		summaryElement.textContent = summaryText;
+	}
+	
+	// Show all achievements
+	const achievementOrder = [];
+	for (const key in achievements) {
+		achievementOrder.push(key);
+	}
+	
+	// Sort: unlocked first, then by progress
+	achievementOrder.sort((a, b) => {
+		const aUnlocked = achievements[a].unlocked;
+		const bUnlocked = achievements[b].unlocked;
+		
+		if (aUnlocked && !bUnlocked) return -1;
+		if (!aUnlocked && bUnlocked) return 1;
+		
+		// Sort by progress percentage for incomplete achievements
+		const aProgress = achievements[a].progress / achievements[a].target;
+		const bProgress = achievements[b].progress / achievements[b].target;
+		return bProgress - aProgress;
+	});
+	
+	// Display all achievements
+	for (const key of achievementOrder) {
+		const achievement = achievements[key];
+		
+		const item = document.createElement('div');
+		item.className = 'achievement-item';
+		
+		if (achievement.unlocked) {
+			item.classList.add('unlocked');
+		}
+		
+		const icon = document.createElement('div');
+		icon.className = 'achievement-icon';
+		
+		// Try to get asset icon first
+		const assetImg = getAchievementAssetIcon(key);
+		if (assetImg) {
+			const img = document.createElement('img');
+			img.src = assetImg.src;
+			img.style.maxWidth = '32px';
+			img.style.maxHeight = '32px';
+			img.style.objectFit = 'contain';
+			icon.appendChild(img);
+		} else {
+			// Fallback to emoji icon
+			icon.textContent = achievement.icon;
+		}
+		
+		const info = document.createElement('div');
+		info.className = 'achievement-info';
+		
+		const name = document.createElement('div');
+		name.className = 'achievement-name';
+		// Use translation key if available
+		const translationKey = `ach_${key}`;
+		name.textContent = t(translationKey) || achievement.name;
+		
+		const description = document.createElement('div');
+		description.className = 'achievement-description';
+		// Use translation key for description
+		const descriptionKey = `ach_${key}_desc`;
+		description.textContent = t(descriptionKey) || achievement.description;
+		
+		info.appendChild(name);
+		info.appendChild(description);
+		
+		const progress = document.createElement('div');
+		progress.className = 'achievement-progress';
+		
+		if (achievement.unlocked) {
+			progress.textContent = '✓';
+		} else {
+			progress.textContent = `${achievement.progress}/${achievement.target}`;
+		}
+		
+		item.appendChild(icon);
+		item.appendChild(info);
+		item.appendChild(progress);
+		
+		achievementsList.appendChild(item);
+	}
+}
+
+// Input handling
+let inputActive = false;
+let isTouchDevice = () => {
+	return (('ontouchstart' in window) ||
+			(navigator.maxTouchPoints > 0) ||
+			(navigator.msMaxTouchPoints > 0));
+};
+
+function updateLaunchInstruction() {
+	const instruction = document.getElementById('launchInstruction');
+	if (isTouchDevice()) {
+		instruction.textContent = t('launch_instruction_touch');
+	} else {
+		instruction.textContent = t('launch_instruction');
+	}
+}
+
+function setupInputHandlers() {
+	const handleStart = (e) => {
+		e.preventDefault();
+		
+		if (showMainMenu || gamePhase === 'gameover' || isPaused) return;
+		
+		inputActive = true;
+		
+		if (gamePhase === 'launch') {
+			// Start charging the cannon
+			isCharging = true;
+			chargeTime = 0;
+			document.getElementById('chargeMeter').classList.add('show');
+		} else if (gamePhase === 'flight') {
+			isJetpackActive = true;
+		}
+	};
+
+	const handleEnd = (e) => {
+		e.preventDefault();
+		if (showMainMenu || gamePhase === 'gameover' || isPaused) return;
+		
+		inputActive = false;
+		
+		if (gamePhase === 'launch' && isCharging) {
+			// Release cannon - launch with charged power
+			isCharging = false;
+			launchPlayer();
+		} else if (gamePhase === 'flight') {
+			isJetpackActive = false;
+		}
+	};
+
+	// Touch events
+	canvas.addEventListener('touchstart', handleStart, { passive: false });
+	canvas.addEventListener('touchend', handleEnd, { passive: false });
+	canvas.addEventListener('touchcancel', handleEnd, { passive: false });
+
+	// Mouse events
+	canvas.addEventListener('mousedown', handleStart);
+	canvas.addEventListener('mouseup', handleEnd);
+
+	// Keyboard events
+	document.addEventListener('keydown', (e) => {
+		if (e.code === 'Space' && !e.repeat) {
+			handleStart(e);
+		} else if ((e.code === 'Enter' || e.code === 'Escape') && !e.repeat) {
+			// Pause/Resume with ENTER or ESCAPE
+			if (gamePhase === 'flight' && !showMainMenu) {
+				if (isPaused) {
+					resumeGame();
+				} else {
+					pauseGame();
+				}
+			}
+		}
+	});
+
+	document.addEventListener('keyup', (e) => {
+		if (e.code === 'Space') {
+			handleEnd(e);
+		}
+	});
+
+	// Menu buttons
+	const startButton = document.getElementById('startButton');
+	if (startButton) {
+		startButton.addEventListener('click', (e) => { 
+			e.preventDefault();
+			e.stopPropagation();
+
+			playSound('sfx_click', 0.5);
+			startGame();
+
+		});
+	} else {
+		lib.log('ERROR: Start button not found');
+	}
+	document.getElementById('leaderboardButton').addEventListener('click', () => { 
+		playSound('sfx_click', 0.5);
+		showLeaderboard(); 
+	});
+	document.getElementById('achievementsButton').addEventListener('click', () => { 
+		playSound('sfx_click', 0.5);
+		showAchievementsMenu(); 
+	});
+	document.getElementById('shopButton').addEventListener('click', () => { 
+		playSound('sfx_click', 0.5);
+		showShop(); 
+	});
+	document.getElementById('optionsButton').addEventListener('click', () => { 
+		playSound('sfx_click', 0.5);
+		showOptions(); 
+	});
+	document.getElementById('dailyChallengesButton').addEventListener('click', () => { 
+		playSound('sfx_click', 0.5);
+		showDailyChallenges(); 
+	});
+	document.getElementById('backButton').addEventListener('click', () => { 
+		playSound('sfx_click', 0.5); 
+		backToMenu(); 
+	});
+	
+	const backFromAchievementsBtn = document.getElementById('backFromAchievementsButton');
+	if (backFromAchievementsBtn) {
+		backFromAchievementsBtn.addEventListener('click', () => { 
+			playSound('sfx_click', 0.5); 
+			backToMenu(); 
+		});
+	}
+	document.getElementById('shopCloseButton').addEventListener('click', () => { playSound('sfx_click', 0.5); backToMenu(); });
+	document.getElementById('leaderboardCloseButton').addEventListener('click', () => { playSound('sfx_click', 0.5); closeLeaderboard(); });
+	document.getElementById('dailyChallengesCloseButton').addEventListener('click', () => { playSound('sfx_click', 0.5); closeDailyChallenges(); });
+	document.getElementById('resetButton').addEventListener('click', () => { playSound('sfx_click', 0.5); showResetConfirmation(); });
+	document.getElementById('confirmReset').addEventListener('click', () => { playSound('sfx_click', 0.5); confirmReset(); });
+	document.getElementById('confirmCancel').addEventListener('click', () => { playSound('sfx_click', 0.5); cancelReset(); });
+	
+	// Language selection buttons
+	const selectEnglishBtn = document.getElementById('selectEnglish');
+	const selectFrenchBtn = document.getElementById('selectFrench');
+	
+	if (selectEnglishBtn) {
+		selectEnglishBtn.addEventListener('click', () => { 
+			playSound('sfx_click', 0.5); 
+			selectLanguage('en'); 
+		});
+	}
+	
+	if (selectFrenchBtn) {
+		selectFrenchBtn.addEventListener('click', () => { 
+			playSound('sfx_click', 0.5); 
+			selectLanguage('fr'); 
+		});
+	}
+	
+	// Character selector in options menu removed
+	
+	// Tutorial close button
+	document.getElementById('tutorialCloseButton').addEventListener('click', () => { playSound('sfx_click', 0.5); closeTutorial(); });
+	
+	// Nickname menu
+	const nicknameConfirmButton = document.getElementById('nicknameConfirmButton');
+	if (nicknameConfirmButton) {
+		nicknameConfirmButton.addEventListener('click', () => { 
+			playSound('sfx_click', 0.5); 
+			saveNickname(); 
+		});
+	}
+	
+	const nicknameInput = document.getElementById('nicknameInput');
+	if (nicknameInput) {
+		nicknameInput.addEventListener('keypress', (e) => {
+			if (e.key === 'Enter') {
+				playSound('sfx_click', 0.5);
+				saveNickname();
+			}
+		});
+	}
+	
+	// Change nickname button in options
+	const changeNicknameButton = document.getElementById('changeNicknameButton');
+	if (changeNicknameButton) {
+		changeNicknameButton.addEventListener('click', () => {
+			playSound('sfx_click', 0.5);
+			showNicknameEditMenu();
+		});
+	}
+	
+	// Tutorial close on ENTER key or click anywhere on tutorial overlay
+	const tutorialOverlay = document.getElementById('tutorialOverlay');
+	if (tutorialOverlay) {
+		// Close on ENTER key
+		const handleTutorialKeydown = (e) => {
+			if (e.code === 'Enter' && tutorialOverlay.classList.contains('show')) {
+				e.preventDefault();
+				playSound('sfx_click', 0.5);
+				closeTutorial();
+				document.removeEventListener('keydown', handleTutorialKeydown);
+			}
+		};
+		
+		// Close on click anywhere on tutorial overlay (including child elements)
+		const handleTutorialClick = (e) => {
+			if (tutorialOverlay.classList.contains('show')) {
+				// Check if click is on the overlay itself or its children
+				if (e.target === tutorialOverlay || tutorialOverlay.contains(e.target)) {
+					e.preventDefault();
+					e.stopPropagation();
+					playSound('sfx_click', 0.5);
+					closeTutorial();
+				}
+			}
+		};
+		
+		tutorialOverlay.addEventListener('click', handleTutorialClick);
+		document.addEventListener('keydown', handleTutorialKeydown);
+	}
+	
+	// Music and SFX toggles
+	document.getElementById('musicToggle').addEventListener('click', () => { playSound('sfx_click', 0.5); toggleMusic(); });
+	document.getElementById('sfxToggle').addEventListener('click', () => { playSound('sfx_click', 0.5); toggleSFX(); });
+	
+	// Language toggle buttons
+	const languageEnglishBtn = document.getElementById('languageEnglish');
+	const languageFrenchBtn = document.getElementById('languageFrench');
+	
+	// Helper function to update language button styles
+	function updateLanguageButtonStyles() {
+		if (languageEnglishBtn && languageFrenchBtn) {
+			if (currentLanguage === 'en') {
+				// English is active
+				languageEnglishBtn.style.background = 'linear-gradient(135deg, #44ff44 0%, #00cc00 100%)';
+				languageEnglishBtn.style.borderColor = '#00cc00';
+				languageEnglishBtn.style.color = 'white';
+				languageEnglishBtn.style.boxShadow = '0 4px 12px rgba(68, 255, 68, 0.4)';
+				languageEnglishBtn.classList.add('active');
+				
+				languageFrenchBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+				languageFrenchBtn.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+				languageFrenchBtn.style.color = 'white';
+				languageFrenchBtn.style.boxShadow = 'none';
+				languageFrenchBtn.classList.remove('active');
+			} else {
+				// French is active
+				languageFrenchBtn.style.background = 'linear-gradient(135deg, #44ff44 0%, #00cc00 100%)';
+				languageFrenchBtn.style.borderColor = '#00cc00';
+				languageFrenchBtn.style.color = 'white';
+				languageFrenchBtn.style.boxShadow = '0 4px 12px rgba(68, 255, 68, 0.4)';
+				languageFrenchBtn.classList.add('active');
+				
+				languageEnglishBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+				languageEnglishBtn.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+				languageEnglishBtn.style.color = 'white';
+				languageEnglishBtn.style.boxShadow = 'none';
+				languageEnglishBtn.classList.remove('active');
+			}
+		}
+	}
+	
+	if (languageEnglishBtn && languageFrenchBtn) {
+		// Set initial active state
+		updateLanguageButtonStyles();
+		
+		// English button click handler
+		languageEnglishBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			
+			if (currentLanguage !== 'en') {
+				playSound('sfx_click', 0.5);
+				setLanguage('en');
+				updateLanguageButtonStyles();
+	
+			}
+		});
+		
+		// French button click handler
+		languageFrenchBtn.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			
+			if (currentLanguage !== 'fr') {
+				playSound('sfx_click', 0.5);
+				setLanguage('fr');
+				updateLanguageButtonStyles();
+	
+			}
+		});
+	}
+
+	// Pause button
+	document.getElementById('pauseButton').addEventListener('click', () => {
+		playSound('sfx_click', 0.5);
+		pauseGame();
+	});
+
+	// Resume button
+	document.getElementById('resumeButton').addEventListener('click', () => { playSound('sfx_click', 0.5); resumeGame(); });
+
+	// Pause restart button
+	document.getElementById('pauseRestartButton').addEventListener('click', () => {
+		playSound('sfx_click', 0.5);
+		document.getElementById('pauseOverlay').classList.remove('show');
+		document.getElementById('gameOver').classList.remove('show');
+		initializeGameState();
+	});
+
+	// Pause menu button
+	document.getElementById('pauseMenuButton').addEventListener('click', () => {
+		playSound('sfx_click', 0.5);
+		document.getElementById('pauseOverlay').classList.remove('show');
+		document.getElementById('gameOver').classList.remove('show');
+		showMenu();
+	});
+
+	// Restart button
+	document.getElementById('restartButton').addEventListener('click', () => {
+		playSound('sfx_click', 0.5);
+		document.getElementById('gameOver').classList.remove('show');
+		initializeGameState();
+	});
+
+	// Menu button on game over screen
+	document.getElementById('menuButton').addEventListener('click', () => {
+		playSound('sfx_click', 0.5);
+		document.getElementById('gameOver').classList.remove('show');
+		showMenu();
+	});
+
+	// Prevent context menu
+	canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+// Explosion particles
+let explosionParticles = [];
+
+// Create explosion effect
+function createExplosion(x, y, intensity = 1) {
+	const particleCount = Math.floor(20 * intensity);
+	
+	for (let i = 0; i < particleCount; i++) {
+		const angle = (i / particleCount) * Math.PI * 2;
+		const speed = 300 + Math.random() * 400;
+		const size = 4 + Math.random() * 12;
+		
+		explosionParticles.push({
+			x: x,
+			y: y,
+			vx: Math.cos(angle) * speed,
+			vy: Math.sin(angle) * speed,
+			size: size,
+			maxSize: size,
+			life: 0.6 + Math.random() * 0.4, // 0.6-1.0 seconds
+			maxLife: 0.6 + Math.random() * 0.4,
+			color: ['#FFD700', '#FFA500', '#FF6347', '#FF4500', '#FFD700'][Math.floor(Math.random() * 5)],
+			rotation: Math.random() * Math.PI * 2,
+			rotationSpeed: (Math.random() - 0.5) * 20
+		});
+	}
+}
+
+// Update explosion particles
+function updateExplosions(deltaTime) {
+	explosionParticles = explosionParticles.filter(particle => {
+		particle.life -= deltaTime;
+		
+		if (particle.life <= 0) {
+			return false;
+		}
+		
+		// Update position
+		particle.x += particle.vx * deltaTime;
+		particle.y += particle.vy * deltaTime;
+		
+		// Apply gravity
+		particle.vy += 800 * deltaTime;
+		
+		// Fade out
+		particle.size = particle.maxSize * (particle.life / particle.maxLife);
+		
+		// Rotation
+		particle.rotation += particle.rotationSpeed * deltaTime;
+		
+		return true;
+	});
+}
+
+// Draw explosion particles
+function drawExplosions() {
+	for (const particle of explosionParticles) {
+		ctx.save();
+		
+		ctx.translate(particle.x, particle.y);
+		ctx.rotate(particle.rotation);
+		
+		// Draw particle with fade
+		const alpha = particle.life / particle.maxLife;
+		ctx.fillStyle = particle.color;
+		ctx.globalAlpha = alpha * 0.8;
+		
+		ctx.beginPath();
+		ctx.arc(0, 0, particle.size / 2, 0, Math.PI * 2);
+		ctx.fill();
+		
+		// Add glow effect
+		ctx.strokeStyle = particle.color;
+		ctx.lineWidth = 2;
+		ctx.globalAlpha = alpha * 0.4;
+		ctx.beginPath();
+		ctx.arc(0, 0, particle.size / 2 + 2, 0, Math.PI * 2);
+		ctx.stroke();
+		
+		ctx.restore();
+	}
+}
+
+// Launch player from cannon
+function launchPlayer() {
+	// Calculate launch power based on charge time (0 to 2 seconds)
+	// Minimum power at 0.5 seconds, maximum at 2 seconds
+	const minChargeTime = 0.5;
+	const maxChargeTime = 2;
+	const chargePercent = Math.max(0, Math.min(1, (chargeTime - minChargeTime) / (maxChargeTime - minChargeTime)));
+	
+	// Launch power multiplier: 0.5 to 1.5
+	player.launchPower = 0.5 + (chargePercent * 1.0);
+	
+	const params = getGameplayParams();
+	
+	// Upward velocity based on charge power
+	// Reduced to prevent launching too high: Minimum: 250, Maximum: 500
+	const upwardVelocity = 250 + (chargePercent * 250);
+	
+	player.vx = params.baseSpeed * 0.5; // Reduced horizontal component
+	player.vy = -upwardVelocity; // Upward propulsion based on charge
+	
+	gamePhase = 'flight';
+	propulsionPhaseTime = 0; // Reset propulsion phase timer
+	document.getElementById('chargeMeter').classList.remove('show');
+	document.getElementById('pauseButton').classList.add('show');
+	
+	chargeTime = 0;
+	
+	// Create explosion effect at cannon position
+	createExplosion(CANNON_X + 40, CANNON_Y + 20, chargePercent + 0.5);
+	
+	// Play launch sound
+	playSound('sfx_launch', 0.8);
+	
+	// Start background music
+	startBackgroundMusic();
+	
+	// Display HUD and fuel gauge immediately
+	const hud = document.querySelector('.hud');
+	const fuelGauge = document.querySelector('.fuel-gauge');
+	
+	if (hud) {
+		hud.style.display = 'flex';
+		hud.style.visibility = 'visible';
+		hud.style.opacity = '1';
+	}
+	if (fuelGauge) {
+		fuelGauge.style.display = 'block';
+		fuelGauge.style.visibility = 'visible';
+		fuelGauge.style.opacity = '1';
+	}
+	
+	// Show launch instruction during propulsion phase
+	const launchInstruction = document.getElementById('launchInstruction');
+	if (launchInstruction) {
+		launchInstruction.style.display = 'none';
+		launchInstruction.style.visibility = 'hidden';
+		launchInstruction.style.opacity = '0';
+	}
+	
+	// Track achievement: First Flight
+	sessionStats.hasLaunched = true;
+}
+
+// Spawn obstacles
+
+// Spawn boss at milestone
+function spawnBoss(spawnX, bossDistance) {
+	const bossLevel = BOSS_SPAWN_DISTANCES.indexOf(bossDistance) + 1;
+	const bossHealth = 100 * bossLevel;
+	const bossSize = 80 + (bossLevel * 20);
+	
+	bosses.push({
+		type: 'boss',
+		x: spawnX,
+		y: 300 + Math.random() * 200,
+		width: bossSize,
+		height: bossSize,
+		health: bossHealth,
+		maxHealth: bossHealth,
+		level: bossLevel,
+		vx: -150, // Moves left towards player
+		vy: 0,
+		attackCooldown: 0,
+		attackInterval: 1.5 - (bossLevel * 0.2), // Attacks more frequently at higher levels
+		lastAttackTime: 0
+	});
+	
+
+}
+
+// Check if a new object would overlap with existing obstacles or collectibles
+function wouldOverlap(newX, newY, newWidth, newHeight, minDistance = 150) {
+	// Check against obstacles
+	for (const obs of obstacles) {
+		const dx = (obs.x - newX);
+		const dy = (obs.y - newY);
+		const distance = Math.sqrt(dx * dx + dy * dy);
+		if (distance < minDistance) {
+			return true;
+		}
+	}
+	
+	// Check against collectibles
+	for (const col of collectibles) {
+		const dx = (col.x - newX);
+		const dy = (col.y - newY);
+		const distance = Math.sqrt(dx * dx + dy * dy);
+		if (distance < minDistance) {
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+// Spawn obstacles
+function spawnObstacles(params) {
+	const spawnX = worldOffset + CANVAS_WIDTH + 100;
+	
+	// Calculate difficulty multiplier based on distance
+	// Increases every 500m: 1.0x at 0m, 1.1x at 500m, 1.2x at 1000m, 1.3x at 1500m, etc.
+	difficultyMultiplier = 1 + (Math.floor(distance / 500) * 0.1);
+	
+	// Spawn thorny vines - more frequent at higher difficulty
+	if (worldOffset > 1000 && spawnX - lastVineSpawn > (800 + Math.random() * 700) / difficultyMultiplier) {
+		const isTop = Math.random() > 0.5;
+		const length = 200 + Math.random() * 300;
+		const vineX = spawnX + 100 + Math.random() * 500;
+		
+		// Check for overlaps before spawning
+		if (!wouldOverlap(vineX, isTop ? 100 : (GROUND_Y - length) + 16, 60, length, 200)) {
+			obstacles.push({
+				type: 'vine',
+				x: vineX,
+				y: isTop ? 100 : (GROUND_Y - length) + 16,
+				width: 60,
+				height: length,
+				isTop: isTop,
+				warningTime: 0 // Show warning exclamation mark when spawned
+			});
+			
+			lastVineSpawn = spawnX;
+		}
+	}
+	
+	// Spawn meteorites (falling rocks/coconuts) - RARE appearance
+	if (worldOffset > 500 && spawnX - lastMeteoriteSpawn > (8000 + Math.random() * 5000) / difficultyMultiplier) {
+		const meteoriteX = spawnX + 100 + Math.random() * 500;
+		const meteoriteY = 50 + Math.random() * 200; // Spawn from top
+		
+		// Check for overlaps before spawning
+		if (!wouldOverlap(meteoriteX, meteoriteY, 40, 40, 200)) {
+			obstacles.push({
+				type: 'meteorite',
+				x: meteoriteX,
+				y: meteoriteY,
+				width: 40,
+				height: 40,
+				vy: (200 + Math.random() * 200) * difficultyMultiplier, // Falling speed increases with difficulty
+				rotation: Math.random() * Math.PI * 2,
+				warningTime: 0 // Show warning exclamation mark when spawned
+			});
+			
+			lastMeteoriteSpawn = spawnX;
+		}
+	}
+	
+	// Spawn birds (flying enemies) - more frequent at higher difficulty
+	if (worldOffset > 800 && spawnX - lastBirdSpawn > (1400 + Math.random() * 900) / difficultyMultiplier) {
+		const birdY = 200 + Math.random() * 400;
+		const birdDirection = Math.random() > 0.5 ? 1 : -1; // 1 = left to right, -1 = right to left
+		const birdX = birdDirection > 0 ? spawnX : spawnX + 600;
+		
+		// Check for overlaps before spawning
+		if (!wouldOverlap(birdX, birdY, 80, 65, 200)) {
+			obstacles.push({
+				type: 'bird',
+				x: birdX,
+				y: birdY,
+				width: 80,
+				height: 65,
+				vx: birdDirection * (150 + Math.random() * 100) * difficultyMultiplier, // Speed increases with difficulty
+				vy: Math.sin(Date.now() / 500) * 50,
+				wingFlap: 0
+			});
+			
+			lastBirdSpawn = spawnX;
+		}
+	}
+	
+	// Spawn bosses at major milestones
+	for (const bossDistance of BOSS_SPAWN_DISTANCES) {
+		if (distance >= bossDistance && distance < bossDistance + 100 && lastBossSpawnDistance < bossDistance) {
+			spawnBoss(spawnX, bossDistance);
+			lastBossSpawnDistance = bossDistance;
+		}
+	}
+}
+
+// Spawn collectibles
+function spawnCollectibles(params) {
+	const spawnX = worldOffset + CANVAS_WIDTH + 100;
+	
+	// Spawn energy reserves
+	if (spawnX - lastEnergySpawn > 600 + Math.random() * 400) {
+		const y = 300 + Math.random() * (GROUND_Y - 500);
+		const energyX = spawnX + 100 + Math.random() * 500;
+		
+		// Check for overlaps before spawning
+		if (!wouldOverlap(energyX, y, 40, 40, 150)) {
+			collectibles.push({
+				type: 'energy',
+				x: energyX,
+				y: y,
+				width: 40,
+				height: 40
+			});
+			
+			lastEnergySpawn = spawnX;
+		}
+	}
+	
+	// Spawn coins in clusters
+	if (spawnX - lastCoinSpawn > 500 + Math.random() * 300) {
+		const clusterSize = 3 + Math.floor(Math.random() * 3);
+		const startY = 300 + Math.random() * (GROUND_Y - 500);
+		const coinBaseX = spawnX + 100 + Math.random() * 500;
+		
+		// Check for overlaps before spawning cluster
+		let canSpawn = true;
+		for (let i = 0; i < clusterSize; i++) {
+			if (wouldOverlap(coinBaseX + i * 60, startY + Math.sin(i * 0.5) * 50, 30, 30, 120)) {
+				canSpawn = false;
+				break;
+			}
+		}
+		
+		if (canSpawn) {
+			for (let i = 0; i < clusterSize; i++) {
+				collectibles.push({
+					type: 'coin',
+					x: coinBaseX + i * 60,
+					y: startY + Math.sin(i * 0.5) * 50,
+					width: 30,
+					height: 30
+				});
+			}
+			
+			lastCoinSpawn = spawnX;
+		}
+	}
+	
+	// Spawn ellipses - pass through for acceleration and points
+	if (spawnX - lastEllipseSpawn > 400 + Math.random() * 300) {
+		const y = 300 + Math.random() * (GROUND_Y - 500);
+		const ellipseX = spawnX + 100 + Math.random() * 500;
+		
+		// Check for overlaps before spawning
+		if (!wouldOverlap(ellipseX, y, 70, 50, 150)) {
+			collectibles.push({
+				type: 'ellipse',
+				x: ellipseX,
+				y: y,
+				width: 70,
+				height: 50
+			});
+			
+			lastEllipseSpawn = spawnX;
+		}
+	}
+	
+	// Spawn jetpack power-ups (rare) - completely fills fuel gauge
+	if (worldOffset > 200 && spawnX - lastJetpackSpawn > 800 + Math.random() * 600) {
+		const y = 300 + Math.random() * (GROUND_Y - 500);
+		const jetpackX = spawnX + 100 + Math.random() * 500;
+		
+		// Check for overlaps before spawning
+		if (!wouldOverlap(jetpackX, y, 60, 60, 150)) {
+			collectibles.push({
+				type: 'jetpack',
+				x: jetpackX,
+				y: y,
+				width: 60,
+				height: 60
+			});
+			
+			lastJetpackSpawn = spawnX;
+
+		}
+	}
+	
+	// Spawn coin magnet power-ups (rare) - attracts coins for 8 seconds
+	if (spawnX - lastCoinMagnetSpawn > 1500 + Math.random() * 1000) {
+		const y = 300 + Math.random() * (GROUND_Y - 500);
+		const magnetX = spawnX + 100 + Math.random() * 500;
+		
+		// Check for overlaps before spawning
+		if (!wouldOverlap(magnetX, y, 55, 55, 150)) {
+			collectibles.push({
+				type: 'coin_magnet_powerup',
+				x: magnetX,
+				y: y,
+				width: 55,
+				height: 55
+			});
+			
+			lastCoinMagnetSpawn = spawnX;
+		}
+	}
+}
+
+// Update game state
+function update(deltaTime) {
+	if (showMainMenu || gamePhase === 'gameover' || isPaused) {
+
+		return;
+	}
+	
+	// Update explosions (always, even during launch phase)
+	updateExplosions(deltaTime);
+	
+	// Handle loss animation
+	if (gamePhase === 'losing') {
+		lossAnimationTime += deltaTime;
+		if (lossAnimationTime >= lossAnimationDuration) {
+			// Animation complete, show game over screen
+			showAd();
+			gamePhase = 'gameover';
+			showGameOverScreen();
+		}
+		return;
+	}
+	
+	const params = getGameplayParams();
+	
+	if (gamePhase === 'launch') {
+		// Update cannon charging
+		if (isCharging) {
+			chargeTime += deltaTime;
+			// Cap charge time at 2 seconds for max power
+			if (chargeTime >= 2) {
+				chargeTime = 2;
+			}
+			
+			// Update charge bar
+			const chargePercent = (chargeTime / 2) * 100;
+			document.getElementById('chargeBar').style.width = chargePercent + '%';
+		}
+	} else if (gamePhase === 'flight') {                
+		// Update combo timer
+		if (comboTimer > 0) {
+			comboTimer -= deltaTime;
+			if (comboTimer <= 0) {
+				comboCount = 0;
+				comboMultiplier = 1;
+			}
+		}
+		
+		// Track max combo for achievement
+		if (comboCount > sessionStats.maxCombo) {
+			sessionStats.maxCombo = comboCount;
+		}
+		
+		// Update invincibility timer
+		if (player.isInvincible) {
+			player.invincibilityTime -= deltaTime;
+			if (player.invincibilityTime <= 0) {
+				player.isInvincible = false;
+				player.invincibilityTime = 0;
+			}
+		}
+		
+		// Update coin magnet timer
+		if (coinMagnetActive) {
+			coinMagnetTime -= deltaTime;
+			if (coinMagnetTime <= 0) {
+				coinMagnetActive = false;
+				coinMagnetTime = 0;
+			}
+		}
+		
+		// Update player physics
+		if (isJetpackActive && player.fuel > 0) {
+			player.vy -= params.jetpackThrust * deltaTime;
+			player.fuel -= params.fuelConsumption * deltaTime;
+			player.fuel = Math.max(0, player.fuel);
+			
+			// Start jetpack thrust sound if not already playing and SFX is enabled
+			if (!jetpackThrustSource && sfxEnabled) {
+				startJetpackThrust();
+			}
+		} else {
+			// Stop jetpack thrust sound if not active
+			if (jetpackThrustSource) {
+				stopJetpackThrust();
+			}
+		}
+		
+		player.vy += params.gravity * deltaTime;
+		
+		player.x += player.vx * deltaTime;
+		player.y += player.vy * deltaTime;
+		
+		// Keep player on screen horizontally
+		if (player.x < PLAYER_START_X) {
+			player.x = PLAYER_START_X;
+			player.vx = params.baseSpeed;
+		}
+		
+		// Update world offset based on player movement
+		// Apply speed multiplier based on difficulty (increases every 500m)
+		const speedMultiplier = 1 + (Math.floor(distance / 500) * 0.15); // 15% speed increase per 500m
+		const scrollSpeed = params.baseSpeed * speedMultiplier;
+		const distanceDelta = scrollSpeed * deltaTime / 100;
+		worldOffset += scrollSpeed * deltaTime;
+		distance = worldOffset / 100; // Convert to meters
+		sessionStats.sessionDistance = Math.floor(distance);
+		
+		// Track distance without energy for Survivor achievement
+		sessionStats.distanceWithoutEnergy = Math.floor(distance - sessionStats.lastEnergyDistance);
+		
+		// Update parallax backgrounds
+		bgOffsets.far += scrollSpeed * 0.2 * deltaTime;
+		bgOffsets.mid += scrollSpeed * 0.5 * deltaTime;
+		bgOffsets.foreground += scrollSpeed * 0.8 * deltaTime;
+		
+		// Check if we should switch backgrounds based on distance
+		if (distance - lastBackgroundSwitchDistance >= BACKGROUND_SWITCH_INTERVAL) {
+			// Start transition to next background set - randomly select from all 3 sets
+			lastBackgroundSwitchDistance = distance;
+			// Randomly pick a different background set (ensure it's different from current)
+			let randomSet = Math.floor(Math.random() * backgroundSets.length);
+			while (randomSet === currentBackgroundSet) {
+				randomSet = Math.floor(Math.random() * backgroundSets.length);
+			}
+			nextBackgroundSet = randomSet;
+			backgroundTransitionProgress = 0;
+
+		}
+		
+		// Update background transition progress
+		if (backgroundTransitionProgress < 1) {
+			backgroundTransitionProgress += deltaTime / BACKGROUND_TRANSITION_DURATION;
+			if (backgroundTransitionProgress >= 1) {
+				// Transition complete
+				backgroundTransitionProgress = 1;
+				currentBackgroundSet = nextBackgroundSet;
+
+			}
+		}
+		
+		// Spawn obstacles and collectibles
+		spawnObstacles(params);
+		spawnCollectibles(params);
+		
+
+		
+		// Update obstacles
+		obstacles = obstacles.filter(obs => {
+			// Update warning time for vines and meteorites
+			if ((obs.type === 'vine' || obs.type === 'meteorite') && obs.warningTime !== undefined) {
+				obs.warningTime += deltaTime;
+			}
+			
+			// Update meteorite position
+			if (obs.type === 'meteorite') {
+				obs.y += obs.vy * deltaTime;
+				obs.rotation += 5 * deltaTime;
+				
+				// Remove if off screen
+				if (obs.y > CANVAS_HEIGHT) {
+					return false;
+				}
+			}
+			
+			// Update bird position
+			if (obs.type === 'bird') {
+				obs.x += obs.vx * deltaTime;
+				obs.y += Math.sin(Date.now() / 500 + obs.x / 100) * 30 * deltaTime; // Bobbing motion
+				obs.wingFlap = (obs.wingFlap + deltaTime * 5) % (Math.PI * 2);
+				
+				// Remove if off screen
+				if (obs.x > worldOffset + CANVAS_WIDTH + 200 || obs.x < worldOffset - 200) {
+					return false;
+				}
+			}
+			
+			return obs.x + obs.width > worldOffset - CANVAS_WIDTH;
+		});
+		
+		// Update collectibles
+		collectibles = collectibles.filter(col => {
+			return col.x + col.width > worldOffset - CANVAS_WIDTH;
+		});
+		
+		// Collision detection with obstacles
+		for (const obs of obstacles) {
+			if (checkCollision(player, obs) && !player.isInvincible) {
+				sessionStats.obstaclesHit++;
+				// Play hit sound
+				playSound('sfx_hit', 0.8);
+				gameOver();
+				return;
+			}
+		}
+		
+		// Collision detection with bosses
+		for (let i = bosses.length - 1; i >= 0; i--) {
+			const boss = bosses[i];
+			
+			// Update boss position
+			boss.x += boss.vx * deltaTime;
+			boss.y += Math.sin(Date.now() / 500 + boss.x / 100) * 50 * deltaTime; // Bobbing motion
+			
+			// Boss collision with player
+			if (checkCollision(player, boss)) {
+				if (player.isInvincible) {
+					// Damage boss when invincible
+					boss.health -= 25;
+					if (boss.health <= 0) {
+						// Boss defeated - award bonus points
+						const bossBonus = Math.floor(500 * boss.level * comboMultiplier);
+						score += bossBonus;
+						createExplosion(boss.x - worldOffset + PLAYER_START_X, boss.y, 2);
+						playSound('sfx_jetpack_powerup', 0.9);
+						bosses.splice(i, 1);
+					}
+				} else {
+					sessionStats.obstaclesHit++;
+					playSound('sfx_hit', 0.8);
+					gameOver();
+					return;
+				}
+			}
+			
+			// Remove boss if off screen
+			if (boss.x < worldOffset - 200) {
+				bosses.splice(i, 1);
+			}
+		}
+		
+		// Collision detection with collectibles
+		for (let i = collectibles.length - 1; i >= 0; i--) {
+			const col = collectibles[i];
+			if (checkCollision(player, col)) {
+				if (col.type === 'energy') {
+					player.fuel = Math.min(player.fuel + 25, player.maxFuel);
+					// Trigger combo on energy collection
+					comboCount++;
+					comboTimer = COMBO_DURATION;
+					// Linear combo multiplier: 1x, 1.1x, 1.2x, 1.3x, etc. (capped at 3x)
+					comboMultiplier = Math.min(1 + (comboCount * 0.1), 3);
+					// Track for achievements
+					sessionStats.sessionEnergy++;
+					sessionStats.lastEnergyDistance = distance;
+					// Play energy sound
+					playSound('sfx_energy', 0.7);
+				} else if (col.type === 'coin') {
+					// Apply combo multiplier to coin score
+					const coinScore = Math.floor(10 * comboMultiplier);
+					score = Math.min(score + coinScore, 9999999999); // Cap score at 9,999,999,999
+					coinsCollected = Math.min(coinsCollected + 1, 9999999999); // Cap coins per game at 9,999,999,999
+					// Trigger combo on coin collection
+					comboCount++;
+					comboTimer = COMBO_DURATION;
+					// Linear combo multiplier: 1x, 1.1x, 1.2x, 1.3x, etc. (capped at 3x)
+					comboMultiplier = Math.min(1 + (comboCount * 0.1), 3);
+					// Track for achievements
+					sessionStats.sessionCoins++;
+					// Play coin sound
+					playSound('sfx_coin', 0.6);
+				} else if (col.type === 'ellipse') {
+					// Ellipse: accelerate, earn points, and become invincible
+					player.launchPower = Math.min(player.launchPower + 0.35, 2.0); // Faster speed boost - capped at 2.0x
+					player.isInvincible = true;
+					player.invincibilityTime = player.invincibilityDuration;
+					// Apply combo multiplier to ellipse score
+					const ellipseScore = Math.floor(50 * comboMultiplier);
+					score = Math.min(score + ellipseScore, 9999999999); // Cap score at 9,999,999,999
+					// Trigger combo on ellipse collection
+					comboCount++;
+					comboTimer = COMBO_DURATION;
+					// Linear combo multiplier: 1x, 1.1x, 1.2x, 1.3x, etc. (capped at 3x)
+					comboMultiplier = Math.min(1 + (comboCount * 0.1), 3);
+					// Track for achievements
+					sessionStats.hasActivatedShield = true;
+					// Play shield sound
+					playSound('sfx_shield', 0.8);
+				} else if (col.type === 'jetpack') {
+					// Jetpack power-up: completely fill fuel gauge
+					player.fuel = player.maxFuel;
+					// Apply combo multiplier to jetpack score
+					const jetpackScore = Math.floor(100 * comboMultiplier);
+					score = Math.min(score + jetpackScore, 9999999999); // Cap score at 9,999,999,999
+					// Trigger combo on jetpack collection
+					comboCount++;
+					comboTimer = COMBO_DURATION;
+					// Linear combo multiplier: 1x, 1.1x, 1.2x, 1.3x, etc. (capped at 3x)
+					comboMultiplier = Math.min(1 + (comboCount * 0.1), 3);
+					// Track for achievements
+					sessionStats.hasCollectedJetpack = true;
+					// Play jetpack power-up sound
+					playSound('sfx_jetpack_powerup', 0.9);
+				} else if (col.type === 'coin_magnet_powerup') {
+					// Coin magnet: activate magnet effect for 8 seconds
+					coinMagnetActive = true;
+					coinMagnetTime = coinMagnetDuration;
+					// Apply combo multiplier to magnet score
+					const magnetScore = Math.floor(75 * comboMultiplier);
+					score = Math.min(score + magnetScore, 9999999999); // Cap score at 9,999,999,999
+					// Trigger combo on magnet collection
+					comboCount++;
+					comboTimer = COMBO_DURATION;
+					// Linear combo multiplier: 1x, 1.1x, 1.2x, 1.3x, etc. (capped at 3x)
+					comboMultiplier = Math.min(1 + (comboCount * 0.1), 3);
+					// Play shield sound for magnet activation
+					playSound('sfx_shield', 0.8);
+				}
+				collectibles.splice(i, 1);
+			}
+		}
+		
+		// Auto-collect coins when magnet is active
+		if (coinMagnetActive) {
+			const magnetRange = 300 + (upgrades.coin_magnet.level * 50); // Base 300px + 50px per upgrade level (increased from 150/25)
+			const playerScreenX = PLAYER_START_X;
+			const playerScreenY = player.y;
+			
+			for (let i = collectibles.length - 1; i >= 0; i--) {
+				const col = collectibles[i];
+				if (col.type === 'coin') {
+					const coinScreenX = col.x - worldOffset + PLAYER_START_X;
+					const coinScreenY = col.y;
+					
+					// Calculate distance from player to coin
+					const dx = (playerScreenX + 40) - (coinScreenX + col.width / 2);
+					const dy = (playerScreenY + 40) - (coinScreenY + col.height / 2);
+					const distance = Math.sqrt(dx * dx + dy * dy);
+					
+					// Start attracting coin if within magnet range
+					if (distance < magnetRange) {
+						// Add coin to attracted coins list if not already there
+						if (!col.isAttracted) {
+							col.isAttracted = true;
+							col.attractionStartTime = Date.now();
+							attractedCoins.push(col);
+						}
+					}
+				}
+			}
+		}
+		
+		// Update attracted coins - move them towards player
+		for (let i = attractedCoins.length - 1; i >= 0; i--) {
+			const coin = attractedCoins[i];
+			
+			// Check if coin still exists in collectibles array
+			if (!collectibles.includes(coin)) {
+				attractedCoins.splice(i, 1);
+				continue;
+			}
+			
+			// Calculate player center in world coordinates - FIXED: ensure proper centering
+			const playerCenterX = worldOffset + PLAYER_START_X + player.width / 2;
+			const playerCenterY = player.y + player.height / 2;
+			
+			// Calculate coin center in world coordinates
+			const coinCenterX = coin.x + coin.width / 2;
+			const coinCenterY = coin.y + coin.height / 2;
+			
+			// Calculate direction vector from coin to player
+			const dx = (playerCenterX - coinCenterX) - 160;
+			const dy = playerCenterY - coinCenterY;
+			const distance = Math.sqrt(dx * dx + dy * dy);
+			
+			if (distance < 30) {
+				// Coin reached player - collect it
+				const coinScore = Math.floor(10 * comboMultiplier);
+				score = Math.min(score + coinScore, 9999999999); // Cap score at 9,999,999,999
+				coinsCollected = Math.min(coinsCollected + 1, 9999999999); // Cap coins per game at 9,999,999,999
+				comboCount++;
+				comboTimer = COMBO_DURATION;
+				comboMultiplier = Math.min(1 + (comboCount * 0.1), 3);
+				sessionStats.sessionCoins++;
+				playSound('sfx_coin', 0.6);
+				
+				// Remove from both lists
+				const collectibleIndex = collectibles.indexOf(coin);
+				if (collectibleIndex > -1) {
+					collectibles.splice(collectibleIndex, 1);
+				}
+				attractedCoins.splice(i, 1);
+			} else if (distance > 0) {
+				// Move coin towards player center with consistent speed
+				const speed = 1800; // pixels per second (increased for faster attraction)
+				const moveDistance = Math.min(speed * deltaTime, distance); // Don't overshoot
+				
+				// Normalize direction and move coin directly to player center
+				const normalizedDx = dx / distance;
+				const normalizedDy = dy / distance;
+				
+				coin.x += normalizedDx * moveDistance;
+				coin.y += normalizedDy * moveDistance;
+			}
+		}
+		
+		// Track session score for achievements
+		sessionStats.sessionScore = score;
+		
+		// Check ground collision
+		if (player.y + player.height > GROUND_Y) {
+			if (player.isInvincible) {
+				// Shield protects from lava - remove shield instead of dying
+				player.isInvincible = false;
+				player.invincibilityTime = 0;
+				playSound('sfx_hit', 0.5); // Softer hit sound for shield break
+			} else {
+				sessionStats.obstaclesHit++;
+				// Play hit sound
+				playSound('sfx_hit', 0.8);
+				gameOver();
+				return;
+			}
+		}
+		
+		// Check top boundary
+		if (player.y < 100) {
+			player.y = 100;
+			player.vy = Math.max(0, player.vy);
+		}
+		
+		// Update daily challenges
+		updateDailyChallengeProgress();
+		
+		// Update UI
+		updateUI();
+	}
+}
+
+
+// Check collision between two rectangles
+function checkCollision(a, b) {
+	// Player is always at PLAYER_START_X on screen during flight
+	const playerScreenX = PLAYER_START_X;
+	const playerScreenY = a.y;
+	
+	// Convert obstacle/collectible world position to screen position
+	const obstacleScreenX = b.x - worldOffset + PLAYER_START_X;
+	
+	// Player hitbox (slightly smaller for forgiveness)
+	const playerHitbox = {
+		x: playerScreenX + a.width * 0.15,
+		y: playerScreenY + a.height * 0.15,
+		width: a.width * 0.7,
+		height: a.height * 0.7
+	};
+	
+	// Collectible-specific hitbox (more generous for coins/energy)
+	let collectibleHitbox;
+	if (b.type === 'coin' || b.type === 'energy') {
+		// Expand hitbox by 20% for better coin/energy collection
+		const expandAmount = Math.max(b.width, b.height) * 0.2;
+		collectibleHitbox = {
+			x: obstacleScreenX - expandAmount / 2,
+			y: b.y - expandAmount / 2,
+			width: b.width + expandAmount,
+			height: b.height + expandAmount
+		};
+	} else {
+		// Standard hitbox for obstacles and other collectibles
+		collectibleHitbox = {
+			x: obstacleScreenX,
+			y: b.y,
+			width: b.width,
+			height: b.height
+		};
+	}
+	
+	// AABB collision detection
+	return playerHitbox.x < collectibleHitbox.x + collectibleHitbox.width &&
+		   playerHitbox.x + playerHitbox.width > collectibleHitbox.x &&
+		   playerHitbox.y < collectibleHitbox.y + collectibleHitbox.height &&
+		   playerHitbox.y + playerHitbox.height > collectibleHitbox.y;
+}
+
+// Check and unlock achievements
+		// Check and unlock achievements
+function checkAchievements() {
+	newlyUnlockedAchievements = [];
+	
+	// Tier 1: Getting Started
+	if (sessionStats.hasLaunched && !achievements.first_flight.unlocked) {
+		achievements.first_flight.unlocked = true;
+		achievements.first_flight.unlockedAt = Date.now();
+		newlyUnlockedAchievements.push('first_flight');
+	}
+	
+	if (!achievements.coin_collector.unlocked) {
+		achievements.coin_collector.progress += sessionStats.sessionCoins;
+		if (achievements.coin_collector.progress >= achievements.coin_collector.target) {
+			achievements.coin_collector.unlocked = true;
+			achievements.coin_collector.unlockedAt = Date.now();
+			newlyUnlockedAchievements.push('coin_collector');
+		}
+	}
+	
+	if (!achievements.energy_master.unlocked) {
+		achievements.energy_master.progress += sessionStats.sessionEnergy;
+		if (achievements.energy_master.progress >= achievements.energy_master.target) {
+			achievements.energy_master.unlocked = true;
+			achievements.energy_master.unlockedAt = Date.now();
+			newlyUnlockedAchievements.push('energy_master');
+		}
+	}
+	
+	if (!achievements.speed_demon.unlocked) {
+		achievements.speed_demon.progress = Math.max(achievements.speed_demon.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.speed_demon.target) {
+			achievements.speed_demon.unlocked = true;
+			achievements.speed_demon.unlockedAt = Date.now();
+			newlyUnlockedAchievements.push('speed_demon');
+		}
+	}
+	
+	if (sessionStats.hasActivatedShield && !achievements.invincible.unlocked) {
+		achievements.invincible.unlocked = true;
+		achievements.invincible.unlockedAt = Date.now();
+		newlyUnlockedAchievements.push('invincible');
+	}
+	
+	if (!achievements.high_roller.unlocked) {
+		achievements.high_roller.progress = Math.max(achievements.high_roller.progress, sessionStats.sessionScore);
+		if (sessionStats.sessionScore >= achievements.high_roller.target) {
+			achievements.high_roller.unlocked = true;
+			achievements.high_roller.unlockedAt = Date.now();
+			newlyUnlockedAchievements.push('high_roller');
+		}
+	}
+	
+	if (!achievements.combo_king.unlocked) {
+		achievements.combo_king.progress = Math.max(achievements.combo_king.progress, sessionStats.maxCombo);
+		if (sessionStats.maxCombo >= achievements.combo_king.target) {
+			achievements.combo_king.unlocked = true;
+			achievements.combo_king.unlockedAt = Date.now();
+			newlyUnlockedAchievements.push('combo_king');
+		}
+	}
+	
+	if (sessionStats.hasCollectedJetpack && !achievements.jetpack_collector.unlocked) {
+		achievements.jetpack_collector.unlocked = true;
+		achievements.jetpack_collector.unlockedAt = Date.now();
+		newlyUnlockedAchievements.push('jetpack_collector');
+	}
+	
+	if (!achievements.survivor.unlocked) {
+		achievements.survivor.progress = Math.max(achievements.survivor.progress, sessionStats.distanceWithoutEnergy);
+		if (sessionStats.distanceWithoutEnergy >= achievements.survivor.target) {
+			achievements.survivor.unlocked = true;
+			achievements.survivor.unlockedAt = Date.now();
+			newlyUnlockedAchievements.push('survivor');
+		}
+	}
+	
+	if (!achievements.perfect_run.unlocked) {
+		if (sessionStats.obstaclesHit === 0) {
+			achievements.perfect_run.progress = Math.max(achievements.perfect_run.progress, sessionStats.sessionDistance);
+			if (sessionStats.sessionDistance >= achievements.perfect_run.target) {
+				achievements.perfect_run.unlocked = true;
+				achievements.perfect_run.unlockedAt = Date.now();
+				newlyUnlockedAchievements.push('perfect_run');
+			}
+		}
+	}
+	
+	// Tier 2: Coin Mastery
+	if (!achievements.coin_hoarder.unlocked) {
+		achievements.coin_hoarder.progress += sessionStats.sessionCoins;
+		if (achievements.coin_hoarder.progress >= achievements.coin_hoarder.target) {
+			achievements.coin_hoarder.unlocked = true;
+			newlyUnlockedAchievements.push('coin_hoarder');
+		}
+	}
+	
+	if (!achievements.coin_magnet.unlocked) {
+		achievements.coin_magnet.progress += sessionStats.sessionCoins;
+		if (achievements.coin_magnet.progress >= achievements.coin_magnet.target) {
+			achievements.coin_magnet.unlocked = true;
+			newlyUnlockedAchievements.push('coin_magnet');
+		}
+	}
+	
+	if (!achievements.coin_king.unlocked) {
+		achievements.coin_king.progress += sessionStats.sessionCoins;
+		if (achievements.coin_king.progress >= achievements.coin_king.target) {
+			achievements.coin_king.unlocked = true;
+			newlyUnlockedAchievements.push('coin_king');
+		}
+	}
+	
+	if (!achievements.coin_emperor.unlocked) {
+		achievements.coin_emperor.progress += sessionStats.sessionCoins;
+		if (achievements.coin_emperor.progress >= achievements.coin_emperor.target) {
+			achievements.coin_emperor.unlocked = true;
+			newlyUnlockedAchievements.push('coin_emperor');
+		}
+	}
+	
+	if (!achievements.coin_god.unlocked) {
+		achievements.coin_god.progress += sessionStats.sessionCoins;
+		if (achievements.coin_god.progress >= achievements.coin_god.target) {
+			achievements.coin_god.unlocked = true;
+			newlyUnlockedAchievements.push('coin_god');
+		}
+	}
+	
+	if (!achievements.coin_legend.unlocked) {
+		achievements.coin_legend.progress += sessionStats.sessionCoins;
+		if (achievements.coin_legend.progress >= achievements.coin_legend.target) {
+			achievements.coin_legend.unlocked = true;
+			newlyUnlockedAchievements.push('coin_legend');
+		}
+	}
+	
+	if (!achievements.coin_cluster.unlocked && sessionStats.sessionCoins >= 5) {
+		achievements.coin_cluster.unlocked = true;
+		newlyUnlockedAchievements.push('coin_cluster');
+	}
+	
+	if (!achievements.coin_rush.unlocked && sessionStats.sessionCoins >= 20) {
+		achievements.coin_rush.unlocked = true;
+		newlyUnlockedAchievements.push('coin_rush');
+	}
+	
+	if (!achievements.coin_frenzy.unlocked && sessionStats.sessionCoins >= 50) {
+		achievements.coin_frenzy.unlocked = true;
+		newlyUnlockedAchievements.push('coin_frenzy');
+	}
+	
+	if (!achievements.coin_tornado.unlocked && sessionStats.sessionCoins >= 100) {
+		achievements.coin_tornado.unlocked = true;
+		newlyUnlockedAchievements.push('coin_tornado');
+	}
+	
+	// Tier 3: Energy Expertise
+	if (!achievements.energy_collector.unlocked) {
+		achievements.energy_collector.progress += sessionStats.sessionEnergy;
+		if (achievements.energy_collector.progress >= achievements.energy_collector.target) {
+			achievements.energy_collector.unlocked = true;
+			newlyUnlockedAchievements.push('energy_collector');
+		}
+	}
+	
+	if (!achievements.energy_hoarder.unlocked) {
+		achievements.energy_hoarder.progress += sessionStats.sessionEnergy;
+		if (achievements.energy_hoarder.progress >= achievements.energy_hoarder.target) {
+			achievements.energy_hoarder.unlocked = true;
+			newlyUnlockedAchievements.push('energy_hoarder');
+		}
+	}
+	
+	if (!achievements.energy_king.unlocked) {
+		achievements.energy_king.progress += sessionStats.sessionEnergy;
+		if (achievements.energy_king.progress >= achievements.energy_king.target) {
+			achievements.energy_king.unlocked = true;
+			newlyUnlockedAchievements.push('energy_king');
+		}
+	}
+	
+	if (!achievements.energy_emperor.unlocked) {
+		achievements.energy_emperor.progress += sessionStats.sessionEnergy;
+		if (achievements.energy_emperor.progress >= achievements.energy_emperor.target) {
+			achievements.energy_emperor.unlocked = true;
+			newlyUnlockedAchievements.push('energy_emperor');
+		}
+	}
+	
+	if (!achievements.energy_god.unlocked) {
+		achievements.energy_god.progress += sessionStats.sessionEnergy;
+		if (achievements.energy_god.progress >= achievements.energy_god.target) {
+			achievements.energy_god.unlocked = true;
+			newlyUnlockedAchievements.push('energy_god');
+		}
+	}
+	
+	if (!achievements.energy_legend.unlocked) {
+		achievements.energy_legend.progress += sessionStats.sessionEnergy;
+		if (achievements.energy_legend.progress >= achievements.energy_legend.target) {
+			achievements.energy_legend.unlocked = true;
+			newlyUnlockedAchievements.push('energy_legend');
+		}
+	}
+	
+	if (!achievements.energy_rush.unlocked && sessionStats.sessionEnergy >= 10) {
+		achievements.energy_rush.unlocked = true;
+		newlyUnlockedAchievements.push('energy_rush');
+	}
+	
+	if (!achievements.energy_surge.unlocked && sessionStats.sessionEnergy >= 25) {
+		achievements.energy_surge.unlocked = true;
+		newlyUnlockedAchievements.push('energy_surge');
+	}
+	
+	if (!achievements.energy_storm.unlocked && sessionStats.sessionEnergy >= 50) {
+		achievements.energy_storm.unlocked = true;
+		newlyUnlockedAchievements.push('energy_storm');
+	}
+	
+	if (!achievements.energy_tsunami.unlocked && sessionStats.sessionEnergy >= 100) {
+		achievements.energy_tsunami.unlocked = true;
+		newlyUnlockedAchievements.push('energy_tsunami');
+	}
+	
+	// Tier 4: Distance Achievements
+	if (!achievements.distance_explorer.unlocked) {
+		achievements.distance_explorer.progress = Math.max(achievements.distance_explorer.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.distance_explorer.target) {
+			achievements.distance_explorer.unlocked = true;
+			newlyUnlockedAchievements.push('distance_explorer');
+		}
+	}
+	
+	if (!achievements.distance_adventurer.unlocked) {
+		achievements.distance_adventurer.progress = Math.max(achievements.distance_adventurer.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.distance_adventurer.target) {
+			achievements.distance_adventurer.unlocked = true;
+			newlyUnlockedAchievements.push('distance_adventurer');
+		}
+	}
+	
+	if (!achievements.distance_explorer_pro.unlocked) {
+		achievements.distance_explorer_pro.progress = Math.max(achievements.distance_explorer_pro.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.distance_explorer_pro.target) {
+			achievements.distance_explorer_pro.unlocked = true;
+			newlyUnlockedAchievements.push('distance_explorer_pro');
+		}
+	}
+	
+	if (!achievements.distance_world_traveler.unlocked) {
+		achievements.distance_world_traveler.progress = Math.max(achievements.distance_world_traveler.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.distance_world_traveler.target) {
+			achievements.distance_world_traveler.unlocked = true;
+			newlyUnlockedAchievements.push('distance_world_traveler');
+		}
+	}
+	
+	if (!achievements.distance_legend.unlocked) {
+		achievements.distance_legend.progress = Math.max(achievements.distance_legend.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.distance_legend.target) {
+			achievements.distance_legend.unlocked = true;
+			newlyUnlockedAchievements.push('distance_legend');
+		}
+	}
+	
+	if (!achievements.distance_god.unlocked) {
+		achievements.distance_god.progress = Math.max(achievements.distance_god.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.distance_god.target) {
+			achievements.distance_god.unlocked = true;
+			newlyUnlockedAchievements.push('distance_god');
+		}
+	}
+	
+	// Tier 5: Score Mastery
+	if (!achievements.score_climber.unlocked) {
+		achievements.score_climber.progress = Math.max(achievements.score_climber.progress, sessionStats.sessionScore);
+		if (sessionStats.sessionScore >= achievements.score_climber.target) {
+			achievements.score_climber.unlocked = true;
+			newlyUnlockedAchievements.push('score_climber');
+		}
+	}
+	
+	if (!achievements.score_master.unlocked) {
+		achievements.score_master.progress = Math.max(achievements.score_master.progress, sessionStats.sessionScore);
+		if (sessionStats.sessionScore >= achievements.score_master.target) {
+			achievements.score_master.unlocked = true;
+			newlyUnlockedAchievements.push('score_master');
+		}
+	}
+	
+	if (!achievements.score_legend.unlocked) {
+		achievements.score_legend.progress = Math.max(achievements.score_legend.progress, sessionStats.sessionScore);
+		if (sessionStats.sessionScore >= achievements.score_legend.target) {
+			achievements.score_legend.unlocked = true;
+			newlyUnlockedAchievements.push('score_legend');
+		}
+	}
+	
+	if (!achievements.score_god.unlocked) {
+		achievements.score_god.progress = Math.max(achievements.score_god.progress, sessionStats.sessionScore);
+		if (sessionStats.sessionScore >= achievements.score_god.target) {
+			achievements.score_god.unlocked = true;
+			newlyUnlockedAchievements.push('score_god');
+		}
+	}
+	
+	// Tier 6: Combo Mastery
+	if (!achievements.combo_starter.unlocked) {
+		achievements.combo_starter.progress = Math.max(achievements.combo_starter.progress, sessionStats.maxCombo);
+		if (sessionStats.maxCombo >= achievements.combo_starter.target) {
+			achievements.combo_starter.unlocked = true;
+			newlyUnlockedAchievements.push('combo_starter');
+		}
+	}
+	
+	if (!achievements.combo_builder.unlocked) {
+		achievements.combo_builder.progress = Math.max(achievements.combo_builder.progress, sessionStats.maxCombo);
+		if (sessionStats.maxCombo >= achievements.combo_builder.target) {
+			achievements.combo_builder.unlocked = true;
+			newlyUnlockedAchievements.push('combo_builder');
+		}
+	}
+	
+	if (!achievements.combo_master.unlocked) {
+		achievements.combo_master.progress = Math.max(achievements.combo_master.progress, sessionStats.maxCombo);
+		if (sessionStats.maxCombo >= achievements.combo_master.target) {
+			achievements.combo_master.unlocked = true;
+			newlyUnlockedAchievements.push('combo_master');
+		}
+	}
+	
+	if (!achievements.combo_legend.unlocked) {
+		achievements.combo_legend.progress = Math.max(achievements.combo_legend.progress, sessionStats.maxCombo);
+		if (sessionStats.maxCombo >= achievements.combo_legend.target) {
+			achievements.combo_legend.unlocked = true;
+			newlyUnlockedAchievements.push('combo_legend');
+		}
+	}
+	
+	if (!achievements.combo_god.unlocked) {
+		achievements.combo_god.progress = Math.max(achievements.combo_god.progress, sessionStats.maxCombo);
+		if (sessionStats.maxCombo >= achievements.combo_god.target) {
+			achievements.combo_god.unlocked = true;
+			newlyUnlockedAchievements.push('combo_god');
+		}
+	}
+	
+	// Tier 7: Shield & Power-ups
+	if (sessionStats.hasActivatedShield && !achievements.shield_collector.unlocked) {
+		achievements.shield_collector.progress++;
+		if (achievements.shield_collector.progress >= achievements.shield_collector.target) {
+			achievements.shield_collector.unlocked = true;
+			newlyUnlockedAchievements.push('shield_collector');
+		}
+	}
+	
+	if (sessionStats.hasCollectedJetpack && !achievements.jetpack_collector_pro.unlocked) {
+		achievements.jetpack_collector_pro.progress++;
+		if (achievements.jetpack_collector_pro.progress >= achievements.jetpack_collector_pro.target) {
+			achievements.jetpack_collector_pro.unlocked = true;
+			newlyUnlockedAchievements.push('jetpack_collector_pro');
+		}
+	}
+	
+	// Tier 8: Survival Challenges
+	if (!achievements.survivor_pro.unlocked) {
+		achievements.survivor_pro.progress = Math.max(achievements.survivor_pro.progress, sessionStats.distanceWithoutEnergy);
+		if (sessionStats.distanceWithoutEnergy >= achievements.survivor_pro.target) {
+			achievements.survivor_pro.unlocked = true;
+			newlyUnlockedAchievements.push('survivor_pro');
+		}
+	}
+	
+	if (!achievements.survivor_master.unlocked) {
+		achievements.survivor_master.progress = Math.max(achievements.survivor_master.progress, sessionStats.distanceWithoutEnergy);
+		if (sessionStats.distanceWithoutEnergy >= achievements.survivor_master.target) {
+			achievements.survivor_master.unlocked = true;
+			newlyUnlockedAchievements.push('survivor_master');
+		}
+	}
+	
+	if (!achievements.survivor_legend.unlocked) {
+		achievements.survivor_legend.progress = Math.max(achievements.survivor_legend.progress, sessionStats.distanceWithoutEnergy);
+		if (sessionStats.distanceWithoutEnergy >= achievements.survivor_legend.target) {
+			achievements.survivor_legend.unlocked = true;
+			newlyUnlockedAchievements.push('survivor_legend');
+		}
+	}
+	
+	if (!achievements.perfect_run_pro.unlocked) {
+		if (sessionStats.obstaclesHit === 0) {
+			achievements.perfect_run_pro.progress = Math.max(achievements.perfect_run_pro.progress, sessionStats.sessionDistance);
+			if (sessionStats.sessionDistance >= achievements.perfect_run_pro.target) {
+				achievements.perfect_run_pro.unlocked = true;
+				newlyUnlockedAchievements.push('perfect_run_pro');
+			}
+		}
+	}
+	
+	if (!achievements.perfect_run_master.unlocked) {
+		if (sessionStats.obstaclesHit === 0) {
+			achievements.perfect_run_master.progress = Math.max(achievements.perfect_run_master.progress, sessionStats.sessionDistance);
+			if (sessionStats.sessionDistance >= achievements.perfect_run_master.target) {
+				achievements.perfect_run_master.unlocked = true;
+				newlyUnlockedAchievements.push('perfect_run_master');
+			}
+		}
+	}
+	
+	if (!achievements.perfect_run_legend.unlocked) {
+		if (sessionStats.obstaclesHit === 0) {
+			achievements.perfect_run_legend.progress = Math.max(achievements.perfect_run_legend.progress, sessionStats.sessionDistance);
+			if (sessionStats.sessionDistance >= achievements.perfect_run_legend.target) {
+				achievements.perfect_run_legend.unlocked = true;
+				newlyUnlockedAchievements.push('perfect_run_legend');
+			}
+		}
+	}
+	
+	// Tier 9: Gameplay Milestones
+	if (!achievements.first_high_score.unlocked && isNewRecord) {
+		achievements.first_high_score.unlocked = true;
+		newlyUnlockedAchievements.push('first_high_score');
+	}
+	
+	// Tier 10: Ultimate Challenges
+	if (!achievements.ultimate_collector.unlocked) {
+		achievements.ultimate_collector.progress += sessionStats.sessionCoins;
+		if (achievements.ultimate_collector.progress >= achievements.ultimate_collector.target) {
+			achievements.ultimate_collector.unlocked = true;
+			newlyUnlockedAchievements.push('ultimate_collector');
+		}
+	}
+	
+	if (!achievements.ultimate_energy.unlocked) {
+		achievements.ultimate_energy.progress += sessionStats.sessionEnergy;
+		if (achievements.ultimate_energy.progress >= achievements.ultimate_energy.target) {
+			achievements.ultimate_energy.unlocked = true;
+			newlyUnlockedAchievements.push('ultimate_energy');
+		}
+	}
+	
+	if (!achievements.ultimate_distance.unlocked) {
+		achievements.ultimate_distance.progress = Math.max(achievements.ultimate_distance.progress, sessionStats.sessionDistance);
+		if (sessionStats.sessionDistance >= achievements.ultimate_distance.target) {
+			achievements.ultimate_distance.unlocked = true;
+			newlyUnlockedAchievements.push('ultimate_distance');
+		}
+	}
+	
+	if (!achievements.ultimate_score.unlocked) {
+		achievements.ultimate_score.progress = Math.max(achievements.ultimate_score.progress, sessionStats.sessionScore);
+		if (sessionStats.sessionScore >= achievements.ultimate_score.target) {
+			achievements.ultimate_score.unlocked = true;
+			newlyUnlockedAchievements.push('ultimate_score');
+		}
+	}
+	
+	if (!achievements.ultimate_combo.unlocked) {
+		achievements.ultimate_combo.progress = Math.max(achievements.ultimate_combo.progress, sessionStats.maxCombo);
+		if (sessionStats.maxCombo >= achievements.ultimate_combo.target) {
+			achievements.ultimate_combo.unlocked = true;
+			newlyUnlockedAchievements.push('ultimate_combo');
+		}
+	}
+	
+	if (!achievements.ultimate_survivor.unlocked) {
+		achievements.ultimate_survivor.progress = Math.max(achievements.ultimate_survivor.progress, sessionStats.distanceWithoutEnergy);
+		if (sessionStats.distanceWithoutEnergy >= achievements.ultimate_survivor.target) {
+			achievements.ultimate_survivor.unlocked = true;
+			newlyUnlockedAchievements.push('ultimate_survivor');
+		}
+	}
+	
+	if (!achievements.ultimate_perfect.unlocked) {
+		if (sessionStats.obstaclesHit === 0) {
+			achievements.ultimate_perfect.progress = Math.max(achievements.ultimate_perfect.progress, sessionStats.sessionDistance);
+			if (sessionStats.sessionDistance >= achievements.ultimate_perfect.target) {
+				achievements.ultimate_perfect.unlocked = true;
+				newlyUnlockedAchievements.push('ultimate_perfect');
+			}
+		}
+	}
+	
+	// Count unlocked achievements for meta achievements
+	let unlockedCount = 0;
+	for (const key in achievements) {
+		if (achievements[key].unlocked) {
+			unlockedCount++;
+		}
+	}
+	
+	if (!achievements.ultimate_master.unlocked && unlockedCount >= 50) {
+		achievements.ultimate_master.unlocked = true;
+		newlyUnlockedAchievements.push('ultimate_master');
+	}
+	
+	if (!achievements.ultimate_legend.unlocked && unlockedCount >= 75) {
+		achievements.ultimate_legend.unlocked = true;
+		newlyUnlockedAchievements.push('ultimate_legend');
+	}
+	
+	if (!achievements.ultimate_god.unlocked && unlockedCount >= 100) {
+		achievements.ultimate_god.unlocked = true;
+		newlyUnlockedAchievements.push('ultimate_god');
+	}
+}
+
+// Get asset icon for achievement
+function getAchievementAssetIcon(achievementKey) {
+	// Map achievement types to asset IDs
+	const assetMap = {
+		// Coin achievements
+		coin_collector: 'coin',
+		coin_hoarder: 'coin',
+		coin_magnet: 'coin',
+		coin_king: 'coin',
+		coin_emperor: 'coin',
+		coin_god: 'coin',
+		coin_legend: 'coin',
+		coin_cluster: 'coin',
+		coin_rush: 'coin',
+		coin_frenzy: 'coin',
+		coin_tornado: 'coin',
+		ultimate_collector: 'coin',
+		
+		// Energy achievements
+		energy_master: 'energy_reserve',
+		energy_collector: 'energy_reserve',
+		energy_hoarder: 'energy_reserve',
+		energy_king: 'energy_reserve',
+		energy_emperor: 'energy_reserve',
+		energy_god: 'energy_reserve',
+		energy_legend: 'energy_reserve',
+		energy_rush: 'energy_reserve',
+		energy_surge: 'energy_reserve',
+		energy_storm: 'energy_reserve',
+		energy_tsunami: 'energy_reserve',
+		ultimate_energy: 'energy_reserve',
+		
+		// Jetpack achievements
+		jetpack_collector: 'jetpack_powerup',
+		jetpack_collector_pro: 'jetpack_powerup',
+		jetpack_master: 'jetpack_powerup',
+		jetpack_legend: 'jetpack_powerup',
+		jetpack_in_game: 'jetpack_powerup',
+		
+		// Magnet achievements
+		coin_magnet_achievement: 'magnet_powerup',
+		
+		// Obstacle achievements
+		survivor: 'thorny_vine_top',
+		survivor_pro: 'thorny_vine_top',
+		survivor_master: 'thorny_vine_top',
+		survivor_legend: 'thorny_vine_top',
+		ultimate_survivor: 'thorny_vine_top',
+		
+		// Bird achievements
+		speed_demon: 'vulture',
+		
+		// Meteorite achievements
+		perfect_run: 'coconut',
+		perfect_run_pro: 'coconut',
+		perfect_run_master: 'coconut',
+		perfect_run_legend: 'coconut',
+		ultimate_perfect: 'coconut'
+	};
+	
+	const assetId = assetMap[achievementKey];
+	if (!assetId) return null;
+	
+	const asset = assetCache[assetId];
+	if (!asset) return null;
+	
+	return asset.img;
+}
+
+// Display achievements on game over screen
+function displayAchievements() {
+	const achievementsList = document.getElementById('achievementsList');
+	achievementsList.innerHTML = '';
+	
+	// Count unlocked achievements
+	let unlockedCount = 0;
+	for (const key in achievements) {
+		if (achievements[key].unlocked) {
+			unlockedCount++;
+		}
+	}
+	
+	// Update summary
+	const summaryText = currentLanguage === 'fr' 
+		? `${unlockedCount}/100 Réalisations Débloquées`
+		: `${unlockedCount}/100 Achievements Unlocked`;
+	document.getElementById('achievementsSummary').textContent = summaryText;
+	
+	// Show only newly unlocked achievements and unachieved achievements
+	const achievementOrder = [];
+	for (const key in achievements) {
+		const achievement = achievements[key];
+		// Include if newly unlocked OR if not yet unlocked
+		if (newlyUnlockedAchievements.includes(key) || !achievement.unlocked) {
+			achievementOrder.push(key);
+		}
+	}
+	
+	// Sort: newly unlocked first, then by progress
+	achievementOrder.sort((a, b) => {
+		const aNewlyUnlocked = newlyUnlockedAchievements.includes(a);
+		const bNewlyUnlocked = newlyUnlockedAchievements.includes(b);
+		
+		if (aNewlyUnlocked && !bNewlyUnlocked) return -1;
+		if (!aNewlyUnlocked && bNewlyUnlocked) return 1;
+		
+		// Sort by progress percentage for incomplete achievements
+		const aProgress = achievements[a].progress / achievements[a].target;
+		const bProgress = achievements[b].progress / achievements[b].target;
+		return bProgress - aProgress;
+	});
+	
+	// Display all relevant achievements
+	for (let i = 0; i < achievementOrder.length; i++) {
+		const key = achievementOrder[i];
+		const achievement = achievements[key];
+		
+		const item = document.createElement('div');
+		item.className = 'achievement-item';
+		
+		if (achievement.unlocked) {
+			item.classList.add('unlocked');
+		}
+		
+		if (newlyUnlockedAchievements.includes(key)) {
+			item.classList.add('newly-unlocked');
+		}
+		
+		const icon = document.createElement('div');
+		icon.className = 'achievement-icon';
+		
+		// Try to get asset icon first
+		const assetImg = getAchievementAssetIcon(key);
+		if (assetImg) {
+			const img = document.createElement('img');
+			img.src = assetImg.src;
+			img.style.maxWidth = '32px';
+			img.style.maxHeight = '32px';
+			img.style.objectFit = 'contain';
+			icon.appendChild(img);
+		} else {
+			// Fallback to emoji icon
+			icon.textContent = achievement.icon;
+		}
+		
+		const info = document.createElement('div');
+		info.className = 'achievement-info';
+		
+		const name = document.createElement('div');
+		name.className = 'achievement-name';
+		// Use translation key if available
+		const translationKey = `ach_${key}`;
+		name.textContent = t(translationKey) || achievement.name;
+		
+		const description = document.createElement('div');
+		description.className = 'achievement-description';
+		// Use translation key for description
+		const descriptionKey = `ach_${key}_desc`;
+		description.textContent = t(descriptionKey) || achievement.description;
+		
+		info.appendChild(name);
+		info.appendChild(description);
+		
+		const progress = document.createElement('div');
+		progress.className = 'achievement-progress';
+		
+		if (achievement.unlocked) {
+			progress.textContent = '✓';
+		} else {
+			progress.textContent = `${achievement.progress}/${achievement.target}`;
+		}
+		
+		item.appendChild(icon);
+		item.appendChild(info);
+		item.appendChild(progress);
+		
+		achievementsList.appendChild(item);
+	}
+}
+
+// Display achievements on pause screen
+function displayPauseAchievements() {
+	const achievementsList = document.getElementById('pauseAchievementsList');
+	achievementsList.innerHTML = '';
+	
+	// Count unlocked achievements
+	let unlockedCount = 0;
+	for (const key in achievements) {
+		if (achievements[key].unlocked) {
+			unlockedCount++;
+		}
+	}
+	
+	// Update summary
+	const summaryText = currentLanguage === 'fr' 
+		? `${unlockedCount}/100 Réalisations Débloquées`
+		: `${unlockedCount}/100 Achievements Unlocked`;
+	document.getElementById('pauseAchievementsSummary').textContent = summaryText;
+	
+	// Show all achievements
+	const achievementOrder = [];
+	for (const key in achievements) {
+		achievementOrder.push(key);
+	}
+	
+	// Sort: unlocked first, then by progress
+	achievementOrder.sort((a, b) => {
+		const aUnlocked = achievements[a].unlocked;
+		const bUnlocked = achievements[b].unlocked;
+		
+		if (aUnlocked && !bUnlocked) return -1;
+		if (!aUnlocked && bUnlocked) return 1;
+		
+		// Sort by progress percentage for incomplete achievements
+		const aProgress = achievements[a].progress / achievements[a].target;
+		const bProgress = achievements[b].progress / achievements[b].target;
+		return bProgress - aProgress;
+	});
+	
+	// Display all achievements
+	for (const key of achievementOrder) {
+		const achievement = achievements[key];
+		
+		const item = document.createElement('div');
+		item.className = 'achievement-item';
+		
+		if (achievement.unlocked) {
+			item.classList.add('unlocked');
+		}
+		
+		const icon = document.createElement('div');
+		icon.className = 'achievement-icon';
+		
+		// Try to get asset icon first
+		const assetImg = getAchievementAssetIcon(key);
+		if (assetImg) {
+			const img = document.createElement('img');
+			img.src = assetImg.src;
+			img.style.maxWidth = '32px';
+			img.style.maxHeight = '32px';
+			img.style.objectFit = 'contain';
+			icon.appendChild(img);
+		} else {
+			// Fallback to emoji icon
+			icon.textContent = achievement.icon;
+		}
+		
+		const info = document.createElement('div');
+		info.className = 'achievement-info';
+		
+		const name = document.createElement('div');
+		name.className = 'achievement-name';
+		// Use translation key if available
+		const translationKey = `ach_${key}`;
+		name.textContent = t(translationKey) || achievement.name;
+		
+		const description = document.createElement('div');
+		description.className = 'achievement-description';
+		// Use translation key for description
+		const descriptionKey = `ach_${key}_desc`;
+		description.textContent = t(descriptionKey) || achievement.description;
+		
+		info.appendChild(name);
+		info.appendChild(description);
+		
+		const progress = document.createElement('div');
+		progress.className = 'achievement-progress';
+		
+		if (achievement.unlocked) {
+			progress.textContent = '✓';
+		} else {
+			progress.textContent = `${achievement.progress}/${achievement.target}`;
+		}
+		
+		item.appendChild(icon);
+		item.appendChild(info);
+		item.appendChild(progress);
+		
+		achievementsList.appendChild(item);
+	}
+}
+
+// Display leaderboard on game over screen
+function displayGameOverLeaderboard(leaderboardResponse) {
+	const leaderboardSection = document.getElementById('gameOverLeaderboardSection');
+	const leaderboardContainer = document.getElementById('gameOverLeaderboard');
+	
+	if (!leaderboardResponse.entries || leaderboardResponse.entries.length === 0) {
+		leaderboardSection.style.display = 'none';
+		return;
+	}
+	
+	leaderboardSection.style.display = 'block';
+	
+	// Display player rank if available
+	let html = '';
+	if (leaderboardResponse.userRank !== null && leaderboardResponse.userRank !== undefined) {
+		html += `<div class="achievement-item unlocked" style="margin-bottom: 16px;">
+			<span class="achievement-icon">🏅</span>
+			<div class="achievement-info">
+				<div class="achievement-name">Your Rank</div>
+				<div class="achievement-description">You placed #${leaderboardResponse.userRank} on the leaderboard!</div>
+			</div>
+		</div>`;
+	}
+	
+	// Display top 100 entries (condensed for game over screen)
+	const entriesToShow = Math.min(100, leaderboardResponse.entries.length);
+	for (let i = 0; i < entriesToShow; i++) {
+		const entry = leaderboardResponse.entries[i];
+		const rank = i + 1;
+		const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+		
+		// Check if this is the current player's entry by comparing with the rank
+		const isCurrentPlayer = leaderboardResponse.userRank === rank;
+		const entryClass = isCurrentPlayer ? 'achievement-item unlocked newly-unlocked' : 'achievement-item';
+		
+		html += `
+			<div class="${entryClass}" style="margin-bottom: 8px;">
+				<span class="achievement-icon">${rankEmoji}</span>
+				<div class="achievement-info">
+					<div class="achievement-name">${entry.username || 'Player'}</div>
+				</div>
+				<div class="achievement-progress" style="color: #44ff44;">${entry.score}</div>
+			</div>
+		`;
+	}
+	
+	leaderboardContainer.innerHTML = html;
+}
+
+// Pause game
+function pauseGame() {
+	if (gamePhase !== 'flight') return;
+	isPaused = true;
+	
+	// Ensure pause overlay title is set correctly
+	const pauseTitle = document.querySelector('.pause-panel h1');
+	if (pauseTitle) {
+		pauseTitle.textContent = t('pause_title');
+	}
+	
+	// Pause music and jetpack sound
+	if (musicGainNode) {
+		musicGainNode.gain.value = 0;
+	}
+	if (jetpackThrustGainNode) {
+		jetpackThrustGainNode.gain.value = 0;
+	}
+	
+	displayPauseAchievements();
+	document.getElementById('pauseOverlay').classList.add('show');
+}
+
+// Resume game
+function resumeGame() {
+	isPaused = false;
+	
+	// Resume music and jetpack sound
+	if (musicGainNode) {
+		musicGainNode.gain.value = masterVolume * 0.5;
+	}
+	if (jetpackThrustGainNode && isJetpackActive) {
+		jetpackThrustGainNode.gain.value = masterVolume * 0.4;
+	}
+	
+	document.getElementById('pauseOverlay').classList.remove('show');
+	lastTime = performance.now();
+}
+
+// Setup focus loss detection
+function setupFocusDetection() {
+	// Pause when window loses focus
+	window.addEventListener('blur', () => {
+		if (gamePhase === 'flight' && !isPaused && !showMainMenu) {
+
+			pauseGame();
+		}
+	});
+
+	// Resume when window regains focus (optional - user can manually resume)
+	window.addEventListener('focus', () => {
+
+	});
+
+	// Pause when document becomes hidden (tab switch)
+	document.addEventListener('visibilitychange', () => {
+		if (document.hidden) {
+			if (gamePhase === 'flight' && !isPaused && !showMainMenu) {
+				lib.log('Document hidden, pausing game');
+				pauseGame();
+			}
+		} else {
+			lib.log('Document visible again');
+		}
+	});
+}
+
+function createMainMenuCoins() {
+	const coinsContainer = document.getElementById('mainMenuCoins');
+	if (!coinsContainer) return;
+	
+	coinsContainer.innerHTML = '';
+	
+	const coinCount = 12;
+	for (let i = 0; i < coinCount; i++) {
+		const coin = document.createElement('div');
+		coin.className = 'coin-decoration';
+		
+		const randomX = Math.random() * 100;
+		const randomY = Math.random() * 100;
+		coin.style.left = randomX + '%';
+		coin.style.top = randomY + '%';
+		
+		const delay = (i / coinCount) * 6;
+		coin.style.animationDelay = delay + 's';
+		
+		const asset = assetCache['coin'];
+		if (asset && asset.img) {
+			const img = document.createElement('img');
+			img.src = asset.img.src;
+			img.style.width = '100%';
+			img.style.height = '100%';
+			img.style.objectFit = 'contain';
+			coin.appendChild(img);
+		} else {
+			coin.textContent = '🪙';
+			coin.style.fontSize = '60px';
+			coin.style.display = 'flex';
+			coin.style.alignItems = 'center';
+			coin.style.justifyContent = 'center';
+		}
+		
+		coinsContainer.appendChild(coin);
+	}
+}
+
+function gameOver() {
+	gamePhase = 'losing';
+	lossAnimationTime = 0;
+	document.getElementById('pauseButton').classList.remove('show');
+	
+	coinMagnetActive = false;
+	coinMagnetTime = 0;
+	attractedCoins = [];
+	
+	stopBackgroundMusic();
+	stopJetpackThrust();
+	
+	playLossSound();
+}
+
+function playLossSound() {
+	if (!sfxEnabled) {
+		return;
+	}
+	
+	if (!audioBuffers['sfx_hit']) {
+		return;
+	}
+	
+	if (!audioContext) {
+		lib.log('AudioContext not available, cannot play loss sound');
+		return;
+	}
+
+	try {
+		if (audioContext.state === 'suspended') {
+			audioContext.resume().catch(error => {
+				lib.log('Failed to resume audio context: ' + error);
+			});
+		}
+		
+		const source = audioContext.createBufferSource();
+		const gainNode = audioContext.createGain();
+		
+		source.buffer = audioBuffers['sfx_hit'];
+		gainNode.gain.value = Math.min(masterVolume * 1.5, 1.0);
+		
+		source.connect(gainNode);
+		gainNode.connect(audioContext.destination);
+		
+		source.start(0);
+		lib.log('Loss sound played');
+	} catch (error) {
+		lib.log('Error playing loss sound: ' + error);
+	}
+}
+
+async function showGameOverScreen() {
+	
+	// Check and unlock achievements based on this session's performance
+	checkAchievements();
+	
+	// Check if this is a new high score and update it
+	if (score > highScore) {
+		highScore = score;
+		isNewRecord = true;
+	} else {
+		isNewRecord = false;
+	}
+	
+	// Add session coins to total coins earned (for shop currency)
+	totalCoinsEarned += coinsCollected;
+	
+	// Add daily challenge rewards to total coins earned
+	for (const challenge of dailyChallenges) {
+		if (challenge.completed && dailyChallengeCompletedThisSession[challenge.id]) {
+			totalCoinsEarned += challenge.reward;
+			lib.log(`Added ${challenge.reward} coins from completed daily challenge: ${challenge.name}`);
+		}
+	}
+	
+	// Save shop state and high score
+	await saveShopState();
+	
+	// Submit score to leaderboard
+	try {
+		const leaderboardResponse = await lib.addPlayerScoreToLeaderboard(score, 100);
+		
+		if (leaderboardResponse.success) {
+
+			
+			// Display leaderboard on game over screen
+			displayGameOverLeaderboard(leaderboardResponse);
+		}
+	} catch (error) {
+
+		// Game continues without leaderboard display
+	}
+	
+	// Update game over stats with translated labels
+	document.getElementById('finalDistance').textContent = Math.floor(distance) + t('hud_distance');
+	document.getElementById('finalScore').textContent = score;
+	document.getElementById('finalCoins').textContent = coinsCollected;
+	document.getElementById('finalHighScore').textContent = highScore;
+	
+	// Update stat labels with translations
+	const statLabels = document.querySelectorAll('.game-over-stat-label');
+	if (statLabels[0]) statLabels[0].textContent = t('game_over_distance');
+	if (statLabels[1]) statLabels[1].textContent = t('game_over_score');
+	if (statLabels[2]) statLabels[2].textContent = t('game_over_coins');
+	if (statLabels[3]) statLabels[3].textContent = t('game_over_high_score');
+	
+	// Show/hide new record indicator
+	const newRecordIndicator = document.getElementById('newRecordIndicator');
+	if (isNewRecord) {
+		newRecordIndicator.style.display = 'block';
+		newRecordIndicator.textContent = t('game_over_new_record');
+	} else {
+		newRecordIndicator.style.display = 'none';
+	}
+	
+	// Display achievements
+	displayAchievements();
+	
+	document.getElementById('gameOver').classList.add('show');
+}
+
+// Draw cannon power indicator (removed - no longer needed)
+function drawCannonPowerIndicator() {
+	// Cannon charging system has been removed
+	return;
+}
+
+// Draw a star shape on the current path
+function drawStar(cx, cy, spikes, outerRadius, innerRadius) {
+	let step = Math.PI / spikes;
+	let rot = Math.PI / 2 * 3;
+	let x = cx;
+	let y = cy;
+	
+	ctx.moveTo(cx, cy - outerRadius);
+	for (let i = 0; i < spikes; i++) {
+		x = cx + Math.cos(rot) * outerRadius;
+		y = cy + Math.sin(rot) * outerRadius;
+		ctx.lineTo(x, y);
+		rot += step;
+		
+		x = cx + Math.cos(rot) * innerRadius;
+		y = cy + Math.sin(rot) * innerRadius;
+		ctx.lineTo(x, y);
+		rot += step;
+	}
+	ctx.lineTo(cx, cy - outerRadius);
+	ctx.closePath();
+}
+
+// Calculate day/night effect based on distance
+function getDayNightEffect() {
+	// Cycle: Every 500m alternates between day and night
+	// 0-250m = day, 250-500m = transition to night, 500-750m = night, 750-1000m = transition to day, etc.
+	const cycleDistance = distance % 1000;
+	
+	let skyColor, tintColor, intensity;
+	
+	if (cycleDistance < 250) {
+		// Day phase (0-250m)
+		intensity = 0;
+		skyColor = '#87CEEB'; // Bright blue
+		tintColor = 'rgba(0, 0, 0, 0)'; // No tint
+	} else if (cycleDistance < 500) {
+		// Transition to night (250-500m)
+		const transitionProgress = (cycleDistance - 250) / 250;
+		intensity = transitionProgress * 0.9;
+		// Interpolate from blue to dark blue
+		const r = Math.round(135 - 100 * transitionProgress);
+		const g = Math.round(206 - 150 * transitionProgress);
+		const b = Math.round(235 - 150 * transitionProgress);
+		skyColor = `rgb(${r}, ${g}, ${b})`;
+		tintColor = `rgba(20, 20, 50, ${intensity * 0.5})`;
+	} else if (cycleDistance < 750) {
+		// Night phase (500-750m)
+		intensity = 0.9;
+		skyColor = '#1a1a2e'; // Dark blue-black
+		tintColor = `rgba(20, 20, 50, ${intensity * 0.5})`;
+	} else {
+		// Transition to day (750-1000m)
+		const transitionProgress = (cycleDistance - 750) / 250;
+		intensity = (1 - transitionProgress) * 0.9;
+		// Interpolate from dark blue back to bright blue
+		const r = Math.round(35 + 100 * transitionProgress);
+		const g = Math.round(56 + 150 * transitionProgress);
+		const b = Math.round(85 + 150 * transitionProgress);
+		skyColor = `rgb(${r}, ${g}, ${b})`;
+		tintColor = `rgba(20, 20, 50, ${intensity * 0.5})`;
+	}
+	
+	return { skyColor, tintColor, intensity };
+}
+
+// Render game
+function render() {
+	if (showMainMenu) {
+		/*lib.log('Render skipped: showMainMenu is true');*/
+		return;
+	}
+	
+	const config = window.gameConfig;
+	const theme = themes[config.theme] || themes.tropical_green;
+	
+	// Get day/night effect
+	const dayNightEffect = getDayNightEffect();
+	
+	// Clear canvas with day/night sky color
+	ctx.fillStyle = dayNightEffect.skyColor;
+	ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+	
+	// Draw parallax backgrounds
+	drawParallaxLayer('far', bgOffsets.far, 0.2);
+	drawParallaxLayer('mid', bgOffsets.mid, 0.5);
+	drawParallaxLayer('foreground', bgOffsets.foreground, 0.8);
+	
+	// Apply day/night tint
+	ctx.fillStyle = dayNightEffect.tintColor;
+	ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+	
+	// Apply theme tint (if not overridden by day/night)
+	if (theme.tint !== 'none' && dayNightEffect.intensity < 0.5) {
+		ctx.fillStyle = theme.tint;
+		ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+	}
+	
+	if (gamePhase === 'launch') {
+		// Draw ground
+		drawGround();
+		
+		// Draw player first
+		drawPlayer();
+		
+		// Draw cannon over the player
+		drawCannon();
+		
+		// Draw cannon power indicator
+		drawCannonPowerIndicator();
+		
+		// Draw explosion particles
+		drawExplosions();
+		
+		// Show launch instruction during launch phase
+		document.getElementById('launchInstruction').style.display = 'block';
+	} else if (gamePhase === 'flight' || gamePhase === 'gameover' || gamePhase === 'losing') {
+		// Draw collectibles
+		for (const col of collectibles) {
+			drawCollectible(col);
+		}
+		
+		// Draw obstacles
+		for (const obs of obstacles) {
+			drawObstacle(obs);
+		}
+		
+		// Draw bosses
+		for (const boss of bosses) {
+			drawBoss(boss);
+		}
+
+		
+		// Draw player
+		drawPlayer();
+		
+		// Draw jetpack effect
+		if (isJetpackActive && player.fuel > 0 && gamePhase === 'flight') {
+			drawJetpackFlame();
+		}
+		
+		// Draw ground last so lava covers the thorns
+		drawGround();
+		
+		// Draw explosion particles
+		drawExplosions();
+	}
+}
+
+// Draw parallax layer
+function drawParallaxLayer(layerType, offset, speed) {
+	// Get the asset ID based on current background set and layer type
+	const backgroundSet = backgroundSets[currentBackgroundSet];
+	const assetId = backgroundSet[layerType];
+	
+	const asset = assetCache[assetId];
+	if (!asset) return;
+	
+	const img = asset.img;
+	const [aspectW, aspectH] = asset.aspectRatio;
+	
+	// Draw with cover scaling
+	const imgAspect = aspectW / aspectH;
+	const canvasAspect = CANVAS_WIDTH / CANVAS_HEIGHT;
+	
+	let drawWidth, drawHeight;
+	if (imgAspect > canvasAspect) {
+		drawHeight = CANVAS_HEIGHT;
+		drawWidth = drawHeight * imgAspect;
+	} else {
+		drawWidth = CANVAS_WIDTH;
+		drawHeight = drawWidth / imgAspect;
+	}
+	
+	// Tile horizontally
+	const tileOffset = offset % drawWidth;
+	const numTiles = Math.ceil(CANVAS_WIDTH / drawWidth) + 1;
+	
+	for (let i = -1; i < numTiles; i++) {
+		const x = i * drawWidth - tileOffset;
+		const y = (CANVAS_HEIGHT - drawHeight) / 2;
+		ctx.drawImage(img, x, y, drawWidth, drawHeight);
+	}
+	
+	// Draw transition to next background if in progress
+	if (backgroundTransitionProgress > 0 && backgroundTransitionProgress < 1) {
+		const nextBgSet = backgroundSets[nextBackgroundSet];
+		const nextAssetId = nextBgSet[layerType];
+		const nextAsset = assetCache[nextAssetId];
+		
+		if (nextAsset) {
+			const nextImg = nextAsset.img;
+			const [nextAspectW, nextAspectH] = nextAsset.aspectRatio;
+			
+			// Calculate dimensions for next background
+			const nextImgAspect = nextAspectW / nextAspectH;
+			let nextDrawWidth, nextDrawHeight;
+			if (nextImgAspect > canvasAspect) {
+				nextDrawHeight = CANVAS_HEIGHT;
+				nextDrawWidth = nextDrawHeight * nextImgAspect;
+			} else {
+				nextDrawWidth = CANVAS_WIDTH;
+				nextDrawHeight = nextDrawWidth / nextImgAspect;
+			}
+			
+			// Apply fade effect for transition
+			ctx.globalAlpha = backgroundTransitionProgress;
+			
+			// Tile the next background
+			const nextTileOffset = offset % nextDrawWidth;
+			const nextNumTiles = Math.ceil(CANVAS_WIDTH / nextDrawWidth) + 1;
+			
+			for (let i = -1; i < nextNumTiles; i++) {
+				const x = i * nextDrawWidth - nextTileOffset;
+				const y = (CANVAS_HEIGHT - nextDrawHeight) / 2;
+				ctx.drawImage(nextImg, x, y, nextDrawWidth, nextDrawHeight);
+			}
+			
+			ctx.globalAlpha = 1;
+		}
+	}
+}
+
+// Draw ground (lava)
+function drawGround() {
+	const drawHeight = 100;
+	
+	// Draw lava base with realistic yellow-red gradient
+	const time = Date.now() / 1000;
+	const gradient = ctx.createLinearGradient(0, GROUND_Y, 0, GROUND_Y + drawHeight);
+	
+	// Realistic lava colors: yellow to red to dark red
+	gradient.addColorStop(0, '#FFFF00');      // Bright yellow
+	gradient.addColorStop(0.3, '#FFD700');    // Gold
+	gradient.addColorStop(0.6, '#FF6600');    // Orange-red
+	gradient.addColorStop(1, '#8B0000');      // Dark red
+	
+	ctx.fillStyle = gradient;
+	ctx.fillRect(0, GROUND_Y, CANVAS_WIDTH, drawHeight);
+	
+	// Add animated lava surface texture with bubbles
+	ctx.fillStyle = 'rgba(255, 150, 0, 0.4)';
+	for (let i = 0; i < 12; i++) {
+		const x = (worldOffset * 0.3 + i * 60) % CANVAS_WIDTH;
+		const bubbleSize = 6 + Math.sin(time * 1.5 + i) * 3;
+		ctx.beginPath();
+		ctx.arc(x, GROUND_Y + 15, bubbleSize, 0, Math.PI * 2);
+		ctx.fill();
+	}
+	
+	// Add more bubbles with different timing
+	ctx.fillStyle = 'rgba(255, 200, 0, 0.3)';
+	for (let i = 0; i < 8; i++) {
+		const x = (worldOffset * 0.5 + i * 90 + 30) % CANVAS_WIDTH;
+		const bubbleSize = 4 + Math.sin(time * 2 + i * 0.7) * 2;
+		ctx.beginPath();
+		ctx.arc(x, GROUND_Y + 20, bubbleSize, 0, Math.PI * 2);
+		ctx.fill();
+	}
+	
+	// Add surface highlight with wavy pattern
+	ctx.strokeStyle = 'rgba(255, 255, 100, 0.6)';
+	ctx.lineWidth = 2;
+	ctx.beginPath();
+	ctx.moveTo(0, GROUND_Y + 3);
+	for (let x = 0; x < CANVAS_WIDTH; x += 15) {
+		const y = GROUND_Y + 3 + Math.sin(x * 0.08 + time * 3) * 4;
+		ctx.lineTo(x, y);
+	}
+	ctx.stroke();
+}
+
+// Draw cannon
+function drawCannon() {
+	const asset = assetCache['cannon'];
+	if (!asset) return;
+	
+	const img = asset.img;
+	const [aspectW, aspectH] = asset.aspectRatio;
+	
+	const drawWidth = 120;
+	const drawHeight = drawWidth * (aspectH / aspectW);
+	
+	ctx.drawImage(img, CANNON_X - 80, (CANNON_Y - drawHeight / 2) + 20, drawWidth, drawHeight);
+}
+
+// Draw player
+function drawPlayer() {
+	// Use different asset based on game phase
+	let assetId = 'player_character';
+	if (gamePhase === 'losing') {
+		assetId = 'player_character'; // Will use same asset but with different styling
+	}
+	
+	const asset = assetCache[assetId];
+	if (!asset) return;
+	
+	const img = asset.img;
+	const [aspectW, aspectH] = asset.aspectRatio;
+	
+	const drawWidth = player.width;
+	const drawHeight = drawWidth * (aspectH / aspectW);
+	
+	let x, y;
+	if (gamePhase === 'launch') {
+		x = player.x;
+		y = player.y - drawHeight / 2;
+	} else {
+		x = PLAYER_START_X;
+		y = player.y;
+	}
+	
+	// Apply loss animation if in losing phase
+	let rotation = 0;
+	let scaleX = 1;
+	let scaleY = 1;
+	let opacity = 1;
+	let desaturate = 0;
+	
+	if (gamePhase === 'losing') {
+		const animProgress = lossAnimationTime / lossAnimationDuration;
+		
+		// Continuous spin effect - keeps rotating throughout animation
+		// Use time-based rotation instead of progress-based to ensure continuous spinning
+		rotation = (Date.now() / 50) % (Math.PI * 2); // Continuous rotation based on time
+		
+		// Shake effect
+		const shakeAmount = Math.sin(animProgress * Math.PI * 8) * 8;
+		x += shakeAmount;
+		y += Math.sin(animProgress * Math.PI * 6) * 6;
+		
+		// Scale down and fade out completely
+		const scaleDown = 1 - animProgress * 0.3;
+		scaleX = scaleDown;
+		scaleY = scaleDown;
+		// Fade out more aggressively - completely invisible by 80% through animation
+		opacity = Math.max(0, 1 - animProgress * 1.5);
+		
+		// Desaturate effect (turn grayscale)
+		desaturate = animProgress * 100;
+	}
+	
+	ctx.save();
+	ctx.globalAlpha = opacity;
+	
+	ctx.translate(x + drawWidth / 2, y + drawHeight / 2);
+	ctx.rotate(rotation);
+	ctx.scale(scaleX, scaleY);
+	
+	// Apply desaturation filter during loss BEFORE drawing
+	if (desaturate > 0) {
+		ctx.filter = `saturate(${Math.max(0, 100 - desaturate)})%`;
+	}
+	
+	// Apply character-specific coloring removed
+	ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+	
+	// Draw invincibility shield effect
+	if (player.isInvincible && gamePhase !== 'losing') {
+		ctx.globalCompositeOperation = 'source-over';
+		const shieldAlpha = 0.3 + Math.sin(Date.now() / 100) * 0.2;
+		ctx.fillStyle = `rgba(100, 200, 255, ${shieldAlpha})`;
+		ctx.strokeStyle = 'rgba(150, 220, 255, 0.8)';
+		ctx.lineWidth = 3;
+		ctx.beginPath();
+		ctx.arc(0, 0, drawWidth / 2 + 15, 0, Math.PI * 2);
+		ctx.fill();
+		ctx.stroke();
+		
+		// Add sparkle effect when shield is about to expire (last 1 second)
+		if (player.invincibilityTime < 1) {
+			const sparkleIntensity = 1 - (player.invincibilityTime / 1); // 0 to 1 as time runs out
+			const sparkleCount = Math.floor(8 + sparkleIntensity * 12);
+			
+			for (let i = 0; i < sparkleCount; i++) {
+				const angle = (i / sparkleCount) * Math.PI * 2 + Date.now() / 500;
+				const radius = (drawWidth / 2 + 15) + Math.sin(Date.now() / 100 + i) * 5;
+				const sparkleX = Math.cos(angle) * radius;
+				const sparkleY = Math.sin(angle) * radius;
+				
+				const sparkleSize = 2 + sparkleIntensity * 3;
+				const sparkleAlpha = Math.sin(Date.now() / 50 + i * 0.5) * 0.5 + 0.5;
+				
+				ctx.fillStyle = `rgba(255, 255, 255, ${sparkleAlpha * sparkleIntensity})`;
+				ctx.beginPath();
+				ctx.arc(sparkleX, sparkleY, sparkleSize, 0, Math.PI * 2);
+				ctx.fill();
+				
+				// Add glow to sparkles
+				ctx.strokeStyle = `rgba(150, 220, 255, ${sparkleAlpha * sparkleIntensity * 0.6})`;
+				ctx.lineWidth = 1;
+				ctx.beginPath();
+				ctx.arc(sparkleX, sparkleY, sparkleSize + 1, 0, Math.PI * 2);
+				ctx.stroke();
+			}
+		}
+	}
+	
+	// Draw coin magnet effect (skip during loss animation)
+	if (coinMagnetActive && gamePhase !== 'losing') {
+		ctx.globalCompositeOperation = 'source-over';
+		const magnetAlpha = 0.4 + Math.sin(Date.now() / 150) * 0.3;
+		ctx.strokeStyle = `rgba(255, 100, 200, ${magnetAlpha})`;
+		ctx.lineWidth = 2;
+		
+		// Draw multiple concentric circles for magnet effect
+		for (let i = 1; i <= 3; i++) {
+			ctx.beginPath();
+			ctx.arc(0, 0, (drawWidth / 2 + 20) * i, 0, Math.PI * 2);
+			ctx.stroke();
+		}
+		
+		// Draw magnetic field lines
+		ctx.strokeStyle = `rgba(255, 100, 200, ${magnetAlpha * 0.6})`;
+		ctx.lineWidth = 1;
+		for (let i = 0; i < 12; i++) {
+			const angle = (i / 12) * Math.PI * 2;
+			const radius = drawWidth / 2 + 30;
+			ctx.beginPath();
+			ctx.moveTo(Math.cos(angle) * (drawWidth / 2 + 10), Math.sin(angle) * (drawWidth / 2 + 10));
+			ctx.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+			ctx.stroke();
+		}
+		
+		// Add sparkle effect when magnet is about to expire (last 1 second)
+		if (coinMagnetTime < 1) {
+			const sparkleIntensity = 1 - (coinMagnetTime / 1); // 0 to 1 as time runs out
+			const sparkleCount = Math.floor(10 + sparkleIntensity * 15);
+			
+			for (let i = 0; i < sparkleCount; i++) {
+				const angle = (i / sparkleCount) * Math.PI * 2 + Date.now() / 400;
+				const radius = (drawWidth / 2 + 40) + Math.sin(Date.now() / 100 + i) * 8;
+				const sparkleX = Math.cos(angle) * radius;
+				const sparkleY = Math.sin(angle) * radius;
+				
+				const sparkleSize = 2.5 + sparkleIntensity * 3.5;
+				const sparkleAlpha = Math.sin(Date.now() / 40 + i * 0.6) * 0.5 + 0.5;
+				
+				ctx.fillStyle = `rgba(255, 200, 255, ${sparkleAlpha * sparkleIntensity})`;
+				ctx.beginPath();
+				ctx.arc(sparkleX, sparkleY, sparkleSize, 0, Math.PI * 2);
+				ctx.fill();
+				
+				// Add glow to sparkles
+				ctx.strokeStyle = `rgba(255, 100, 200, ${sparkleAlpha * sparkleIntensity * 0.7})`;
+				ctx.lineWidth = 1.5;
+				ctx.beginPath();
+				ctx.arc(sparkleX, sparkleY, sparkleSize + 1.5, 0, Math.PI * 2);
+				ctx.stroke();
+			}
+		}
+	}
+	
+	// Draw X eyes during loss animation
+	if (gamePhase === 'losing') {
+		ctx.globalCompositeOperation = 'source-over';
+		ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+		ctx.lineWidth = 4;
+		ctx.lineCap = 'round';
+		
+		// Left X eye
+		const eyeOffsetX = -drawWidth * 0.15;
+		const eyeOffsetY = -drawHeight * 0.15;
+		const eyeSize = drawWidth * 0.1;
+		
+		ctx.beginPath();
+		ctx.moveTo(eyeOffsetX - eyeSize, eyeOffsetY - eyeSize);
+		ctx.lineTo(eyeOffsetX + eyeSize, eyeOffsetY + eyeSize);
+		ctx.stroke();
+		
+		ctx.beginPath();
+		ctx.moveTo(eyeOffsetX + eyeSize, eyeOffsetY - eyeSize);
+		ctx.lineTo(eyeOffsetX - eyeSize, eyeOffsetY + eyeSize);
+		ctx.stroke();
+		
+		// Right X eye
+		const eyeOffsetX2 = drawWidth * 0.15;
+		ctx.beginPath();
+		ctx.moveTo(eyeOffsetX2 - eyeSize, eyeOffsetY - eyeSize);
+		ctx.lineTo(eyeOffsetX2 + eyeSize, eyeOffsetY + eyeSize);
+		ctx.stroke();
+		
+		ctx.beginPath();
+		ctx.moveTo(eyeOffsetX2 + eyeSize, eyeOffsetY - eyeSize);
+		ctx.lineTo(eyeOffsetX2 - eyeSize, eyeOffsetY + eyeSize);
+		ctx.stroke();
+	}
+	
+	ctx.restore();
+}
+
+// Draw jetpack flame
+function drawJetpackFlame() {
+	const x = PLAYER_START_X + player.width / 2 - 32;
+	const y = player.y + player.height;
+	
+	// Draw flame effect
+	const gradient = ctx.createRadialGradient(x, y, 0, x, y, 30);
+	gradient.addColorStop(0, 'rgba(255, 200, 0, 0.8)');
+	gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.6)');
+	gradient.addColorStop(1, 'rgba(255, 50, 0, 0)');
+	
+	ctx.fillStyle = gradient;
+	ctx.beginPath();
+	ctx.arc(x, y, 30, 0, Math.PI * 2);
+	ctx.fill();
+}
+
+
+// Draw obstacle
+function drawObstacle(obs) {
+	const screenX = obs.x - worldOffset + PLAYER_START_X;
+	
+	if (obs.type === 'vine') {
+		const assetId = obs.isTop ? 'thorny_vine_top' : 'thorny_vine_bottom';
+		const asset = assetCache[assetId];
+		if (!asset) return;
+		
+		const img = asset.img;
+		const [aspectW, aspectH] = asset.aspectRatio;
+		
+		const drawWidth = obs.width;
+		const drawHeight = obs.height;
+		
+		ctx.drawImage(img, screenX, obs.y, drawWidth, drawHeight);
+		
+		// Draw exclamation mark when vine appears
+		if (obs.warningTime !== undefined && obs.warningTime < 1.5) {
+			const centerX = screenX + drawWidth / 2;
+			// For top thorns, show exclamation mark at the bottom; for bottom thorns, show at the top
+			const centerY = obs.isTop ? (obs.y + obs.height + 40) : (obs.y - 40);
+			
+			// Draw exclamation mark background
+			ctx.fillStyle = 'rgba(255, 100, 0, 0.9)';
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, 20, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw exclamation mark text
+			ctx.fillStyle = '#FFFFFF';
+			ctx.font = 'bold 28px Arial';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText('!', centerX, centerY);
+		}
+	} else if (obs.type === 'meteorite') {
+		// Draw coconut (falling obstacle) with enhanced visuals
+		const asset = assetCache['coconut'];
+		const centerX = screenX + obs.width / 2;
+		const centerY = obs.y + obs.height / 2;
+		
+		ctx.save();
+		
+		// Draw glowing aura around meteorite
+		const glowGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, obs.width / 2 + 15);
+		glowGradient.addColorStop(0, 'rgba(255, 150, 0, 0.4)');
+		glowGradient.addColorStop(0.7, 'rgba(255, 100, 0, 0.2)');
+		glowGradient.addColorStop(1, 'rgba(255, 100, 0, 0)');
+		ctx.fillStyle = glowGradient;
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, obs.width / 2 + 15, 0, Math.PI * 2);
+		ctx.fill();
+		
+		if (!asset) {
+			// Fallback: draw a brown circle with enhanced styling if asset not loaded
+			ctx.fillStyle = '#8B4513';
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, obs.width / 2, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.strokeStyle = '#654321';
+			ctx.lineWidth = 2;
+			ctx.stroke();
+			ctx.restore();
+			
+			// Draw exclamation mark when coconut appears
+			if (obs.warningTime !== undefined && obs.warningTime < 1.5) {
+				const exclamationX = centerX;
+				const exclamationY = centerY - 50;
+				
+				// Draw exclamation mark background
+				ctx.fillStyle = 'rgba(255, 100, 0, 0.9)';
+				ctx.beginPath();
+				ctx.arc(exclamationX, exclamationY, 20, 0, Math.PI * 2);
+				ctx.fill();
+				
+				// Draw exclamation mark text
+				ctx.fillStyle = '#FFFFFF';
+				ctx.font = 'bold 28px Arial';
+				ctx.textAlign = 'center';
+				ctx.textBaseline = 'middle';
+				ctx.fillText('!', exclamationX, exclamationY);
+			}
+			return;
+		}
+		
+		const img = asset.img;
+		const [aspectW, aspectH] = asset.aspectRatio || [1, 1];
+		
+		const drawWidth = obs.width;
+		const drawHeight = drawWidth * (aspectH / aspectW);
+		
+		// Apply rotation and draw the meteorite image
+		ctx.translate(centerX, centerY);
+		ctx.rotate(obs.rotation);
+		ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+		
+		// Add highlight/shine effect
+		ctx.globalCompositeOperation = 'screen';
+		ctx.fillStyle = 'rgba(255, 255, 200, 0.3)';
+		ctx.beginPath();
+		ctx.arc(-drawWidth / 4, -drawHeight / 4, drawWidth / 6, 0, Math.PI * 2);
+		ctx.fill();
+		
+		ctx.restore();
+		
+		// Draw exclamation mark when coconut appears
+		if (obs.warningTime !== undefined && obs.warningTime < 1.5) {
+			const exclamationX = centerX;
+			const exclamationY = centerY - 50;
+			
+			// Draw exclamation mark background
+			ctx.fillStyle = 'rgba(255, 100, 0, 0.9)';
+			ctx.beginPath();
+			ctx.arc(exclamationX, exclamationY, 20, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw exclamation mark text
+			ctx.fillStyle = '#FFFFFF';
+			ctx.font = 'bold 28px Arial';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText('!', exclamationX, exclamationY);
+		}
+	} else if (obs.type === 'bird') {
+		// Draw vulture (flying enemy) using realistic asset
+		const asset = assetCache['vulture'];
+		
+		ctx.save();
+		
+		const drawWidth = obs.width;
+		const drawHeight = obs.height;
+		const centerX = screenX + drawWidth / 2;
+		const centerY = obs.y + drawHeight / 2;
+		
+		// Draw bright red aura/glow effect around vulture - restored old glow
+		const auraGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, drawWidth * 0.7);
+		auraGradient.addColorStop(0, 'rgba(255, 50, 50, 0.6)');
+		auraGradient.addColorStop(0.4, 'rgba(255, 100, 100, 0.4)');
+		auraGradient.addColorStop(0.7, 'rgba(255, 150, 150, 0.2)');
+		auraGradient.addColorStop(1, 'rgba(255, 100, 100, 0)');
+		ctx.fillStyle = auraGradient;
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, drawWidth * 0.7, 0, Math.PI * 2);
+		ctx.fill();
+		
+		// Draw bright red outer aura ring
+		ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
+		ctx.lineWidth = 4;
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, drawWidth * 0.65, 0, Math.PI * 2);
+		ctx.stroke();
+		
+		// Apply flapping animation by scaling vertically
+		const wingFlap = Math.sin(Date.now() / 120 + obs.y) * 0.1;
+		ctx.translate(centerX, centerY);
+		ctx.scale(1, 1 + wingFlap);
+		
+		if (asset && asset.img) {
+			// Draw the realistic vulture image
+			const img = asset.img;
+			const [aspectW, aspectH] = asset.aspectRatio || [1, 1];
+			
+			const adjustedHeight = drawWidth * (aspectH / aspectW);
+			ctx.drawImage(img, -drawWidth / 2, -adjustedHeight / 2, drawWidth, adjustedHeight);
+		} else {
+			// Fallback: draw a highly visible vulture silhouette if asset not loaded
+			const centerX = 0;
+			const centerY = 0;
+			
+			// Draw bright red aura/glow effect
+			const auraGradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, drawWidth * 0.6);
+			auraGradient.addColorStop(0, 'rgba(255, 50, 50, 0.6)');
+			auraGradient.addColorStop(0.5, 'rgba(255, 100, 100, 0.3)');
+			auraGradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+			ctx.fillStyle = auraGradient;
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, drawWidth * 0.6, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw bright red outer aura ring
+			ctx.strokeStyle = 'rgba(255, 50, 50, 0.8)';
+			ctx.lineWidth = 4;
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, drawWidth * 0.55, 0, Math.PI * 2);
+			ctx.stroke();
+			
+			// Draw realistic vulture body (bright dark brown with vibrant outline)
+			ctx.fillStyle = '#2a1810';
+			ctx.beginPath();
+			ctx.ellipse(centerX, centerY, drawWidth * 0.35, drawHeight * 0.45, 0, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw bright vibrant outline on body
+			ctx.strokeStyle = '#FF8800';
+			ctx.lineWidth = 4;
+			ctx.beginPath();
+			ctx.ellipse(centerX, centerY, drawWidth * 0.35, drawHeight * 0.45, 0, 0, Math.PI * 2);
+			ctx.stroke();
+			
+			// Draw vulture head (smaller, with bald appearance)
+			ctx.fillStyle = '#A0826D';
+			ctx.beginPath();
+			ctx.arc(centerX, centerY - drawHeight * 0.3, drawWidth * 0.18, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw bright head outline
+			ctx.strokeStyle = '#FFFF00';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			ctx.arc(centerX, centerY - drawHeight * 0.3, drawWidth * 0.18, 0, Math.PI * 2);
+			ctx.stroke();
+			
+			// Draw hooked beak (bright red)
+			ctx.strokeStyle = '#FF2222';
+			ctx.lineWidth = 4;
+			ctx.beginPath();
+			ctx.moveTo(centerX + drawWidth * 0.15, centerY - drawHeight * 0.3);
+			ctx.quadraticCurveTo(centerX + drawWidth * 0.25, centerY - drawHeight * 0.22, centerX + drawWidth * 0.22, centerY - drawHeight * 0.15);
+			ctx.stroke();
+			
+			// Draw wings (spread wide with bright outline)
+			ctx.fillStyle = '#1a0f0a';
+			ctx.beginPath();
+			ctx.ellipse(centerX - drawWidth * 0.3, centerY, drawWidth * 0.4, drawHeight * 0.3, -0.4, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.strokeStyle = '#FF8800';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			ctx.ellipse(centerX - drawWidth * 0.3, centerY, drawWidth * 0.4, drawHeight * 0.3, -0.4, 0, Math.PI * 2);
+			ctx.stroke();
+			
+			ctx.beginPath();
+			ctx.ellipse(centerX + drawWidth * 0.3, centerY, drawWidth * 0.4, drawHeight * 0.3, 0.4, 0, Math.PI * 2);
+			ctx.fill();
+			ctx.strokeStyle = '#FF8800';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			ctx.ellipse(centerX + drawWidth * 0.3, centerY, drawWidth * 0.4, drawHeight * 0.3, 0.4, 0, Math.PI * 2);
+			ctx.stroke();
+			
+			// Draw bright yellow eyes (very visible)
+			ctx.fillStyle = '#FFFF00';
+			ctx.beginPath();
+			ctx.arc(centerX + drawWidth * 0.1, centerY - drawHeight * 0.35, drawWidth * 0.08, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw black pupils
+			ctx.fillStyle = '#000000';
+			ctx.beginPath();
+			ctx.arc(centerX + drawWidth * 0.1, centerY - drawHeight * 0.35, drawWidth * 0.04, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw bright red eye outline for extra visibility
+			ctx.strokeStyle = '#FF2222';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			ctx.arc(centerX + drawWidth * 0.1, centerY - drawHeight * 0.35, drawWidth * 0.08, 0, Math.PI * 2);
+			ctx.stroke();
+		}
+		
+		ctx.restore();
+	}
+}
+
+// Draw boss
+function drawBoss(boss) {
+	const screenX = boss.x - worldOffset + PLAYER_START_X;
+	const centerX = screenX + boss.width / 2;
+	const centerY = boss.y + boss.height / 2;
+	
+	ctx.save();
+	
+	// Draw boss health bar above boss
+	const healthBarWidth = boss.width + 20;
+	const healthBarHeight = 8;
+	const healthBarX = centerX - healthBarWidth / 2;
+	const healthBarY = boss.y - 20;
+	
+	// Background
+	ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+	ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+	
+	// Health bar
+	const healthPercent = boss.health / boss.maxHealth;
+	ctx.fillStyle = healthPercent > 0.5 ? '#44ff44' : healthPercent > 0.25 ? '#ffaa00' : '#ff4444';
+	ctx.fillRect(healthBarX, healthBarY, healthBarWidth * healthPercent, healthBarHeight);
+	
+	// Border
+	ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+	ctx.lineWidth = 2;
+	ctx.strokeRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+	
+	// Draw boss body with gradient
+	const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, boss.width / 2);
+	gradient.addColorStop(0, '#FF6B6B');
+	gradient.addColorStop(0.5, '#FF4444');
+	gradient.addColorStop(1, '#CC0000');
+	ctx.fillStyle = gradient;
+	ctx.beginPath();
+	ctx.arc(centerX, centerY, boss.width / 2, 0, Math.PI * 2);
+	ctx.fill();
+	
+	// Draw boss outline
+	ctx.strokeStyle = '#FFFF00';
+	ctx.lineWidth = 3;
+	ctx.beginPath();
+	ctx.arc(centerX, centerY, boss.width / 2, 0, Math.PI * 2);
+	ctx.stroke();
+	
+	// Draw boss eyes
+	ctx.fillStyle = '#FFFFFF';
+	const eyeSize = boss.width * 0.1;
+	ctx.beginPath();
+	ctx.arc(centerX - boss.width * 0.15, centerY - boss.height * 0.1, eyeSize, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.beginPath();
+	ctx.arc(centerX + boss.width * 0.15, centerY - boss.height * 0.1, eyeSize, 0, Math.PI * 2);
+	ctx.fill();
+	
+	// Draw boss pupils
+	ctx.fillStyle = '#000000';
+	const pupilSize = eyeSize * 0.6;
+	ctx.beginPath();
+	ctx.arc(centerX - boss.width * 0.15, centerY - boss.height * 0.1, pupilSize, 0, Math.PI * 2);
+	ctx.fill();
+	ctx.beginPath();
+	ctx.arc(centerX + boss.width * 0.15, centerY - boss.height * 0.1, pupilSize, 0, Math.PI * 2);
+	ctx.fill();
+	
+	// Draw boss mouth
+	ctx.strokeStyle = '#000000';
+	ctx.lineWidth = 2;
+	ctx.beginPath();
+	ctx.arc(centerX, centerY + boss.height * 0.1, boss.width * 0.15, 0, Math.PI);
+	ctx.stroke();
+	
+	// Draw aura effect
+	const auraAlpha = 0.3 + Math.sin(Date.now() / 200) * 0.2;
+	ctx.fillStyle = `rgba(255, 100, 100, ${auraAlpha})`;
+	ctx.beginPath();
+	ctx.arc(centerX, centerY, boss.width / 2 + 15, 0, Math.PI * 2);
+	ctx.fill();
+	
+	// Draw level indicator
+	ctx.fillStyle = '#FFFF00';
+	ctx.font = 'bold 20px Poppins';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.fillText(`BOSS LV${boss.level}`, centerX, centerY);
+	
+	ctx.restore();
+}
+
+// Draw collectible
+function drawCollectible(col) {
+	const screenX = col.x - worldOffset + PLAYER_START_X;
+	
+	if (col.type === 'coin_magnet_powerup') {
+		// Draw glowing coin magnet power-up using asset
+		const asset = assetCache['magnet_powerup'];
+		
+		if (asset && asset.img) {
+			const img = asset.img;
+			const [aspectW, aspectH] = asset.aspectRatio || [1, 1];
+			
+			const drawWidth = col.width;
+			const drawHeight = drawWidth * (aspectH / aspectW);
+			
+			ctx.save();
+			
+			const centerX = screenX + col.width / 2;
+			const centerY = col.y + col.height / 2;
+			const pulseScale = 1 + Math.sin(Date.now() / 200) * 0.15;
+			
+			// Draw outer glow with magnetic field lines
+			ctx.strokeStyle = 'rgba(255, 100, 200, 0.4)';
+			ctx.lineWidth = 2;
+			for (let i = 0; i < 8; i++) {
+				const angle = (i / 8) * Math.PI * 2;
+				const radius = (col.width / 2 + 20) * pulseScale;
+				ctx.beginPath();
+				ctx.arc(centerX, centerY, radius, angle, angle + 0.3);
+				ctx.stroke();
+			}
+			
+			// Draw magnet asset
+			ctx.translate(centerX, centerY);
+			ctx.scale(pulseScale, pulseScale);
+			ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+			
+			ctx.restore();
+		} else {
+			// Fallback: draw custom magnet if asset not loaded
+			ctx.save();
+			
+			const centerX = screenX + col.width / 2;
+			const centerY = col.y + col.height / 2;
+			const pulseScale = 1 + Math.sin(Date.now() / 200) * 0.15;
+			
+			// Draw outer glow with magnetic field lines
+			ctx.strokeStyle = 'rgba(255, 100, 200, 0.4)';
+			ctx.lineWidth = 2;
+			for (let i = 0; i < 8; i++) {
+				const angle = (i / 8) * Math.PI * 2;
+				const radius = (col.width / 2 + 20) * pulseScale;
+				ctx.beginPath();
+				ctx.arc(centerX, centerY, radius, angle, angle + 0.3);
+				ctx.stroke();
+			}
+			
+			// Draw main magnet body with gradient
+			const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, col.width / 2);
+			gradient.addColorStop(0, '#FF69B4');
+			gradient.addColorStop(0.5, '#FF1493');
+			gradient.addColorStop(1, '#C71585');
+			ctx.fillStyle = gradient;
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, col.width / 2, 0, Math.PI * 2);
+			ctx.fill();
+			
+			// Draw magnet outline
+			ctx.strokeStyle = 'rgba(255, 100, 200, 1)';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, col.width / 2, 0, Math.PI * 2);
+			ctx.stroke();
+			
+			// Draw magnet poles (N and S)
+			ctx.fillStyle = '#FFFFFF';
+			ctx.font = 'bold 14px Poppins';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText('N', centerX - col.width / 4, centerY);
+			ctx.fillText('S', centerX + col.width / 4, centerY);
+			
+			ctx.restore();
+		}
+	} else if (col.type === 'jetpack') {
+		// Draw jetpack power-up using asset
+		ctx.save();
+		
+		const centerX = screenX + col.width / 2;
+		const centerY = col.y + col.height / 2;
+		
+		// Try to get asset from cache first
+		let asset = assetCache['jetpack_powerup'];
+		
+		// If not in cache, try to load it directly
+		if (!asset) {
+			const jetpackAsset = lib.getAsset('jetpack_powerup');
+			if (jetpackAsset && jetpackAsset.url) {
+				const img = new Image();
+				img.onload = () => {
+					assetCache['jetpack_powerup'] = {
+						img: img,
+						aspectRatio: jetpackAsset.aspect_ratio || [1, 1]
+					};
+					lib.log('Jetpack asset loaded successfully');
+				};
+				img.onerror = () => {
+					lib.log('Failed to load jetpack asset');
+				};
+				img.src = jetpackAsset.url;
+				asset = { img: img, aspectRatio: jetpackAsset.aspect_ratio || [1, 1] };
+			}
+		}
+		
+		if (asset && asset.img && asset.img.complete) {
+			// Draw jetpack asset - ensure image is fully loaded
+			const img = asset.img;
+			const [aspectW, aspectH] = asset.aspectRatio || [1, 1];
+			
+			const drawWidth = col.width;
+			const drawHeight = drawWidth * (aspectH / aspectW);
+			
+			ctx.translate(centerX, centerY);
+			ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+		} else {
+			ctx.translate(centerX, centerY);
+			
+			ctx.fillStyle = '#FFD700';
+			ctx.beginPath();
+			ctx.arc(0, 0, col.width / 2, 0, Math.PI * 2);
+			ctx.fill();
+			
+			ctx.strokeStyle = '#FF6347';
+			ctx.lineWidth = 3;
+			ctx.beginPath();
+			ctx.arc(0, 0, col.width / 2, 0, Math.PI * 2);
+			ctx.stroke();
+			
+			ctx.fillStyle = '#FFFFFF';
+			ctx.font = 'bold 24px Arial';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText('🚀', 0, 0);
+			
+			lib.log('Jetpack asset not loaded, using fallback');
+		}
+		
+		ctx.restore();
+	
+	} else if (col.type === 'ellipse') {
+		// Draw glowing star
+		ctx.save();
+		
+		const centerX = screenX + col.width / 2;
+		const centerY = col.y + col.height / 2;
+		const outerRadius = col.width / 2;
+		const innerRadius = outerRadius * 0.4;
+		
+		// Get star color configuration
+		const config = window.gameConfig;
+		const starColorSchemes = {
+			gold: { glow: 'rgba(255, 215, 0, 0.3)', inner: '#FFFF00', mid: '#FFD700', outer: '#FFA500', outline: 'rgba(255, 255, 0, 1)' },
+			purple: { glow: 'rgba(200, 100, 255, 0.3)', inner: '#FF00FF', mid: '#DA70D6', outer: '#9932CC', outline: 'rgba(255, 100, 255, 1)' },
+			cyan: { glow: 'rgba(0, 255, 255, 0.3)', inner: '#00FFFF', mid: '#00CED1', outer: '#008B8B', outline: 'rgba(0, 255, 255, 1)' },
+			pink: { glow: 'rgba(255, 100, 200, 0.3)', inner: '#FF69B4', mid: '#FF1493', outer: '#C71585', outline: 'rgba(255, 100, 200, 1)' },
+			green: { glow: 'rgba(100, 255, 100, 0.3)', inner: '#00FF00', mid: '#32CD32', outer: '#228B22', outline: 'rgba(100, 255, 100, 1)' }
+		};
+		
+		const colors = starColorSchemes[config.starColor] || starColorSchemes.gold;
+		
+		// Draw outer glow
+		ctx.fillStyle = colors.glow;
+		drawStar(centerX, centerY, 5, outerRadius + 15, innerRadius + 10);
+		ctx.fill();
+		
+		// Draw main star with gradient
+		const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, outerRadius);
+		gradient.addColorStop(0, colors.inner);
+		gradient.addColorStop(0.5, colors.mid);
+		gradient.addColorStop(1, colors.outer);
+		ctx.fillStyle = gradient;
+		drawStar(centerX, centerY, 5, outerRadius, innerRadius);
+		ctx.fill();
+		
+		// Draw star outline
+		ctx.strokeStyle = colors.outline;
+		ctx.lineWidth = 3;
+		drawStar(centerX, centerY, 5, outerRadius, innerRadius);
+		ctx.stroke();
+		
+		ctx.restore();
+	} else {
+		const assetId = col.type === 'energy' ? 'energy_reserve' : 'coin';
+		const asset = assetCache[assetId];
+		if (!asset) return;
+		
+		const img = asset.img;
+		const [aspectW, aspectH] = asset.aspectRatio;
+		
+		const drawWidth = col.width;
+		const drawHeight = drawWidth * (aspectH / aspectW);
+		
+		// Apply coin color tint if needed
+		if (col.type === 'coin') {
+			const config = window.gameConfig;
+			const coinColors = {
+				gold: null, // Default, no tint
+				silver: '#C0C0C0',
+				bronze: '#CD7F32',
+				rainbow: null // Special handling
+			};
+			
+			const tintColor = coinColors[config.coinColor];
+			
+			if (config.coinColor === 'rainbow') {
+				// Rainbow effect
+				const hue = (Date.now() / 10) % 360;
+				ctx.save();
+				ctx.filter = `hue-rotate(${hue}deg)`;
+				ctx.drawImage(img, screenX, col.y, drawWidth, drawHeight);
+				ctx.restore();
+			} else if (tintColor) {
+				ctx.save();
+				ctx.globalCompositeOperation = 'multiply';
+				ctx.fillStyle = tintColor;
+				ctx.fillRect(screenX, col.y, drawWidth, drawHeight);
+				ctx.globalCompositeOperation = 'destination-in';
+				ctx.drawImage(img, screenX, col.y, drawWidth, drawHeight);
+				ctx.restore();
+				
+				ctx.save();
+				ctx.globalCompositeOperation = 'source-over';
+				ctx.drawImage(img, screenX, col.y, drawWidth, drawHeight);
+				ctx.restore();
+			} else {
+				ctx.drawImage(img, screenX, col.y, drawWidth, drawHeight);
+			}
+		} else {
+			ctx.drawImage(img, screenX, col.y, drawWidth, drawHeight);
+		}
+	}
+}
+
+// Game loop
+function gameLoop(currentTime) {
+	const deltaTime = Math.min((currentTime - lastTime) / 1000, 0.11);
+	lastTime = currentTime;
+	
+	if (deltaTime > 0) {
+		update(deltaTime);
+		render();
+	}
+	
+	animationFrameId = requestAnimationFrame(gameLoop);
+}
+
+// Load tutorial icons from assets
+function loadTutorialIcons() {
+	// Load energy reserve icon
+	const energyAsset = lib.getAsset('energy_reserve');
+	if (energyAsset) {
+		const energyIcon = document.getElementById('tutorialEnergyIcon');
+		if (energyIcon) {
+			const img = document.createElement('img');
+			img.src = energyAsset.url;
+			img.alt = 'Energy Reserve';
+			energyIcon.appendChild(img);
+		}
+	}
+	
+	// Load coin icon
+	const coinAsset = lib.getAsset('coin');
+	if (coinAsset) {
+		const coinIcon = document.getElementById('tutorialCoinIcon');
+		if (coinIcon) {
+			const img = document.createElement('img');
+			img.src = coinAsset.url;
+			img.alt = 'Coin';
+			coinIcon.appendChild(img);
+		}
+
+		// Load coin icon for shop menu
+		const shopCoinIcon = document.getElementById('shopCoinIcon');
+		if (shopCoinIcon) {
+			shopCoinIcon.src = coinAsset.url;
+		}
+		
+		// Load coin icon for daily challenges
+		const dailyChallengesCoinIcon = document.getElementById('dailyChallengesCoinIcon');
+		if (dailyChallengesCoinIcon) {
+			dailyChallengesCoinIcon.src = coinAsset.url;
+		}
+	}
+	
+	// Load jetpack power-up icon
+	const jetpackAsset = lib.getAsset('jetpack_powerup');
+	if (jetpackAsset) {
+		const jetpackIcon = document.getElementById('tutorialJetpackIcon');
+		if (jetpackIcon) {
+			const img = document.createElement('img');
+			img.src = jetpackAsset.url;
+			img.alt = 'Jetpack Power-up';
+			jetpackIcon.appendChild(img);
+		}
+	}
+	
+	// Update tutorial text based on device type
+	updateTutorialControls();
+}
+
+// Update tutorial controls text based on device type
+function updateTutorialControls() {
+	const flyDescription = document.getElementById('tutorialFlyDescription');
+	if (flyDescription) {
+		if (isTouchDevice()) {
+			flyDescription.textContent = 'Press the screen to fly upward with your jetpack!';
+		} else {
+			flyDescription.textContent = 'Press SPACE or maintain Left-Click to fly upward with your jetpack!';
+		}
+	}
+}
+
+// Language system
+let currentLanguage = 'en'; // 'en' or 'fr'
+let languageSelectionShown = false; // Track if language selection has been shown
+
+const translations = {
+	en: {
+		// Language Selection
+		'language_select_title': '🌐 Select Language',
+		'language_select_subtitle': 'Choose your preferred language',
+		'language_english': '🇬🇧 English',
+		'language_french': '🇫🇷 Français',
+		
+		// Achievements - Tier 1
+		'ach_first_flight': 'First Flight',
+		'ach_first_flight_desc': 'Launch the jetpack for the first time',
+		'ach_coin_collector': 'Coin Collector',
+		'ach_coin_collector_desc': 'Collect 50 coins total',
+		'ach_energy_master': 'Energy Master',
+		'ach_energy_master_desc': 'Collect 100 energy reserves total',
+		'ach_speed_demon': 'Speed Demon',
+		'ach_speed_demon_desc': 'Reach 1000m distance in a single game',
+		'ach_invincible': 'Invincible',
+		'ach_invincible_desc': 'Activate the invincibility shield',
+		'ach_high_roller': 'High Roller',
+		'ach_high_roller_desc': 'Score 5000 points in a single game',
+		'ach_combo_king': 'Combo King',
+		'ach_combo_king_desc': 'Reach a combo multiplier of 5x or higher',
+		'ach_jetpack_collector': 'Jetpack Collector',
+		'ach_jetpack_collector_desc': 'Collect a jetpack power-up',
+		'ach_survivor': 'Survivor',
+		'ach_survivor_desc': 'Survive for 500m without collecting any energy',
+		'ach_perfect_run': 'Perfect Run',
+		'ach_perfect_run_desc': 'Reach 2000m without hitting any obstacles',
+		
+		// Tier 2: Coin Mastery
+		'ach_coin_hoarder': 'Coin Hoarder',
+		'ach_coin_hoarder_desc': 'Collect 200 coins total',
+		'ach_coin_magnet': 'Coin Magnet',
+		'ach_coin_magnet_desc': 'Collect 500 coins total',
+		'ach_coin_king': 'Coin King',
+		'ach_coin_king_desc': 'Collect 1000 coins total',
+		'ach_coin_emperor': 'Coin Emperor',
+		'ach_coin_emperor_desc': 'Collect 2000 coins total',
+		'ach_coin_god': 'Coin God',
+		'ach_coin_god_desc': 'Collect 5000 coins total',
+		'ach_coin_legend': 'Coin Legend',
+		'ach_coin_legend_desc': 'Collect 10000 coins total',
+		'ach_coin_cluster': 'Coin Cluster',
+		'ach_coin_cluster_desc': 'Collect 5 coins in a single game',
+		'ach_coin_rush': 'Coin Rush',
+		'ach_coin_rush_desc': 'Collect 20 coins in a single game',
+		'ach_coin_frenzy': 'Coin Frenzy',
+		'ach_coin_frenzy_desc': 'Collect 50 coins in a single game',
+		'ach_coin_tornado': 'Coin Tornado',
+		'ach_coin_tornado_desc': 'Collect 100 coins in a single game',
+		
+		// Tier 3: Energy Expertise
+		'ach_energy_collector': 'Energy Collector',
+		'ach_energy_collector_desc': 'Collect 200 energy reserves total',
+		'ach_energy_hoarder': 'Energy Hoarder',
+		'ach_energy_hoarder_desc': 'Collect 500 energy reserves total',
+		'ach_energy_king': 'Energy King',
+		'ach_energy_king_desc': 'Collect 1000 energy reserves total',
+		'ach_energy_emperor': 'Energy Emperor',
+		'ach_energy_emperor_desc': 'Collect 2000 energy reserves total',
+		'ach_energy_god': 'Energy God',
+		'ach_energy_god_desc': 'Collect 5000 energy reserves total',
+		'ach_energy_legend': 'Energy Legend',
+		'ach_energy_legend_desc': 'Collect 10000 energy reserves total',
+		'ach_energy_rush': 'Energy Rush',
+		'ach_energy_rush_desc': 'Collect 10 energy reserves in a single game',
+		'ach_energy_surge': 'Energy Surge',
+		'ach_energy_surge_desc': 'Collect 25 energy reserves in a single game',
+		'ach_energy_storm': 'Energy Storm',
+		'ach_energy_storm_desc': 'Collect 50 energy reserves in a single game',
+		'ach_energy_tsunami': 'Energy Tsunami',
+		'ach_energy_tsunami_desc': 'Collect 100 energy reserves in a single game',
+		
+		// Tier 4: Distance Achievements
+		'ach_distance_explorer': 'Distance Explorer',
+		'ach_distance_explorer_desc': 'Reach 500m in a single game',
+		'ach_distance_adventurer': 'Distance Adventurer',
+		'ach_distance_adventurer_desc': 'Reach 2000m in a single game',
+		'ach_distance_explorer_pro': 'Explorer Pro',
+		'ach_distance_explorer_pro_desc': 'Reach 5000m in a single game',
+		'ach_distance_world_traveler': 'World Traveler',
+		'ach_distance_world_traveler_desc': 'Reach 10000m in a single game',
+		'ach_distance_legend': 'Distance Legend',
+		'ach_distance_legend_desc': 'Reach 20000m in a single game',
+		'ach_distance_god': 'Distance God',
+		'ach_distance_god_desc': 'Reach 50000m in a single game',
+		'ach_total_distance_100k': '100K Club',
+		'ach_total_distance_100k_desc': 'Travel 100km total across all games',
+		'ach_total_distance_500k': '500K Club',
+		'ach_total_distance_500k_desc': 'Travel 500km total across all games',
+		'ach_total_distance_1m': '1M Club',
+		'ach_total_distance_1m_desc': 'Travel 1000km total across all games',
+		'ach_total_distance_5m': '5M Club',
+		'ach_total_distance_5m_desc': 'Travel 5000km total across all games',
+		
+		// Tier 5: Score Mastery
+		'ach_score_climber': 'Score Climber',
+		'ach_score_climber_desc': 'Score 10000 points in a single game',
+		'ach_score_master': 'Score Master',
+		'ach_score_master_desc': 'Score 25000 points in a single game',
+		'ach_score_legend': 'Score Legend',
+		'ach_score_legend_desc': 'Score 50000 points in a single game',
+		'ach_score_god': 'Score God',
+		'ach_score_god_desc': 'Score 100000 points in a single game',
+		'ach_total_score_100k': 'Century Scorer',
+		'ach_total_score_100k_desc': 'Score 100000 points total across all games',
+		'ach_total_score_500k': 'Mega Scorer',
+		'ach_total_score_500k_desc': 'Score 500000 points total across all games',
+		'ach_total_score_1m': 'Million Scorer',
+		'ach_total_score_1m_desc': 'Score 1000000 points total across all games',
+		'ach_total_score_5m': 'Billion Scorer',
+		'ach_total_score_5m_desc': 'Score 5000000 points total across all games',
+		'ach_high_score_10': 'High Score Holder',
+		'ach_high_score_10_desc': 'Achieve a high score of 10000 points',
+		'ach_high_score_50': 'Elite Player',
+		'ach_high_score_50_desc': 'Achieve a high score of 50000 points',
+		
+		// Tier 6: Combo Mastery
+		'ach_combo_starter': 'Combo Starter',
+		'ach_combo_starter_desc': 'Reach a combo multiplier of 2x',
+		'ach_combo_builder': 'Combo Builder',
+		'ach_combo_builder_desc': 'Reach a combo multiplier of 3x',
+		'ach_combo_master': 'Combo Master',
+		'ach_combo_master_desc': 'Reach a combo multiplier of 10x',
+		'ach_combo_legend': 'Combo Legend',
+		'ach_combo_legend_desc': 'Reach a combo multiplier of 20x',
+		'ach_combo_god': 'Combo God',
+		'ach_combo_god_desc': 'Reach a combo multiplier of 50x',
+		'ach_total_combos_100': 'Combo Collector',
+		'ach_total_combos_100_desc': 'Achieve 100 total combo multipliers across all games',
+		'ach_total_combos_500': 'Combo Enthusiast',
+		'ach_total_combos_500_desc': 'Achieve 500 total combo multipliers across all games',
+		'ach_total_combos_1k': 'Combo Addict',
+		'ach_total_combos_1k_desc': 'Achieve 1000 total combo multipliers across all games',
+		'ach_total_combos_5k': 'Combo Master Pro',
+		'ach_total_combos_5k_desc': 'Achieve 5000 total combo multipliers across all games',
+		'ach_combo_streak_10': 'Streak Starter',
+		'ach_combo_streak_10_desc': 'Maintain a combo streak of 10 in a single game',
+		
+		// Tier 7: Shield & Power-ups
+		'ach_shield_collector': 'Shield Collector',
+		'ach_shield_collector_desc': 'Activate the shield 10 times total',
+		'ach_shield_master': 'Shield Master',
+		'ach_shield_master_desc': 'Activate the shield 50 times total',
+		'ach_shield_legend': 'Shield Legend',
+		'ach_shield_legend_desc': 'Activate the shield 200 times total',
+		'ach_jetpack_collector_pro': 'Jetpack Collector Pro',
+		'ach_jetpack_collector_pro_desc': 'Collect 10 jetpack power-ups total',
+		'ach_jetpack_master': 'Jetpack Master',
+		'ach_jetpack_master_desc': 'Collect 50 jetpack power-ups total',
+		'ach_jetpack_legend': 'Jetpack Legend',
+		'ach_jetpack_legend_desc': 'Collect 200 jetpack power-ups total',
+		'ach_shield_in_game': 'Shield Spree',
+		'ach_shield_in_game_desc': 'Activate the shield 5 times in a single game',
+		'ach_jetpack_in_game': 'Jetpack Spree',
+		'ach_jetpack_in_game_desc': 'Collect 3 jetpack power-ups in a single game',
+		'ach_power_up_master': 'Power-up Master',
+		'ach_power_up_master_desc': 'Collect 100 power-ups total (shields + jetpacks)',
+		'ach_power_up_legend': 'Power-up Legend',
+		'ach_power_up_legend_desc': 'Collect 500 power-ups total (shields + jetpacks)',
+		
+		// Tier 8: Survival Challenges
+		'ach_survivor_pro': 'Survivor Pro',
+		'ach_survivor_pro_desc': 'Survive for 1000m without collecting any energy',
+		'ach_survivor_master': 'Survivor Master',
+		'ach_survivor_master_desc': 'Survive for 2000m without collecting any energy',
+		'ach_survivor_legend': 'Survivor Legend',
+		'ach_survivor_legend_desc': 'Survive for 5000m without collecting any energy',
+		'ach_perfect_run_pro': 'Perfect Run Pro',
+		'ach_perfect_run_pro_desc': 'Reach 5000m without hitting any obstacles',
+		'ach_perfect_run_master': 'Perfect Run Master',
+		'ach_perfect_run_master_desc': 'Reach 10000m without hitting any obstacles',
+		'ach_perfect_run_legend': 'Perfect Run Legend',
+		'ach_perfect_run_legend_desc': 'Reach 20000m without hitting any obstacles',
+		'ach_no_damage_games': 'Untouchable',
+		'ach_no_damage_games_desc': 'Complete 5 games without hitting any obstacles',
+		'ach_no_damage_games_pro': 'Untouchable Pro',
+		'ach_no_damage_games_pro_desc': 'Complete 20 games without hitting any obstacles',
+		'ach_no_damage_games_master': 'Untouchable Master',
+		'ach_no_damage_games_master_desc': 'Complete 50 games without hitting any obstacles',
+		'ach_no_damage_games_legend': 'Untouchable Legend',
+		'ach_no_damage_games_legend_desc': 'Complete 100 games without hitting any obstacles',
+		
+		// Tier 9: Gameplay Milestones
+		'ach_games_played_10': 'Getting Started',
+		'ach_games_played_10_desc': 'Play 10 games',
+		'ach_games_played_50': 'Dedicated Player',
+		'ach_games_played_50_desc': 'Play 50 games',
+		'ach_games_played_100': 'Hardcore Gamer',
+		'ach_games_played_100_desc': 'Play 100 games',
+		'ach_games_played_500': 'Obsessed Gamer',
+		'ach_games_played_500_desc': 'Play 500 games',
+		'ach_games_played_1000': 'Legend Gamer',
+		'ach_games_played_1000_desc': 'Play 1000 games',
+		'ach_games_played_5000': 'Eternal Gamer',
+		'ach_games_played_5000_desc': 'Play 5000 games',
+		'ach_first_high_score': 'First Victory',
+		'ach_first_high_score_desc': 'Achieve your first high score',
+		'ach_high_score_streak_3': 'Hot Streak',
+		'ach_high_score_streak_3_desc': 'Achieve 3 consecutive high scores',
+		'ach_high_score_streak_10': 'On Fire',
+		'ach_high_score_streak_10_desc': 'Achieve 10 consecutive high scores',
+		'ach_high_score_streak_50': 'Unstoppable',
+		'ach_high_score_streak_50_desc': 'Achieve 50 consecutive high scores',
+		
+		// Tier 10: Ultimate Challenges
+		'ach_ultimate_collector': 'Ultimate Collector',
+		'ach_ultimate_collector_desc': 'Collect 20000 coins total',
+		'ach_ultimate_energy': 'Ultimate Energy',
+		'ach_ultimate_energy_desc': 'Collect 20000 energy reserves total',
+		'ach_ultimate_distance': 'Ultimate Distance',
+		'ach_ultimate_distance_desc': 'Reach 100000m in a single game',
+		'ach_ultimate_score': 'Ultimate Score',
+		'ach_ultimate_score_desc': 'Score 500000 points in a single game',
+		'ach_ultimate_combo': 'Ultimate Combo',
+		'ach_ultimate_combo_desc': 'Reach a combo multiplier of 100x',
+		'ach_ultimate_survivor': 'Ultimate Survivor',
+		'ach_ultimate_survivor_desc': 'Survive for 10000m without collecting any energy',
+		'ach_ultimate_perfect': 'Ultimate Perfect',
+		'ach_ultimate_perfect_desc': 'Reach 50000m without hitting any obstacles',
+		'ach_ultimate_master': 'Ultimate Master',
+		'ach_ultimate_master_desc': 'Unlock 50 achievements',
+		'ach_ultimate_legend': 'Ultimate Legend',
+		'ach_ultimate_legend_desc': 'Unlock 75 achievements',
+		'ach_ultimate_god': 'Ultimate God',
+		'ach_ultimate_god_desc': 'Unlock all 100 achievements',
+		
+		// Menu
+		'menu_title': '🚀 Turbo Jetpack X',
+		'menu_high_score': 'High Score',
+		'menu_start': '▶ Start Game',
+		'menu_leaderboard': '🏆 Leaderboard',
+		'menu_achievements': '🏆 Achievements',
+		'menu_shop': '🛍 Shop',
+		'menu_options': '⚙ Options',
+		'menu_daily_challenges': '📋 Daily Challenges',
+		'menu_copyright': '© Is Daouda Games',
+		
+		// Game Over
+		'game_over_title': 'Game Over!',
+		'game_over_new_record': '⭐ NEW RECORD! ⭐',
+		'game_over_distance': 'Distance:',
+		'game_over_score': 'Score:',
+		'game_over_coins': 'Coins:',
+		'game_over_high_score': 'High Score:',
+		'game_over_restart': 'Play Again',
+		'game_over_menu': '← Main Menu',
+		'game_over_achievements': 'Achievements Unlocked',
+		'game_over_leaderboard': '🏆 Leaderboard',
+		
+		// Pause
+		'pause_title': 'PAUSED',
+		'pause_resume': 'Resume Game',
+		'pause_restart': 'Restart Game',
+		'pause_menu': '← Main Menu',
+		'pause_achievements': 'Achievements Unlocked',
+		
+		// Options
+		'options_title': '⚙ Options',
+		'options_music': '🎵 Music',
+		'options_sfx': '🔊 Sound Effects',
+		'options_language': '🌐 Language',
+		'options_reset': '🔄 Reset Game Data',
+		'options_back': '← Back to Menu',
+		'options_confirm_reset': '⚠️ Confirm Reset',
+		'options_reset_message': 'Are you sure you want to reset all game data? This will erase your high score and all achievements. This action cannot be undone.',
+		'options_confirm': 'Reset Data',
+		'options_cancel': 'Cancel',
+		
+		// Shop
+		'shop_title': '🛍 Shop',
+		'shop_coins': 'Available Coins',
+		'shop_back': '← Back to Menu',
+		'shop_max': 'MAX',
+		'shop_fuel_tank': 'Fuel Tank Upgrade',
+		'shop_fuel_tank_desc': '+25 max fuel capacity',
+		'shop_jetpack_thrust': 'Jetpack Booster',
+		'shop_jetpack_thrust_desc': '+10% jetpack thrust',
+		'shop_shield_duration': 'Shield Extension',
+		'shop_shield_duration_desc': '+1 second invincibility',
+		'shop_coin_magnet': 'Coin Magnet',
+		'shop_coin_magnet_desc': '+25% coin collection range',
+		'shop_fuel_efficiency': 'Fuel Efficiency',
+		'shop_fuel_efficiency_desc': '-15% fuel consumption',
+		
+		// Leaderboard
+		'leaderboard_title': '🏆 Leaderboard',
+		'leaderboard_loading': 'Loading leaderboard...',
+		'leaderboard_empty': 'No scores yet. Be the first to set a record!',
+		'leaderboard_error': 'Failed to load leaderboard.',
+		'leaderboard_back': '← Back to Menu',
+		'leaderboard_your_rank': 'Your Rank',
+		
+		// Daily Challenges
+		'daily_challenges_title': '📋 Daily Challenges',
+		'daily_challenges_reset': 'Resets in:',
+		'daily_challenges_rewards': 'Total Rewards:',
+		'daily_challenges_back': '← Back to Menu',
+		'daily_challenges_completed': '✓ COMPLETED',
+		
+		// Daily Challenge Missions
+		'challenge_short_sprint': 'Short Sprint',
+		'challenge_short_sprint_desc': 'Reach {target}m',
+		'challenge_distance_runner': 'Distance Runner',
+		'challenge_distance_runner_desc': 'Reach {target}m',
+		'challenge_long_journey': 'Long Journey',
+		'challenge_long_journey_desc': 'Reach {target}m',
+		'challenge_epic_voyage': 'Epic Voyage',
+		'challenge_epic_voyage_desc': 'Reach {target}m',
+		'challenge_marathon_flight': 'Marathon Flight',
+		'challenge_marathon_flight_desc': 'Reach {target}m',
+		'challenge_coin_seeker': 'Coin Seeker',
+		'challenge_coin_seeker_desc': 'Collect {target} coins',
+		'challenge_coin_collector': 'Coin Collector',
+		'challenge_coin_collector_desc': 'Collect {target} coins',
+		'challenge_coin_hoarder': 'Coin Hoarder',
+		'challenge_coin_hoarder_desc': 'Collect {target} coins',
+		'challenge_coin_master': 'Coin Master',
+		'challenge_coin_master_desc': 'Collect {target} coins',
+		'challenge_coin_legend': 'Coin Legend',
+		'challenge_coin_legend_desc': 'Collect {target} coins',
+		'challenge_energy_starter': 'Energy Starter',
+		'challenge_energy_starter_desc': 'Collect {target} energy reserves',
+		'challenge_energy_hoarder': 'Energy Hoarder',
+		'challenge_energy_hoarder_desc': 'Collect {target} energy reserves',
+		'challenge_energy_master': 'Energy Master',
+		'challenge_energy_master_desc': 'Collect {target} energy reserves',
+		'challenge_energy_collector': 'Energy Collector',
+		'challenge_energy_collector_desc': 'Collect {target} energy reserves',
+		'challenge_energy_legend': 'Energy Legend',
+		'challenge_energy_legend_desc': 'Collect {target} energy reserves',
+		'challenge_combo_starter': 'Combo Starter',
+		'challenge_combo_starter_desc': 'Reach {target}x combo',
+		'challenge_combo_builder': 'Combo Builder',
+		'challenge_combo_builder_desc': 'Reach {target}x combo',
+		'challenge_combo_master': 'Combo Master',
+		'challenge_combo_master_desc': 'Reach {target}x combo',
+		'challenge_combo_legend': 'Combo Legend',
+		'challenge_combo_legend_desc': 'Reach {target}x combo',
+		'challenge_combo_god': 'Combo God',
+		'challenge_combo_god_desc': 'Reach {target}x combo',
+		'challenge_clean_flight': 'Clean Flight',
+		'challenge_clean_flight_desc': 'Reach {target}m without hitting obstacles',
+		'challenge_perfect_run': 'Perfect Run',
+		'challenge_perfect_run_desc': 'Reach {target}m without hitting obstacles',
+		'challenge_flawless_journey': 'Flawless Journey',
+		'challenge_flawless_journey_desc': 'Reach {target}m without hitting obstacles',
+		'challenge_untouchable': 'Untouchable',
+		'challenge_untouchable_desc': 'Reach {target}m without hitting obstacles',
+		'challenge_fuel_efficient': 'Fuel Efficient',
+		'challenge_fuel_efficient_desc': 'Reach {target}m without collecting energy',
+		'challenge_energy_deprived': 'Energy Deprived',
+		'challenge_energy_deprived_desc': 'Reach {target}m without collecting energy',
+		'challenge_survivor': 'Survivor',
+		'challenge_survivor_desc': 'Reach {target}m without collecting energy',
+		'challenge_endurance_master': 'Maître d\'Endurance',
+		'challenge_endurance_master_desc': 'Atteignez {target}m sans collecter d\'énergie',
+		
+		// Tutorial
+		'tutorial_title': '🎮 How to Play',
+		'tutorial_controls': '🎮 Controls',
+		'tutorial_fly': 'Fly',
+		'tutorial_fly_desc_touch': 'Press the screen to fly upward with your jetpack!',
+		'tutorial_fly_desc_keyboard': 'Press SPACE or maintain Left-Click to fly upward with your jetpack!',
+		'tutorial_bonuses': '⚡ Bonuses',
+		'tutorial_energy': 'Energy Reserves',
+		'tutorial_energy_desc': 'Restores 25 fuel to keep your jetpack running strong!',
+		'tutorial_coins': 'Coins',
+		'tutorial_coins_desc': 'Earn points and currency for shop purchases!',
+		'tutorial_stars': 'Stars',
+		'tutorial_stars_desc': 'Boost speed, gain invincibility, and score big!',
+		'tutorial_jetpack': 'Jetpack Power-ups',
+		'tutorial_jetpack_desc': 'Instantly fills your entire fuel tank!',
+		'tutorial_magnet': 'Coin Magnet',
+		'tutorial_magnet_desc': 'Attracts all nearby coins for 8 seconds!',
+		'tutorial_dangers': '⚠️ Dangers',
+		'tutorial_vines': 'Thorny Vines',
+		'tutorial_vines_desc': 'Hanging and rising obstacles that end your run!',
+		'tutorial_coconuts': 'Coconuts',
+		'tutorial_coconuts_desc': 'Falling coconuts that crash your flight!',
+		'tutorial_vultures': 'Vultures',
+		'tutorial_vultures_desc': 'Flying enemies that patrol the jungle!',
+		'tutorial_lava': 'Lava Ground',
+		'tutorial_lava_desc': 'Falling to the ground means instant defeat!',
+		'tutorial_start': 'Start Game!',
+		
+		// Launch
+		'launch_instruction': 'Hold SPACE or Left-Click to charge, release to launch!',
+		'launch_instruction_touch': 'Hold to charge, release to launch!',
+		'launch_power': 'POWER',
+		
+		// HUD
+		'hud_fuel': '⚡ FUEL',
+		'hud_distance': 'm',
+		
+		// Achievements
+		'achievements_unlocked': 'Achievements Unlocked',
+		'achievements_title': '🏆 Achievements',
+		'ranking_title': '🏆 Ranking',
+		
+		// Splash Screen
+		'splash_tap_to_continue': 'Tap to Continue',
+		
+		// Nickname Menu
+		'nickname_enter_title': '👤 Enter Your Nickname',
+		'nickname_enter_subtitle': 'Choose a nickname to display on the leaderboard',
+		'nickname_edit_title': '👤 Edit Your Nickname',
+		'nickname_edit_subtitle': 'Change your nickname',
+		'nickname_confirm': '✓ Confirm Nickname',
+		'nickname_label': '👤 Nickname'
+	},
+	fr: {
+		// Language Selection
+		'language_select_title': '🌐 Sélectionner la Langue',
+		'language_select_subtitle': 'Choisissez votre langue préférée',
+		'language_english': '🇬🇧 English',
+		'language_french': '🇫🇷 Français',
+		
+		// Achievements - Tier 1
+		'ach_first_flight': 'Premier Vol',
+		'ach_first_flight_desc': 'Lancez le jetpack pour la première fois',
+		'ach_coin_collector': 'Collecteur de Pièces',
+		'ach_coin_collector_desc': 'Collectez 50 pièces au total',
+		'ach_energy_master': 'Maître de l\'Énergie',
+		'ach_energy_master_desc': 'Collectez 100 réserves d\'énergie au total',
+		'ach_speed_demon': 'Démon de Vitesse',
+		'ach_speed_demon_desc': 'Atteignez 1000m de distance en un seul jeu',
+		'ach_invincible': 'Invincible',
+		'ach_invincible_desc': 'Activez le bouclier d\'invincibilité',
+		'ach_high_roller': 'Gros Joueur',
+		'ach_high_roller_desc': 'Marquez 5000 points en un seul jeu',
+		'ach_combo_king': 'Roi du Combo',
+		'ach_combo_king_desc': 'Atteignez un multiplicateur de combo de 5x ou plus',
+		'ach_jetpack_collector': 'Collecteur de Jetpack',
+		'ach_jetpack_collector_desc': 'Collectez un bonus jetpack',
+		'ach_survivor': 'Survivant',
+		'ach_survivor_desc': 'Survivez 500m sans collecter d\'énergie',
+		'ach_perfect_run': 'Course Parfaite',
+		'ach_perfect_run_desc': 'Atteignez 2000m sans frapper d\'obstacles',
+		
+		// Tier 2: Coin Mastery
+		'ach_coin_hoarder': 'Accumulateur de Pièces',
+		'ach_coin_hoarder_desc': 'Collectez 200 pièces au total',
+		'ach_coin_magnet': 'Aimant à Pièces',
+		'ach_coin_magnet_desc': 'Collectez 500 pièces au total',
+		'ach_coin_king': 'Roi des Pièces',
+		'ach_coin_king_desc': 'Collectez 1000 pièces au total',
+		'ach_coin_emperor': 'Empereur des Pièces',
+		'ach_coin_emperor_desc': 'Collectez 2000 pièces au total',
+		'ach_coin_god': 'Dieu des Pièces',
+		'ach_coin_god_desc': 'Collectez 5000 pièces au total',
+		'ach_coin_legend': 'Légende des Pièces',
+		'ach_coin_legend_desc': 'Collectez 10000 pièces au total',
+		'ach_coin_cluster': 'Grappe de Pièces',
+		'ach_coin_cluster_desc': 'Collectez 5 pièces en un seul jeu',
+		'ach_coin_rush': 'Ruée vers les Pièces',
+		'ach_coin_rush_desc': 'Collectez 20 pièces en un seul jeu',
+		'ach_coin_frenzy': 'Frénésie de Pièces',
+		'ach_coin_frenzy_desc': 'Collectez 50 pièces en un seul jeu',
+		'ach_coin_tornado': 'Tornade de Pièces',
+		'ach_coin_tornado_desc': 'Collectez 100 pièces en un seul jeu',
+		
+		// Tier 3: Energy Expertise
+		'ach_energy_collector': 'Collecteur d\'Énergie',
+		'ach_energy_collector_desc': 'Collectez 200 réserves d\'énergie au total',
+		'ach_energy_hoarder': 'Accumulateur d\'Énergie',
+		'ach_energy_hoarder_desc': 'Collectez 500 réserves d\'énergie au total',
+		'ach_energy_king': 'Roi de l\'Énergie',
+		'ach_energy_king_desc': 'Collectez 1000 réserves d\'énergie au total',
+		'ach_energy_emperor': 'Empereur de l\'Énergie',
+		'ach_energy_emperor_desc': 'Collectez 2000 réserves d\'énergie au total',
+		'ach_energy_god': 'Dieu de l\'Énergie',
+		'ach_energy_god_desc': 'Collectez 5000 réserves d\'énergie au total',
+		'ach_energy_legend': 'Légende de l\'Énergie',
+		'ach_energy_legend_desc': 'Collectez 10000 réserves d\'énergie au total',
+		'ach_energy_rush': 'Ruée d\'Énergie',
+		'ach_energy_rush_desc': 'Collectez 10 réserves d\'énergie en un seul jeu',
+		'ach_energy_surge': 'Vague d\'Énergie',
+		'ach_energy_surge_desc': 'Collectez 25 réserves d\'énergie en un seul jeu',
+		'ach_energy_storm': 'Tempête d\'Énergie',
+		'ach_energy_storm_desc': 'Collectez 50 réserves d\'énergie en un seul jeu',
+		'ach_energy_tsunami': 'Tsunami d\'Énergie',
+		'ach_energy_tsunami_desc': 'Collectez 100 réserves d\'énergie en un seul jeu',
+		
+		// Tier 4: Distance Achievements
+		'ach_distance_explorer': 'Explorateur de Distance',
+		'ach_distance_explorer_desc': 'Atteignez 500m en un seul jeu',
+		'ach_distance_adventurer': 'Aventurier de Distance',
+		'ach_distance_adventurer_desc': 'Atteignez 2000m en un seul jeu',
+		'ach_distance_explorer_pro': 'Explorateur Pro',
+		'ach_distance_explorer_pro_desc': 'Atteignez 5000m en un seul jeu',
+		'ach_distance_world_traveler': 'Voyageur du Monde',
+		'ach_distance_world_traveler_desc': 'Atteignez 10000m en un seul jeu',
+		'ach_distance_legend': 'Légende de Distance',
+		'ach_distance_legend_desc': 'Atteignez 20000m en un seul jeu',
+		'ach_distance_god': 'Dieu de Distance',
+		'ach_distance_god_desc': 'Atteignez 50000m en un seul jeu',
+		'ach_total_distance_100k': 'Club des 100K',
+		'ach_total_distance_100k_desc': 'Parcourez 100km au total',
+		'ach_total_distance_500k': 'Club des 500K',
+		'ach_total_distance_500k_desc': 'Parcourez 500km au total',
+		'ach_total_distance_1m': 'Club du 1M',
+		'ach_total_distance_1m_desc': 'Parcourez 1000km au total',
+		'ach_total_distance_5m': 'Club du 5M',
+		'ach_total_distance_5m_desc': 'Parcourez 5000km au total',
+		
+		// Tier 5: Score Mastery
+		'ach_score_climber': 'Grimpeur de Score',
+		'ach_score_climber_desc': 'Marquez 10000 points en un seul jeu',
+		'ach_score_master': 'Maître du Score',
+		'ach_score_master_desc': 'Marquez 25000 points en un seul jeu',
+		'ach_score_legend': 'Légende du Score',
+		'ach_score_legend_desc': 'Marquez 50000 points en un seul jeu',
+		'ach_score_god': 'Dieu du Score',
+		'ach_score_god_desc': 'Marquez 100000 points en un seul jeu',
+		'ach_total_score_100k': 'Marqueur de Siècle',
+		'ach_total_score_100k_desc': 'Marquez 100000 points au total',
+		'ach_total_score_500k': 'Marqueur Méga',
+		'ach_total_score_500k_desc': 'Marquez 500000 points au total',
+		'ach_total_score_1m': 'Marqueur d\'un Million',
+		'ach_total_score_1m_desc': 'Marquez 1000000 points au total',
+		'ach_total_score_5m': 'Marqueur d\'un Milliard',
+		'ach_total_score_5m_desc': 'Marquez 5000000 points au total',
+		'ach_high_score_10': 'Détenteur de Meilleur Score',
+		'ach_high_score_10_desc': 'Atteignez un meilleur score de 10000 points',
+		'ach_high_score_50': 'Joueur d\'Élite',
+		'ach_high_score_50_desc': 'Atteignez un meilleur score de 50000 points',
+		
+		// Tier 6: Combo Mastery
+		'ach_combo_starter': 'Débutant du Combo',
+		'ach_combo_starter_desc': 'Atteignez un multiplicateur de combo de 2x',
+		'ach_combo_builder': 'Constructeur de Combo',
+		'ach_combo_builder_desc': 'Atteignez un multiplicateur de combo de 3x',
+		'ach_combo_master': 'Maître du Combo',
+		'ach_combo_master_desc': 'Atteignez un multiplicateur de combo de 10x',
+		'ach_combo_legend': 'Légende du Combo',
+		'ach_combo_legend_desc': 'Atteignez un multiplicateur de combo de 20x',
+		'ach_combo_god': 'Dieu du Combo',
+		'ach_combo_god_desc': 'Atteignez un multiplicateur de combo de 50x',
+		'ach_total_combos_100': 'Collecteur de Combos',
+		'ach_total_combos_100_desc': 'Atteignez 100 multiplicateurs de combo au total',
+		'ach_total_combos_500': 'Passionné de Combos',
+		'ach_total_combos_500_desc': 'Atteignez 500 multiplicateurs de combo au total',
+		'ach_total_combos_1k': 'Accro du Combo',
+		'ach_total_combos_1k_desc': 'Atteignez 1000 multiplicateurs de combo au total',
+		'ach_total_combos_5k': 'Maître du Combo Pro',
+		'ach_total_combos_5k_desc': 'Atteignez 5000 multiplicateurs de combo au total',
+		'ach_combo_streak_10': 'Débutant de Série',
+		'ach_combo_streak_10_desc': 'Maintenez une série de combo de 10 en un seul jeu',
+		
+		// Tier 7: Shield & Power-ups
+		'ach_shield_collector': 'Collecteur de Boucliers',
+		'ach_shield_collector_desc': 'Activez le bouclier 10 fois au total',
+		'ach_shield_master': 'Maître du Bouclier',
+		'ach_shield_master_desc': 'Activez le bouclier 50 fois au total',
+		'ach_shield_legend': 'Légende du Bouclier',
+		'ach_shield_legend_desc': 'Activez le bouclier 200 fois au total',
+		'ach_jetpack_collector_pro': 'Collecteur de Jetpack Pro',
+		'ach_jetpack_collector_pro_desc': 'Collectez 10 bonus jetpack au total',
+		'ach_jetpack_master': 'Maître du Jetpack',
+		'ach_jetpack_master_desc': 'Collectez 50 bonus jetpack au total',
+		'ach_jetpack_legend': 'Légende du Jetpack',
+		'ach_jetpack_legend_desc': 'Collectez 200 bonus jetpack au total',
+		'ach_shield_in_game': 'Série de Boucliers',
+		'ach_shield_in_game_desc': 'Activez le bouclier 5 fois en un seul jeu',
+		'ach_jetpack_in_game': 'Série de Jetpacks',
+		'ach_jetpack_in_game_desc': 'Collectez 3 bonus jetpack en un seul jeu',
+		'ach_power_up_master': 'Maître des Bonus',
+		'ach_power_up_master_desc': 'Collectez 100 bonus au total (boucliers + jetpacks)',
+		'ach_power_up_legend': 'Légende des Bonus',
+		'ach_power_up_legend_desc': 'Collectez 500 bonus au total (boucliers + jetpacks)',
+		
+		// Tier 8: Survival Challenges
+		'ach_survivor_pro': 'Survivant Pro',
+		'ach_survivor_pro_desc': 'Survivez 1000m sans collecter d\'énergie',
+		'ach_survivor_master': 'Maître Survivant',
+		'ach_survivor_master_desc': 'Survivez 2000m sans collecter d\'énergie',
+		'ach_survivor_legend': 'Légende Survivante',
+		'ach_survivor_legend_desc': 'Survivez 5000m sans collecter d\'énergie',
+		'ach_perfect_run_pro': 'Course Parfaite Pro',
+		'ach_perfect_run_pro_desc': 'Atteignez 5000m sans frapper d\'obstacles',
+		'ach_perfect_run_master': 'Maître de Course Parfaite',
+		'ach_perfect_run_master_desc': 'Atteignez 10000m sans frapper d\'obstacles',
+		'ach_perfect_run_legend': 'Légende de Course Parfaite',
+		'ach_perfect_run_legend_desc': 'Atteignez 20000m sans frapper d\'obstacles',
+		'ach_no_damage_games': 'Intouchable',
+		'ach_no_damage_games_desc': 'Complétez 5 jeux sans frapper d\'obstacles',
+		'ach_no_damage_games_pro': 'Intouchable Pro',
+		'ach_no_damage_games_pro_desc': 'Complétez 20 jeux sans frapper d\'obstacles',
+		'ach_no_damage_games_master': 'Maître Intouchable',
+		'ach_no_damage_games_master_desc': 'Complétez 50 jeux sans frapper d\'obstacles',
+		'ach_no_damage_games_legend': 'Légende Intouchable',
+		'ach_no_damage_games_legend_desc': 'Complétez 100 jeux sans frapper d\'obstacles',
+		
+		// Tier 9: Gameplay Milestones
+		'ach_games_played_10': 'Débuts',
+		'ach_games_played_10_desc': 'Jouez 10 jeux',
+		'ach_games_played_50': 'Joueur Dévoué',
+		'ach_games_played_50_desc': 'Jouez 50 jeux',
+		'ach_games_played_100': 'Joueur Hardcore',
+		'ach_games_played_100_desc': 'Jouez 100 jeux',
+		'ach_games_played_500': 'Joueur Obsédé',
+		'ach_games_played_500_desc': 'Jouez 500 jeux',
+		'ach_games_played_1000': 'Joueur Légendaire',
+		'ach_games_played_1000_desc': 'Jouez 1000 jeux',
+		'ach_games_played_5000': 'Joueur Éternel',
+		'ach_games_played_5000_desc': 'Jouez 5000 jeux',
+		'ach_first_high_score': 'Première Victoire',
+		'ach_first_high_score_desc': 'Atteignez votre premier meilleur score',
+		'ach_high_score_streak_3': 'Série Chaude',
+		'ach_high_score_streak_3_desc': 'Atteignez 3 meilleurs scores consécutifs',
+		'ach_high_score_streak_10': 'En Feu',
+		'ach_high_score_streak_10_desc': 'Atteignez 10 meilleurs scores consécutifs',
+		'ach_high_score_streak_50': 'Irrésistible',
+		'ach_high_score_streak_50_desc': 'Atteignez 50 meilleurs scores consécutifs',
+		
+		// Tier 10: Ultimate Challenges
+		'ach_ultimate_collector': 'Collecteur Ultime',
+		'ach_ultimate_collector_desc': 'Collectez 20000 pièces au total',
+		'ach_ultimate_energy': 'Énergie Ultime',
+		'ach_ultimate_energy_desc': 'Collectez 20000 réserves d\'énergie au total',
+		'ach_ultimate_distance': 'Distance Ultime',
+		'ach_ultimate_distance_desc': 'Atteignez 100000m en un seul jeu',
+		'ach_ultimate_score': 'Score Ultime',
+		'ach_ultimate_score_desc': 'Marquez 500000 points en un seul jeu',
+		'ach_ultimate_combo': 'Combo Ultime',
+		'ach_ultimate_combo_desc': 'Atteignez un multiplicateur de combo de 100x',
+		'ach_ultimate_survivor': 'Survivant Ultime',
+		'ach_ultimate_survivor_desc': 'Survivez 10000m sans collecter d\'énergie',
+		'ach_ultimate_perfect': 'Perfection Ultime',
+		'ach_ultimate_perfect_desc': 'Atteignez 50000m sans frapper d\'obstacles',
+		'ach_ultimate_master': 'Maître Ultime',
+		'ach_ultimate_master_desc': 'Déverrouillez 50 réalisations',
+		'ach_ultimate_legend': 'Légende Ultime',
+		'ach_ultimate_legend_desc': 'Déverrouillez 75 réalisations',
+		'ach_ultimate_god': 'Dieu Ultime',
+		'ach_ultimate_god_desc': 'Déverrouillez les 100 réalisations',
+		
+		// Menu
+		'menu_title': '🚀 Turbo Jetpack X',
+		'menu_high_score': 'Meilleur Score',
+		'menu_start': '▶ Commencer',
+		'menu_leaderboard': '🏆 Classement',
+		'menu_achievements': '🏆 Réalisations',
+		'menu_shop': '🛍 Boutique',
+		'menu_options': '⚙ Options',
+		'menu_daily_challenges': '📋 Défis Quotidiens',
+		'menu_copyright': '© Is Daouda Games',
+		
+		// Game Over
+		'game_over_title': 'Jeu Terminé!',
+		'game_over_new_record': '⭐ NOUVEAU RECORD! ⭐',
+		'game_over_distance': 'Distance:',
+		'game_over_score': 'Score:',
+		'game_over_coins': 'Pièces:',
+		'game_over_high_score': 'Meilleur Score:',
+		'game_over_restart': 'Rejouer',
+		'game_over_menu': '← Menu Principal',
+		'game_over_achievements': 'Réalisations Débloquées',
+		'game_over_leaderboard': '🏆 Classement',
+		
+		// Pause
+		'pause_title': 'PAUSE',
+		'pause_resume': 'Reprendre',
+		'pause_restart': 'Recommencer',
+		'pause_menu': '← Menu Principal',
+		'pause_achievements': 'Réalisations Débloquées',
+		
+		// Options
+		'options_title': '⚙ Options',
+		'options_music': '🎵 Musique',
+		'options_sfx': '🔊 Effets Sonores',
+		'options_language': '🌐 Langue',
+		'options_reset': '🔄 Réinitialiser',
+		'options_back': '← Retour au Menu',
+		'options_confirm_reset': '⚠️ Confirmer la Réinitialisation',
+		'options_reset_message': 'Êtes-vous sûr de vouloir réinitialiser toutes les données du jeu? Cela effacera votre meilleur score et toutes les réalisations. Cette action ne peut pas être annulée.',
+		'options_confirm': 'Réinitialiser',
+		'options_cancel': 'Annuler',
+		
+		// Shop
+		'shop_title': '🛍 Boutique',
+		'shop_coins': 'Pièces Disponibles',
+		'shop_back': '← Retour au Menu',
+		'shop_max': 'MAX',
+		'shop_fuel_tank': 'Amélioration du Réservoir',
+		'shop_fuel_tank_desc': '+25 capacité carburant max',
+		'shop_jetpack_thrust': 'Propulseur Jetpack',
+		'shop_jetpack_thrust_desc': '+10% poussée jetpack',
+		'shop_shield_duration': 'Extension du Bouclier',
+		'shop_shield_duration_desc': '+1 seconde invincibilité',
+		'shop_coin_magnet': 'Aimant à Pièces',
+		'shop_coin_magnet_desc': '+25% portée collecte pièces',
+		'shop_fuel_efficiency': 'Efficacité Carburant',
+		'shop_fuel_efficiency_desc': '-15% consommation carburant',
+		
+		// Leaderboard
+		'leaderboard_title': '🏆 Classement',
+		'leaderboard_loading': 'Chargement du classement...',
+		'leaderboard_empty': 'Aucun score pour le moment. Soyez le premier à établir un record!',
+		'leaderboard_error': 'Impossible de charger le classement.',
+		'leaderboard_back': '← Retour au Menu',
+		'leaderboard_your_rank': 'Votre Rang',
+		
+		// Daily Challenges
+		'daily_challenges_title': '📋 Défis Quotidiens',
+		'daily_challenges_reset': 'Réinitialisation dans:',
+		'daily_challenges_rewards': 'Récompenses Totales:',
+		'daily_challenges_back': '← Retour au Menu',
+		'daily_challenges_completed': '✓ COMPLÉTÉ',
+		
+		// Daily Challenge Missions
+		'challenge_short_sprint': 'Sprint Court',
+		'challenge_short_sprint_desc': 'Atteignez {target}m',
+		'challenge_distance_runner': 'Coureur de Distance',
+		'challenge_distance_runner_desc': 'Atteignez {target}m',
+		'challenge_long_journey': 'Long Voyage',
+		'challenge_long_journey_desc': 'Atteignez {target}m',
+		'challenge_epic_voyage': 'Voyage Épique',
+		'challenge_epic_voyage_desc': 'Atteignez {target}m',
+		'challenge_marathon_flight': 'Vol Marathon',
+		'challenge_marathon_flight_desc': 'Atteignez {target}m',
+		'challenge_coin_seeker': 'Chercheur de Pièces',
+		'challenge_coin_seeker_desc': 'Collectez {target} pièces',
+		'challenge_coin_collector': 'Collecteur de Pièces',
+		'challenge_coin_collector_desc': 'Collectez {target} pièces',
+		'challenge_coin_hoarder': 'Accumulateur de Pièces',
+		'challenge_coin_hoarder_desc': 'Collectez {target} pièces',
+		'challenge_coin_master': 'Maître des Pièces',
+		'challenge_coin_master_desc': 'Collectez {target} pièces',
+		'challenge_coin_legend': 'Légende des Pièces',
+		'challenge_coin_legend_desc': 'Collectez {target} pièces',
+		'challenge_energy_starter': 'Débutant d\'Énergie',
+		'challenge_energy_starter_desc': 'Collectez {target} réserves d\'énergie',
+		'challenge_energy_hoarder': 'Accumulateur d\'Énergie',
+		'challenge_energy_hoarder_desc': 'Collectez {target} réserves d\'énergie',
+		'challenge_energy_master': 'Maître de l\'Énergie',
+		'challenge_energy_master_desc': 'Collectez {target} réserves d\'énergie',
+		'challenge_energy_collector': 'Collecteur d\'Énergie',
+		'challenge_energy_collector_desc': 'Collectez {target} réserves d\'énergie',
+		'challenge_energy_legend': 'Légende de l\'Énergie',
+		'challenge_energy_legend_desc': 'Collectez {target} réserves d\'énergie',
+		'challenge_combo_starter': 'Débutant du Combo',
+		'challenge_combo_starter_desc': 'Atteignez {target}x combo',
+		'challenge_combo_builder': 'Constructeur de Combo',
+		'challenge_combo_builder_desc': 'Atteignez {target}x combo',
+		'challenge_combo_master': 'Maître du Combo',
+		'challenge_combo_master_desc': 'Atteignez {target}x combo',
+		'challenge_combo_legend': 'Légende du Combo',
+		'challenge_combo_legend_desc': 'Atteignez {target}x combo',
+		'challenge_combo_god': 'Dieu du Combo',
+		'challenge_combo_god_desc': 'Atteignez {target}x combo',
+		'challenge_clean_flight': 'Vol Propre',
+		'challenge_clean_flight_desc': 'Atteignez {target}m sans frapper d\'obstacles',
+		'challenge_perfect_run': 'Course Parfaite',
+		'challenge_perfect_run_desc': 'Atteignez {target}m sans frapper d\'obstacles',
+		'challenge_flawless_journey': 'Voyage Impeccable',
+		'challenge_flawless_journey_desc': 'Atteignez {target}m sans frapper d\'obstacles',
+		'challenge_untouchable': 'Intouchable',
+		'challenge_untouchable_desc': 'Atteignez {target}m sans frapper d\'obstacles',
+		'challenge_fuel_efficient': 'Efficace en Carburant',
+		'challenge_fuel_efficient_desc': 'Atteignez {target}m sans collecter d\'énergie',
+		'challenge_energy_deprived': 'Privé d\'Énergie',
+		'challenge_energy_deprived_desc': 'Atteignez {target}m sans collecter d\'énergie',
+		'challenge_survivor': 'Survivant',
+		'challenge_survivor_desc': 'Atteignez {target}m sans collecter d\'énergie',
+		'challenge_endurance_master': 'Maître d\'Endurance',
+		'challenge_endurance_master_desc': 'Atteignez {target}m sans collecter d\'énergie',
+		
+		// Tutorial
+		'tutorial_title': '🎮 Comment Jouer',
+		'tutorial_controls': '🎮 Contrôles',
+		'tutorial_fly': 'Voler',
+		'tutorial_fly_desc_touch': 'Appuyez sur l\'écran pour voler vers le haut avec votre jetpack!',
+		'tutorial_fly_desc_keyboard': 'Appuyez sur ESPACE ou maintenez le Clic Gauche pour voler vers le haut avec votre jetpack!',
+		'tutorial_bonuses': '⚡ Bonus',
+		'tutorial_energy': 'Réserves d\'Énergie',
+		'tutorial_energy_desc': 'Restaure 25 carburant pour garder votre jetpack en bon état!',
+		'tutorial_coins': 'Pièces',
+		'tutorial_coins_desc': 'Gagnez des points et de la monnaie pour les achats en boutique!',
+		'tutorial_stars': 'Étoiles',
+		'tutorial_stars_desc': 'Augmentez la vitesse, gagnez l\'invincibilité et marquez gros!',
+		'tutorial_jetpack': 'Bonus Jetpack',
+		'tutorial_jetpack_desc': 'Remplit complètement votre réservoir de carburant!',
+		'tutorial_magnet': 'Aimant à Pièces',
+		'tutorial_magnet_desc': 'Attire toutes les pièces à proximité pendant 8 secondes!',
+		'tutorial_dangers': '⚠️ Dangers',
+		'tutorial_vines': 'Vignes Épineuses',
+		'tutorial_vines_desc': 'Obstacles suspendus et montants qui terminent votre course!',
+		'tutorial_coconuts': 'Noix de Coco',
+		'tutorial_coconuts_desc': 'Les noix de coco qui tombent écrasent votre vol!',
+		'tutorial_vultures': 'Vautours',
+		'tutorial_vultures_desc': 'Ennemis volants qui patrouillent dans la jungle!',
+		'tutorial_lava': 'Sol de Lave',
+		'tutorial_lava_desc': 'Tomber au sol signifie une défaite instantanée!',
+		'tutorial_start': 'Commencer!',
+		
+		// Launch
+		'launch_instruction': 'Appuyez sur ESPACE ou maintenez le Clic Gauche pour charger, relâchez pour lancer!',
+		'launch_instruction_touch': 'Maintenez pour charger, relâchez pour lancer!',
+		'launch_power': 'PUISSANCE',
+		
+		// HUD
+		'hud_fuel': '⚡ CARBURANT',
+		'hud_distance': 'm',
+		
+		// Achievements
+		'achievements_unlocked': 'Réalisations Débloquées',
+		'achievements_title': '🏆 Réalisations',
+		'ranking_title': '🏆 Classement',
+		
+		// Splash Screen
+		'splash_tap_to_continue': 'Appuyez pour Continuer',
+		
+		// Nickname Menu
+		'nickname_enter_title': '👤 Entrez Votre Surnom',
+		'nickname_enter_subtitle': 'Choisissez un surnom à afficher sur le classement',
+		'nickname_edit_title': '👤 Modifier Votre Surnom',
+		'nickname_edit_subtitle': 'Changez votre surnom',
+		'nickname_confirm': '✓ Confirmer le Surnom',
+		'nickname_label': '👤 Surnom'
+	}
+};
+
+// Get translation string
+function t(key) {
+	return translations[currentLanguage][key] || translations['en'][key] || key;
+}
+
+function detectSystemLanguage() {
+	const browserLang = navigator.language || navigator.userLanguage;
+	if (browserLang.startsWith('fr')) {
+		return 'fr';
+	}
+	return 'en';
+}
+
+function setLanguage(lang) {
+	if (lang === 'en' || lang === 'fr') {
+		currentLanguage = lang;
+		window.gameConfig.language = lang;
+		
+		const languageSelect = document.getElementById('languageSelect');
+		if (languageSelect) {
+			languageSelect.value = lang;
+			lib.log('Language dropdown updated to: ' + lang);
+		}
+		
+		updateUIText();
+		
+		saveGameState().catch(error => {
+			lib.log('Failed to save language: ' + error);
+		});
+		
+		lib.log('Language set to: ' + lang);
+	} else {
+		lib.log('Invalid language: ' + lang);
+	}
+}
+
+function showSplashScreen() {
+	const splashScreen = document.getElementById('splashScreen');
+	const splashLogo = document.getElementById('splashLogo');
+	
+	if (!splashScreen) {
+		lib.log('Splash screen element not found');
+		proceedAfterSplash();
+		return;
+	}
+	
+	if (!splashLogo) {
+		lib.log('Splash logo element not found');
+		proceedAfterSplash();
+		return;
+	}
+	
+	const logoAsset = lib.getAsset('is_daouda_logo');
+	if (logoAsset && logoAsset.url) {
+		splashLogo.src = logoAsset.url;
+		splashLogo.onload = () => {
+			lib.log('Splash logo loaded successfully');
+		};
+		splashLogo.onerror = () => {
+			lib.log('Failed to load splash logo');
+			proceedAfterSplash();
+		};
+		lib.log('Loading splash logo from: ' + logoAsset.url);
+	} else {
+		lib.log('Splash logo asset not found');
+		proceedAfterSplash();
+		return;
+	}
+	
+	splashScreen.style.display = 'flex';
+	splashScreen.style.visibility = 'visible';
+	splashScreen.style.opacity = '1';
+	splashScreen.style.zIndex = '105';
+	splashScreen.style.position = 'absolute';
+	splashScreen.style.top = '0';
+	splashScreen.style.left = '0';
+	splashScreen.style.width = '100%';
+	splashScreen.style.height = '100%';
+	
+	splashScreen.classList.add('show');
+	lib.log('Splash screen displayed');
+	
+	playSound('logo_sound', 1.0);
+	lib.log('Playing logo sound');
+	
+	setTimeout(() => {
+		splashScreen.classList.remove('show');
+		splashScreen.style.display = 'none';
+		splashScreen.style.visibility = 'hidden';
+		lib.log('Splash screen hidden after timeout');
+		proceedAfterSplash();
+	}, 3000);
+}
+
+function showPressToStartScreen() {
+	const pressToStartScreen = document.getElementById('pressToStartScreen');
+	if (!pressToStartScreen) {
+		lib.log('Press to start screen element not found');
+		proceedToLanguageSelection();
+		return;
+	}
+	
+	// Set background image from menu_background asset
+	const asset = assetCache['menu_background'];
+	if (asset && asset.img && asset.img.src) {
+		pressToStartScreen.style.backgroundImage = `url('${asset.img.src}')`;
+	}
+	
+	// Update splash screen text based on current language
+	const splashTapToContinue = document.getElementById('splashTapToContinue');
+	if (splashTapToContinue) {
+		splashTapToContinue.textContent = t('splash_tap_to_continue');
+	}
+	
+	// Show the press-to-start screen
+	pressToStartScreen.style.display = 'flex';
+	pressToStartScreen.style.visibility = 'visible';
+	pressToStartScreen.style.opacity = '1';
+	pressToStartScreen.style.zIndex = '105';
+	pressToStartScreen.classList.add('show');
+	
+	lib.log('Press to start screen displayed');
+	
+	// Add click/touch handler to proceed
+	const handleProceed = (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		
+		// Remove event listeners
+		pressToStartScreen.removeEventListener('click', handleProceed);
+		pressToStartScreen.removeEventListener('touchstart', handleProceed);
+		document.removeEventListener('keydown', handleKeyProceed);
+		
+		// Hide press-to-start screen
+		pressToStartScreen.classList.remove('show');
+		pressToStartScreen.style.display = 'none';
+		pressToStartScreen.style.visibility = 'hidden';
+		pressToStartScreen.style.zIndex = '0';
+		
+		lib.log('Press to start screen hidden, proceeding to language selection');
+		proceedToLanguageSelection();
+	};
+	
+	const handleKeyProceed = (e) => {
+		if (e.code === 'Space' || e.code === 'Enter') {
+			handleProceed(e);
+		}
+	};
+	
+	// Add event listeners
+	pressToStartScreen.addEventListener('click', handleProceed);
+	pressToStartScreen.addEventListener('touchstart', handleProceed);
+	document.addEventListener('keydown', handleKeyProceed);
+}
+
+function proceedToLanguageSelection() {
+	const languageMenu = document.getElementById('languageSelectionMenu');
+	const mainMenu = document.getElementById('mainMenu');
+	
+	if (!window.gameConfig.languageChosen) {
+		if (languageMenu) {
+			// Ensure main menu is hidden
+			if (mainMenu) {
+				mainMenu.classList.remove('show');
+				mainMenu.style.display = 'none';
+			}
+			// Show language selection with explicit styling
+			languageMenu.style.display = 'flex';
+			languageMenu.style.visibility = 'visible';
+			languageMenu.style.opacity = '1';
+			languageMenu.style.zIndex = '100';
+			languageMenu.classList.add('show');
+			lib.log('Language selection menu displayed');
+		} else {
+			// Fallback to splash screen then main menu
+			showSplashScreen();
+		}
+	} else {
+		// Ensure language selection menu is hidden
+		if (languageMenu) {
+			languageMenu.classList.remove('show');
+			languageMenu.style.display = 'none';
+			languageMenu.style.visibility = 'hidden';
+		}
+		// Show splash screen with developer logo
+		showSplashScreen();
+	}
+}
+
+function showNicknameMenu() {
+	const nicknameMenu = document.getElementById('nicknameMenu');
+	if (!nicknameMenu) {
+		lib.log('Nickname menu element not found');
+		proceedAfterSplash();
+		return;
+	}
+	
+	// Ensure other menus are hidden
+	const mainMenu = document.getElementById('mainMenu');
+	if (mainMenu) {
+		mainMenu.classList.remove('show');
+		mainMenu.style.display = 'none';
+	}
+	
+	// Show nickname menu
+	nicknameMenu.style.display = 'flex';
+	nicknameMenu.style.visibility = 'visible';
+	nicknameMenu.style.opacity = '1';
+	nicknameMenu.style.zIndex = '100';
+	nicknameMenu.classList.add('show');
+	
+	// Focus on input field
+	const nicknameInput = document.getElementById('nicknameInput');
+	if (nicknameInput) {
+		nicknameInput.focus();
+		nicknameInput.value = window.gameConfig.playerNickname || '';
+	}
+	
+	lib.log('Nickname menu displayed');
+}
+
+function saveNickname() {
+	const nicknameInput = document.getElementById('nicknameInput');
+	if (!nicknameInput) return;
+	
+	let nickname = nicknameInput.value.trim();
+	
+	// Validate nickname
+	if (nickname.length === 0) {
+		lib.log('Nickname cannot be empty');
+		return;
+	}
+	
+	if (nickname.length > 20) {
+		nickname = nickname.substring(0, 20);
+		nicknameInput.value = nickname;
+	}
+	
+	// Save nickname to config
+	window.gameConfig.playerNickname = nickname;
+	window.gameConfig.nicknameChosen = true;
+	
+	// Save to persistent storage
+	saveGameState().catch(error => {
+		lib.log('Failed to save nickname: ' + error);
+	});
+	
+	// Hide nickname menu
+	const nicknameMenu = document.getElementById('nicknameMenu');
+	if (nicknameMenu) {
+		nicknameMenu.classList.remove('show');
+		nicknameMenu.style.display = 'none';
+	}
+	
+	lib.log('Nickname saved: ' + nickname);
+	
+	// Check if we're coming from initial setup or from options menu
+	const optionsMenu = document.getElementById('optionsMenu');
+	if (optionsMenu && optionsMenu.classList.contains('show')) {
+		// We're editing from options, go back to options
+		closeNicknameEditMenu();
+	} else {
+		// We're in initial setup, proceed to main menu
+		proceedAfterSplash();
+	}
+}
+
+function showNicknameEditMenu() {
+	const nicknameMenu = document.getElementById('nicknameMenu');
+	const optionsMenu = document.getElementById('optionsMenu');
+	
+	if (!nicknameMenu) return;
+	
+	// Hide options menu
+	if (optionsMenu) {
+		optionsMenu.classList.remove('show');
+	}
+	
+	// Show nickname menu
+	nicknameMenu.style.display = 'flex';
+	nicknameMenu.style.visibility = 'visible';
+	nicknameMenu.style.opacity = '1';
+	nicknameMenu.style.zIndex = '101';
+	nicknameMenu.classList.add('show');
+	
+	// Update title for editing
+	const nicknameMenuTitle = document.getElementById('nicknameMenuTitle');
+	if (nicknameMenuTitle) {
+		nicknameMenuTitle.textContent = t('nickname_edit_title');
+	}
+	
+	// Update subtitle
+	const nicknameMenuSubtitle = document.getElementById('nicknameMenuSubtitle');
+	if (nicknameMenuSubtitle) {
+		nicknameMenuSubtitle.textContent = t('nickname_edit_subtitle');
+	}
+	
+	// Update button text
+	const nicknameConfirmButton = document.getElementById('nicknameConfirmButton');
+	if (nicknameConfirmButton) {
+		nicknameConfirmButton.textContent = t('nickname_confirm');
+	}
+	
+	// Focus on input field and populate with current nickname
+	const nicknameInput = document.getElementById('nicknameInput');
+	if (nicknameInput) {
+		nicknameInput.focus();
+		nicknameInput.value = window.gameConfig.playerNickname || '';
+		nicknameInput.select();
+	}
+	
+	lib.log('Nickname edit menu displayed');
+}
+
+function closeNicknameEditMenu() {
+	const nicknameMenu = document.getElementById('nicknameMenu');
+	const optionsMenu = document.getElementById('optionsMenu');
+	
+	if (nicknameMenu) {
+		nicknameMenu.classList.remove('show');
+		nicknameMenu.style.display = 'none';
+	}
+	
+	if (optionsMenu) {
+		optionsMenu.classList.add('show');
+	}
+}
+
+function proceedAfterSplash() {
+	lib.log('Proceeding after splash screen');
+	
+	const splashScreen = document.getElementById('splashScreen');
+	if (splashScreen) {
+		splashScreen.classList.remove('show');
+		splashScreen.style.display = 'none';
+		splashScreen.style.visibility = 'hidden';
+		splashScreen.style.zIndex = '0';
+	}
+	
+	const languageMenu = document.getElementById('languageSelectionMenu');
+	if (languageMenu) {
+		languageMenu.classList.remove('show');
+		languageMenu.style.display = 'none';
+		languageMenu.style.visibility = 'hidden';
+		languageMenu.style.zIndex = '0';
+	}
+	
+	showMainMenu = true;
+	lib.log('showMainMenu set to true');
+	
+	const mainMenu = document.getElementById('mainMenu');
+	if (mainMenu) {
+		mainMenu.style.display = 'flex';
+		mainMenu.style.visibility = 'visible';
+		mainMenu.style.opacity = '1';
+		mainMenu.style.zIndex = '100';
+		mainMenu.classList.add('show');
+		lib.log('Main menu displayed');
+		
+		document.getElementById('menuHighScore').textContent = highScore;
+		
+		setMenuBackground();
+	} else {
+		lib.log('Main menu element not found');
+	}
+}
+
+function selectLanguage(lang) {
+	if (lang === 'en' || lang === 'fr') {
+		currentLanguage = lang;
+		window.gameConfig.language = lang;
+		window.gameConfig.languageChosen = true;
+		languageSelectionShown = true;
+		
+		saveGameState().catch(error => {
+			lib.log('Failed to save language preference: ' + error);
+		});
+		
+		const languageMenu = document.getElementById('languageSelectionMenu');
+		if (languageMenu) {
+			languageMenu.classList.remove('show');
+		}
+		
+		// Update splash screen text
+		const splashTapToContinue = document.getElementById('splashTapToContinue');
+		if (splashTapToContinue) {
+			splashTapToContinue.textContent = t('splash_tap_to_continue');
+		}
+		
+		updateUIText();
+		
+		// Update language button styles to reflect the newly selected language
+		const languageEnglishBtn = document.getElementById('languageEnglish');
+		const languageFrenchBtn = document.getElementById('languageFrench');
+		if (languageEnglishBtn && languageFrenchBtn) {
+			if (currentLanguage === 'en') {
+				// English is active
+				languageEnglishBtn.style.background = 'linear-gradient(135deg, #44ff44 0%, #00cc00 100%)';
+				languageEnglishBtn.style.borderColor = '#00cc00';
+				languageEnglishBtn.style.color = 'white';
+				languageEnglishBtn.style.boxShadow = '0 4px 12px rgba(68, 255, 68, 0.4)';
+				languageEnglishBtn.classList.add('active');
+				
+				languageFrenchBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+				languageFrenchBtn.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+				languageFrenchBtn.style.color = 'white';
+				languageFrenchBtn.style.boxShadow = 'none';
+				languageFrenchBtn.classList.remove('active');
+			} else {
+				// French is active
+				languageFrenchBtn.style.background = 'linear-gradient(135deg, #44ff44 0%, #00cc00 100%)';
+				languageFrenchBtn.style.borderColor = '#00cc00';
+				languageFrenchBtn.style.color = 'white';
+				languageFrenchBtn.style.boxShadow = '0 4px 12px rgba(68, 255, 68, 0.4)';
+				languageFrenchBtn.classList.add('active');
+				
+				languageEnglishBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+				languageEnglishBtn.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+				languageEnglishBtn.style.color = 'white';
+				languageEnglishBtn.style.boxShadow = 'none';
+				languageEnglishBtn.classList.remove('active');
+			}
+		}
+		
+		// Check if nickname has been set
+		if (!window.gameConfig.nicknameChosen) {
+			// Show nickname menu after language selection
+			setTimeout(() => {
+				showNicknameMenu();
+			}, 500);
+		} else {
+			showSplashScreen();
+		}
+		
+		lib.log('Language selected: ' + lang);
+	}
+}
+
+function updateTutorialText() {
+	const tutorialSections = document.querySelectorAll('.tutorial-section-title');
+	if (tutorialSections[0]) tutorialSections[0].textContent = t('tutorial_controls');
+	if (tutorialSections[1]) tutorialSections[1].textContent = t('tutorial_bonuses');
+	if (tutorialSections[2]) tutorialSections[2].textContent = t('tutorial_dangers');
+	
+	const tutorialItems = document.querySelectorAll('.tutorial-item');
+	
+	if (tutorialItems[0]) {
+		const nameEl = tutorialItems[0].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[0].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_fly');
+		if (descEl) {
+			if (isTouchDevice()) {
+				descEl.textContent = t('tutorial_fly_desc_touch');
+			} else {
+				descEl.textContent = t('tutorial_fly_desc_keyboard');
+			}
+		}
+	}
+	
+	if (tutorialItems[1]) {
+		const nameEl = tutorialItems[1].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[1].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_energy');
+		if (descEl) descEl.textContent = t('tutorial_energy_desc');
+	}
+	
+	if (tutorialItems[2]) {
+		const nameEl = tutorialItems[2].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[2].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_coins');
+		if (descEl) descEl.textContent = t('tutorial_coins_desc');
+	}
+	
+	if (tutorialItems[3]) {
+		const nameEl = tutorialItems[3].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[3].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_stars');
+		if (descEl) descEl.textContent = t('tutorial_stars_desc');
+	}
+	
+	if (tutorialItems[4]) {
+		const nameEl = tutorialItems[4].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[4].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_jetpack');
+		if (descEl) descEl.textContent = t('tutorial_jetpack_desc');
+	}
+	
+	if (tutorialItems[5]) {
+		const nameEl = tutorialItems[5].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[5].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_magnet');
+		if (descEl) descEl.textContent = t('tutorial_magnet_desc');
+	}
+	
+	if (tutorialItems[6]) {
+		const nameEl = tutorialItems[6].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[6].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_vines');
+		if (descEl) descEl.textContent = t('tutorial_vines_desc');
+	}
+	
+	if (tutorialItems[7]) {
+		const nameEl = tutorialItems[7].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[7].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_coconuts');
+		if (descEl) descEl.textContent = t('tutorial_coconuts_desc');
+	}
+	
+	if (tutorialItems[8]) {
+		const nameEl = tutorialItems[8].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[8].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_vultures');
+		if (descEl) descEl.textContent = t('tutorial_vultures_desc');
+	}
+	
+	if (tutorialItems[9]) {
+		const nameEl = tutorialItems[9].querySelector('.tutorial-item-name');
+		const descEl = tutorialItems[9].querySelector('.tutorial-item-description');
+		if (nameEl) nameEl.textContent = t('tutorial_lava');
+		if (descEl) descEl.textContent = t('tutorial_lava_desc');
+	}
+}
+
+function updateUIText() {
+	// Main Menu
+	const menuTitle = document.querySelector('.menu-title');
+	if (menuTitle) menuTitle.textContent = t('menu_title');
+	
+	const startButton = document.getElementById('startButton');
+	if (startButton) startButton.textContent = t('menu_start');
+	
+	const leaderboardButton = document.getElementById('leaderboardButton');
+	if (leaderboardButton) leaderboardButton.textContent = t('menu_leaderboard');
+	
+	const achievementsButton = document.getElementById('achievementsButton');
+	if (achievementsButton) achievementsButton.textContent = t('menu_achievements');
+	
+	const shopButton = document.getElementById('shopButton');
+	if (shopButton) shopButton.textContent = t('menu_shop');
+	
+	const optionsButton = document.getElementById('optionsButton');
+	if (optionsButton) optionsButton.textContent = t('menu_options');
+	
+	const dailyChallengesButton = document.getElementById('dailyChallengesButton');
+	if (dailyChallengesButton) dailyChallengesButton.textContent = t('menu_daily_challenges');
+	
+	// Options Menu
+	const optionsTitle = document.querySelector('.options-title');
+	if (optionsTitle) optionsTitle.textContent = t('options_title');
+	
+	// Update option labels - get all option items and update their labels
+	const optionLabels = document.querySelectorAll('.option-label');
+	if (optionLabels.length > 0) {
+		if (optionLabels[0]) optionLabels[0].textContent = t('options_music');
+		if (optionLabels[1]) optionLabels[1].textContent = t('options_sfx');
+		if (optionLabels[2]) optionLabels[2].textContent = t('options_language');
+	}
+	
+	const resetButton = document.getElementById('resetButton');
+	if (resetButton) resetButton.textContent = t('options_reset');
+	
+	const backButton = document.getElementById('backButton');
+	if (backButton) backButton.textContent = t('options_back');
+	
+	// Confirmation dialog
+	const confirmTitle = document.querySelector('.confirmation-panel h2');
+	if (confirmTitle) confirmTitle.textContent = t('options_confirm_reset');
+	
+	const confirmMessage = document.querySelector('.confirmation-panel p');
+	if (confirmMessage) confirmMessage.textContent = t('options_reset_message');
+	
+	const confirmCancel = document.getElementById('confirmCancel');
+	if (confirmCancel) confirmCancel.textContent = t('options_cancel');
+	
+	const confirmReset = document.getElementById('confirmReset');
+	if (confirmReset) confirmReset.textContent = t('options_confirm');
+	
+	// Shop
+	const shopTitle = document.querySelector('.shop-title');
+	if (shopTitle) shopTitle.textContent = t('shop_title');
+	
+	const shopCoinsLabel = document.querySelector('.shop-coins-label');
+	if (shopCoinsLabel) shopCoinsLabel.textContent = t('shop_coins');
+	
+	const shopCloseButton = document.getElementById('shopCloseButton');
+	if (shopCloseButton) shopCloseButton.textContent = t('shop_back');
+	
+	// Refresh shop upgrades with new language
+	displayShopUpgrades();
+	
+	// Leaderboard
+	const leaderboardTitle = document.querySelector('.leaderboard-title');
+	if (leaderboardTitle) leaderboardTitle.textContent = t('leaderboard_title');
+	
+	const leaderboardCloseButton = document.getElementById('leaderboardCloseButton');
+	if (leaderboardCloseButton) leaderboardCloseButton.textContent = t('leaderboard_back');
+	
+	// Daily Challenges
+	const dailyChallengesTitle = document.querySelector('#dailyChallengesMenu .options-title');
+	if (dailyChallengesTitle) dailyChallengesTitle.textContent = t('daily_challenges_title');
+	
+	const dailyChallengesCloseButton = document.getElementById('dailyChallengesCloseButton');
+	if (dailyChallengesCloseButton) dailyChallengesCloseButton.textContent = t('daily_challenges_back');
+	
+	// Achievements menu
+	const achievementsMenuTitle = document.querySelector('#achievementsMenu .pause-panel h1');
+	if (achievementsMenuTitle) achievementsMenuTitle.textContent = t('achievements_title');
+	
+	// Tutorial
+	const tutorialTitle = document.querySelector('.tutorial-title');
+	if (tutorialTitle) tutorialTitle.textContent = t('tutorial_title');
+	
+	const tutorialCloseButton = document.getElementById('tutorialCloseButton');
+	if (tutorialCloseButton) tutorialCloseButton.textContent = t('tutorial_start');
+	
+	// Update tutorial sections
+	updateTutorialText();
+	
+	// Game Over
+	const gameOverTitle = document.querySelector('.game-over h1');
+	if (gameOverTitle) gameOverTitle.textContent = t('game_over_title');
+	
+	const restartButton = document.getElementById('restartButton');
+	if (restartButton) restartButton.textContent = t('game_over_restart');
+	
+	const menuButton = document.getElementById('menuButton');
+	if (menuButton) menuButton.textContent = t('game_over_menu');
+	
+	// Pause
+	const pauseTitle = document.querySelector('.pause-panel h1');
+	if (pauseTitle) pauseTitle.textContent = t('pause_title');
+	
+	const resumeButton = document.getElementById('resumeButton');
+	if (resumeButton) resumeButton.textContent = t('pause_resume');
+	
+	const pauseRestartButton = document.getElementById('pauseRestartButton');
+	if (pauseRestartButton) pauseRestartButton.textContent = t('pause_restart');
+	
+	const pauseMenuButton = document.getElementById('pauseMenuButton');
+	if (pauseMenuButton) pauseMenuButton.textContent = t('pause_menu');
+	
+	// Back from achievements button
+	const backFromAchievementsButton = document.getElementById('backFromAchievementsButton');
+	if (backFromAchievementsButton) backFromAchievementsButton.textContent = t('options_back');
+	
+	// Launch instruction
+	updateLaunchInstruction();
+	
+	// Nickname menu
+	const nicknameMenuTitle = document.getElementById('nicknameMenuTitle');
+	if (nicknameMenuTitle) {
+		nicknameMenuTitle.textContent = t('nickname_enter_title');
+	}
+	
+	const nicknameMenuSubtitle = document.getElementById('nicknameMenuSubtitle');
+	if (nicknameMenuSubtitle) {
+		nicknameMenuSubtitle.textContent = t('nickname_enter_subtitle');
+	}
+	
+	const nicknameConfirmBtn = document.getElementById('nicknameConfirmButton');
+	if (nicknameConfirmBtn) {
+		nicknameConfirmBtn.textContent = t('nickname_confirm');
+	}
+	
+	const nicknameLabel = document.getElementById('nicknameLabel');
+	if (nicknameLabel) {
+		nicknameLabel.textContent = t('nickname_label');
+	}
+}
+
+// Main run function
+async function run(mode) {
+
+	gameMode = mode;
+	
+	// Load game state from persistent storage
+	await loadGameState();
+
+	// Detect and set language
+	const savedLanguage = window.gameConfig.language;
+	const languageChosen = window.gameConfig.languageChosen;
+	if (savedLanguage && (savedLanguage === 'en' || savedLanguage === 'fr') && languageChosen) {
+		currentLanguage = savedLanguage;
+		languageSelectionShown = true;
+
+	} else {
+		currentLanguage = detectSystemLanguage();
+		languageSelectionShown = false;
+
+	}
+
+	
+	// Update canvas dimensions based on current orientation
+	updateCanvasDimensions();
+	
+	// Setup canvas
+	canvas = document.getElementById('gameCanvas');
+	ctx = canvas.getContext('2d');
+	canvas.width = CANVAS_WIDTH;
+	canvas.height = CANVAS_HEIGHT;
+	
+	// Listen for orientation changes
+	window.addEventListener('orientationchange', () => {
+
+		updateCanvasDimensions();
+		if (canvas) {
+			canvas.width = CANVAS_WIDTH;
+			canvas.height = CANVAS_HEIGHT;
+		}
+	});
+	
+	window.addEventListener('resize', () => {
+		const newLandscape = window.innerWidth > window.innerHeight;
+		if (newLandscape !== isLandscapeMode) {
+
+			updateCanvasDimensions();
+			if (canvas) {
+				canvas.width = CANVAS_WIDTH;
+				canvas.height = CANVAS_HEIGHT;
+			}
+		}
+	});
+	
+	// Show game parameters UI
+	lib.showGameParameters({
+		name: 'Game Settings',
+		params: {
+			'Background Theme': {
+				key: 'gameConfig.theme',
+				type: 'dropdown',
+				options: [
+					{ label: 'Tropical Green', value: 'tropical_green' },
+					{ label: 'Sunset Jungle', value: 'sunset_jungle' },
+					{ label: 'Misty Morning', value: 'misty_morning' },
+					{ label: 'Night Jungle', value: 'night_jungle' }
+				],
+				onChange: (value) => {
+					window.gameConfig.theme = value;
+				}
+			},
+			'Player Color': {
+				key: 'gameConfig.playerColor',
+				type: 'color',
+				onChange: (value) => {
+					window.gameConfig.playerColor = value;
+				}
+			},
+			'Coin Color': {
+				key: 'gameConfig.coinColor',
+				type: 'dropdown',
+				options: [
+					{ label: 'Gold', value: 'gold' },
+					{ label: 'Silver', value: 'silver' },
+					{ label: 'Bronze', value: 'bronze' },
+					{ label: 'Rainbow', value: 'rainbow' }
+				],
+				onChange: (value) => {
+					window.gameConfig.coinColor = value;
+				}
+			},
+			'Fuel Capacity': {
+				key: 'gameConfig.fuelCapacity',
+				type: 'slider',
+				min: 30,
+				max: 150,
+				step: 5,
+				onChange: (value) => {
+					window.gameConfig.fuelCapacity = value;
+					if (gamePhase === 'launch') {
+						player.maxFuel = value;
+						player.fuel = value;
+						updateUI();
+					}
+				}
+			},
+			'Fuel Consumption': {
+				key: 'gameConfig.fuelConsumptionRate',
+				type: 'dropdown',
+				options: [
+					{ label: 'Slow', value: 'slow' },
+					{ label: 'Normal', value: 'normal' },
+					{ label: 'Fast', value: 'fast' }
+				],
+				onChange: (value) => {
+					window.gameConfig.fuelConsumptionRate = value;
+				}
+			},
+			'Gravity': {
+				key: 'gameConfig.gravityStrength',
+				type: 'dropdown',
+				options: [
+					{ label: 'Light', value: 'light' },
+					{ label: 'Normal', value: 'normal' },
+					{ label: 'Heavy', value: 'heavy' }
+				],
+				onChange: (value) => {
+					window.gameConfig.gravityStrength = value;
+				}
+			},
+			'Starting Speed': {
+				key: 'gameConfig.startingSpeed',
+				type: 'dropdown',
+				options: [
+					{ label: 'Slow', value: 'slow' },
+					{ label: 'Normal', value: 'normal' },
+					{ label: 'Fast', value: 'fast' }
+				],
+				onChange: (value) => {
+					window.gameConfig.startingSpeed = value;
+				}
+			},
+			'Star Color': {
+				key: 'gameConfig.starColor',
+				type: 'dropdown',
+				options: [
+					{ label: 'Gold', value: 'gold' },
+					{ label: 'Purple', value: 'purple' },
+					{ label: 'Cyan', value: 'cyan' },
+					{ label: 'Pink', value: 'pink' },
+					{ label: 'Green', value: 'green' }
+				],
+				onChange: (value) => {
+					window.gameConfig.starColor = value;
+				}
+			},
+			'Master Volume': {
+				key: 'gameConfig.masterVolume',
+				type: 'slider',
+				min: 0,
+				max: 1,
+				step: 0.1,
+				onChange: (value) => {
+					window.gameConfig.masterVolume = value;
+					setMasterVolume(value);
+				}
+			}
+		}
+	});
+	
+	// Preload assets
+	await preloadAssets();
+	
+	// Load tutorial icons
+	loadTutorialIcons();
+	
+	// Initialize daily challenges - use the proper initialization function
+	initializeDailyChallenges();
+
+	
+	// Initialize master volume from config
+	if (window.gameConfig.masterVolume !== undefined) {
+		setMasterVolume(window.gameConfig.masterVolume);
+	}
+	
+	// Setup input handlers
+	setupInputHandlers();
+	
+	// Setup focus loss detection for auto-pause
+	setupFocusDetection();
+	
+	// Update all UI text to current language
+	updateUIText();
+	
+	// Show press-to-start screen first
+	showPressToStartScreen();
+	
+	// Start game loop
+	lastTime = performance.now();
+	gameLoop(lastTime);
+}

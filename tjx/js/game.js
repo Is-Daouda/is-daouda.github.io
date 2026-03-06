@@ -1,6 +1,6 @@
 function showAd()
 {
-	GamePix.interstitialAd().then(function (res) {
+	window.GamePix.interstitialAd().then(function (res) {
 		if (res.success) {
 		  // Log the success if you want
 		  info();

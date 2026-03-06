@@ -213,8 +213,8 @@ window.lib = {
             await window.firebaseAPI.addScore(playerName, score);
             return { success: true };
         }
-		if (GamePix) {
-			GamePix.updateScore(score); // Envoie le score au classement officiel GamePix
+		if (window.GamePix) {
+			window.GamePix.updateScore(score); // Envoie le score au classement officiel window.GamePix
 		}
         console.error("Firebase non chargé");
         return { success: false };
@@ -253,10 +253,10 @@ window.lib = {
         if (!state) return { success: false };
 
         try {
-            // 1. Sauvegarde via le SDK GamePix si disponible
-            if (GamePix && GamePix.localStorage) {
-                // GamePix attend souvent des paires clé/valeur simples
-                GamePix.localStorage.setItem('astrocade_save', JSON.stringify(state));
+            // 1. Sauvegarde via le SDK window.GamePix si disponible
+            if (window.GamePix && window.GamePix.localStorage) {
+                // window.GamePix attend souvent des paires clé/valeur simples
+                window.GamePix.localStorage.setItem('astrocade_save', JSON.stringify(state));
                 console.log("💾 Sauvegardé via SDK GamePix");
             }
             
@@ -274,8 +274,8 @@ window.lib = {
         let saved = null;
 
         // 1. Tentative de lecture via GamePix
-        if (GamePix && GamePix.localStorage) {
-            saved = GamePix.localStorage.getItem('astrocade_save');
+        if (window.GamePix && window.GamePix.localStorage) {
+            saved = window.GamePix.localStorage.getItem('astrocade_save');
         }
 
         // 2. Secours via LocalStorage classique si GamePix est vide

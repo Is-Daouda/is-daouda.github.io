@@ -24,7 +24,7 @@ window.gameConfig = {
   "coinColor": "gold",
   "fuelCapacity": 50,
   "fuelConsumptionRate": "normal",
-  "gravityStrength": "light",
+  "gravityStrength": "normal",
   "startingSpeed": "fast",
   "starColor": "gold",
   "masterVolume": 0.7,

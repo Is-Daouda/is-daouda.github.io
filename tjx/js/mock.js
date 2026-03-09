@@ -219,9 +219,14 @@ window.lib = {
 	},
 
 	addPlayerScoreToLeaderboard: async function(score) {
-        const saved = localStorage.getItem('astrocade_save');
-        const state = saved ? JSON.parse(saved) : {};
-        const playerName = state.playerNickname || "Unknown";
+		const saveResult = await this.getUserGameState();
+		let playerName = "Anonymous"; // Nom par défaut
+
+		// 2. Si une sauvegarde existe et contient un pseudo, on l'utilise
+		if (saveResult.success && saveResult.state && saveResult.state.playerNickname) {
+			playerName = saveResult.state.playerNickname;
+		}
+		
 		if (window.GamePix) {
 			window.GamePix.updateScore(score); // Envoie le score au classement officiel window.GamePix
 		}

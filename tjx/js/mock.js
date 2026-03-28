@@ -311,7 +311,7 @@ window.lib = {
     },
 	
 	log: function(message) {
-		// console.log("%c[Log]", "color: #00ff00; font-weight: bold;", message);
+		 console.log("%c[Log]", "color: #00ff00; font-weight: bold;", message);
 	},
 	
 	showGameParameters: function(config) {

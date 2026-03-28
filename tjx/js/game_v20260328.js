@@ -1,3 +1,23 @@
+function showAd()
+{
+	window.GamePix.interstitialAd().then(function (res) {
+		if (res.success) {
+		  // Log the success if you want
+		  info();
+		} else {
+		  // Log the error if you want
+		  errorInfo();
+		}
+	  });
+}
+
+window.addEventListener("load", function() {
+	window.focus();
+	document.body.addEventListener("click", function(e) {
+		window.focus();
+	}, false);
+});
+
 /* ==================================================
  * GAME OVERVIEW: Turbo Jetpack X
  * An endless runner where the player launches from a cannon and flies through
@@ -2296,6 +2316,7 @@ function setupInputHandlers() {
 		playSound('sfx_click', 0.5);
 		document.getElementById('pauseOverlay').classList.remove('show');
 		document.getElementById('gameOver').classList.remove('show');
+		showAd();
 		initializeGameState();
 	});
 
@@ -2762,6 +2783,7 @@ function update(deltaTime) {
 		lossAnimationTime += deltaTime;
 		if (lossAnimationTime >= lossAnimationDuration) {
 			// Animation complete, show game over screen
+			showAd();
 			gamePhase = 'gameover';
 			showGameOverScreen();
 		}

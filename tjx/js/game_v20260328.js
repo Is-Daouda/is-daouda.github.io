@@ -3,10 +3,8 @@ function showAd()
 	window.GamePix.interstitialAd().then(function (res) {
 		if (res.success) {
 		  // Log the success if you want
-		  info();
 		} else {
 		  // Log the error if you want
-		  errorInfo();
 		}
 	  });
 }

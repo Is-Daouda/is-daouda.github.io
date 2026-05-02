@@ -1,0 +1,216 @@
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+body {
+	background: #000;
+	overflow: hidden;
+	touch-action: none;
+	/* Désactive la sélection de texte sur tout l'écran du jeu */
+	user-select: none;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+
+	/* iOS safe area support */
+	padding-top: env(safe-area-inset-top);
+	padding-bottom: env(safe-area-inset-bottom);
+	padding-left: env(safe-area-inset-left);
+	padding-right: env(safe-area-inset-right);
+}
+
+/* Remove tap highlight on all interactive elements on mobile */
+* {
+	-webkit-tap-highlight-color: transparent;
+	-webkit-touch-callout: none;
+}
+
+/* Make buttons always touchable — no pointer-events issues */
+button, [role="button"] {
+	touch-action: manipulation;
+	cursor: pointer;
+}
+/* Réactiver la sélection uniquement dans les champs de saisie */
+input, textarea {
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+/* Pause button */
+#pause-btn {
+	position: fixed;
+	top: max(8px, 1.5vh);
+	left: max(8px, 1.5vw);
+	z-index: 9999;
+	width: clamp(40px, 7vw, 52px);
+	height: clamp(40px, 7vw, 52px);
+	background: rgba(0, 0, 0, 0.75);
+	border: 2px solid rgba(255, 120, 0, 0.7);
+	border-radius: 12px;
+	cursor: pointer;
+	display: none;
+	align-items: center;
+	justify-content: center;
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+}
+#pause-btn:hover {
+	background: rgba(255, 80, 0, 0.3);
+}
+#pause-btn svg {
+	width: 20px;
+	height: 20px;
+	fill: #ff9900;
+}
+#pause-btn.active {
+	display: flex;
+}
+
+/* Touch layer — only visible during gameplay */
+#touch-layer {
+	position: fixed;
+	inset: 0;
+	z-index: 25;    /* below ui-layer (30) so menus always clickable */
+	pointer-events: none;
+	display: none;
+	/* GPU layer for smoother touch response */
+	will-change: transform;
+}
+#touch-layer.active {
+	display: block;
+}
+#joy-zone {
+	position: fixed;
+	left: 0; top: 0;
+	width: 55%; height: 100%;
+	z-index: 24;
+	display: none;          /* caché par défaut, JS l'active */
+	pointer-events: auto;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+}
+#joy-ring {
+	position: fixed;
+	width: 120px;
+	height: 120px;
+	border-radius: 50%;
+	background: rgba(255, 255, 255, 0.06);
+	border: 2px solid rgba(255, 150, 0, 0.35);
+	display: none;
+	transform: translate(-50%, -50%);
+	pointer-events: none;
+}
+#joy-dot {
+	position: fixed;
+	width: 48px;
+	height: 48px;
+	border-radius: 50%;
+	background: radial-gradient(circle, #ffaa00, #ff4400);
+	border: 2px solid #ffdd00;
+	box-shadow: 0 0 14px rgba(255, 120, 0, 0.8);
+	display: none;
+	transform: translate(-50%, -50%);
+	pointer-events: none;
+}
+#btn-fire {
+	position: fixed;
+	right: max(14px, 3vw); bottom: max(16px, 4vh);
+	z-index: 24;
+	width: clamp(58px, 12vw, 82px); height: clamp(58px, 12vw, 82px);
+	border-radius: 50%;
+	background: radial-gradient(circle, rgba(255,90,0,0.55), rgba(180,0,0,0.35));
+	border: 3px solid rgba(255,110,0,0.75);
+	display: none;
+	align-items: center; justify-content: center;
+	font-size: clamp(20px, 4vw, 30px);
+	pointer-events: auto;
+	user-select: none; -webkit-user-select: none;
+	touch-action: none;
+	box-shadow: 0 0 20px rgba(255,80,0,0.5);
+}
+#btn-fire:active {
+	transform: scale(0.93);
+}
+#btn-mega {
+	position: fixed;
+	right: calc(max(14px, 3vw) + clamp(58px, 12vw, 82px) + 10px);
+	bottom: max(20px, 5vh);
+	z-index: 24;
+	width: clamp(44px, 9vw, 64px); height: clamp(44px, 9vw, 64px);
+	border-radius: 50%;
+	background: radial-gradient(circle, rgba(255,40,40,0.45), rgba(100,0,0,0.3));
+	border: 3px solid rgba(255,60,60,0.65);
+	display: none;
+	align-items: center; justify-content: center;
+	font-size: clamp(16px, 3.5vw, 24px);
+	pointer-events: auto;
+	user-select: none; -webkit-user-select: none;
+	touch-action: none;
+	box-shadow: 0 0 14px rgba(200,0,0,0.4);
+}
+#btn-mega:active {
+	transform: scale(0.93);
+}
+
+/* ── Game UI Animations ──────────────────────────────────────── */
+@keyframes fadeInUp {
+	from { opacity: 0; transform: translateY(28px) scale(0.97); }
+	to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+@keyframes fadeInDown {
+	from { opacity: 0; transform: translateY(-20px); }
+	to   { opacity: 1; transform: translateY(0);     }
+}
+@keyframes popIn {
+	0%   { opacity: 0; transform: scale(0.7); }
+	70%  { opacity: 1; transform: scale(1.06); }
+	100% { opacity: 1; transform: scale(1);    }
+}
+@keyframes glowPulse {
+	0%, 100% { text-shadow: 0 0 20px #ff3300, 0 0 40px #ff1100; }
+	50%       { text-shadow: 0 0 40px #ff7700, 0 0 80px #ff3300, 0 0 120px #ff0000; }
+}
+/* Variante pour le menu principal — utilise filter pour ne pas être coupé */
+@keyframes glowPulseMenu {
+	0%, 100% { filter: drop-shadow(0 0 6px #ff4400) drop-shadow(0 0 14px #ff2200); }
+	50%       { filter: drop-shadow(0 0 14px #ff8800) drop-shadow(0 0 28px #ff4400) drop-shadow(0 0 44px #ff0000); }
+}
+@keyframes floatUp {
+	0%, 100% { transform: translateY(0); }
+	50%       { transform: translateY(-8px); }
+}
+@keyframes tapPulse {
+	0%, 100% { opacity: 1; }
+	50%       { opacity: 0.25; }
+}
+@keyframes bgParticle {
+	0%   { transform: translateY(110vh) scale(0); opacity: 0; }
+	10%  { opacity: 0.6; transform: translateY(90vh) scale(1); }
+	90%  { opacity: 0.4; }
+	100% { transform: translateY(-10vh) scale(0.5); opacity: 0; }
+}
+
+/* ── Landscape-only overlay ───────────────────────────────────── */
+#landscape-warning {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 99999;
+	background: #000;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	color: #fff;
+	font-family: monospace;
+	text-align: center;
+	padding: 24px;
+	gap: 16px;
+}
+/* Show only in portrait mode */
+@media (orientation: portrait) {
+	#landscape-warning {
+		display: flex;
+	}
+}

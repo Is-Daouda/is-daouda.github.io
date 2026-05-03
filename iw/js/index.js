@@ -4291,7 +4291,7 @@ function createHUD(ui) {
 					<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;animation:fadeInUp 0.5s ease both 0.4s; z-index: 10;">
 						${(() => {
 							const _survUnlocked = !!idb.getItem("iw_normal_cleared");
-							const _survLabel = (T[settings.lang||"en"]||T.en).surviveModeBtn||"SURVIE";
+							const _survLabel = (settings.lang === "fr") ? "SURVIE" : "SURVIVAL";
 							return `<button id="btn-survival" style="
 								padding:clamp(6px,1.2vh,9px) clamp(10px,2vw,16px);
 								background:${_survUnlocked ? "linear-gradient(135deg,#7f1d1d,#991b1b)" : "#1f2937"};

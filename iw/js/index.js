@@ -4441,28 +4441,28 @@ function createHUD(ui) {
 					align-items: center; justify-content: center;
 					background: rgba(0,0,0,0.93);
 					color: #fff; font-family: monospace;
-					overflow-y: auto;
-					padding: clamp(10px,2vh,24px) 16px clamp(16px,3vh,32px);
+					overflow-y: auto; scrollbar-width: none;
+					padding: clamp(4px,1vh,24px) 12px clamp(6px,1.5vh,32px);
 					box-sizing: border-box;
 				">
 					<h2 style="
-						font-size: clamp(16px,3vh,22px); font-weight: 900;
-						color: #f97316; margin: 0 0 clamp(8px,1.5vh,20px);
-						letter-spacing: 3px; flex-shrink: 0;
+						font-size: clamp(13px,2.2vh,22px); font-weight: 900;
+						color: #f97316; margin: 0 0 clamp(4px,0.8vh,20px);
+						letter-spacing: clamp(1px,0.5vw,3px); flex-shrink: 0;
 					">
 						⚙️ ${tr("options")}
 					</h2>
 
 					<div style="
 						background: #111827; border: 1px solid #374151;
-						border-radius: 14px; padding: clamp(12px,2vh,20px);
-						width: min(320px, 90vw);
-						display: flex; flex-direction: column; gap: clamp(10px,2vh,18px);
+						border-radius: 14px; padding: clamp(8px,1.5vh,20px) clamp(10px,2vw,20px);
+						width: min(340px, 95vw);
+						display: flex; flex-direction: column; gap: clamp(5px,1vh,18px);
 						box-sizing: border-box;
 					">
 						<!-- Music volume -->
 						<div>
-							<div style="font-size: 10px; color: #f97316; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">
+							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
 								🎵 ${tr("music")}
 							</div>
 							<div style="display: flex; align-items: center; gap: 10px;">
@@ -4478,7 +4478,7 @@ function createHUD(ui) {
 
 						<!-- SFX volume -->
 						<div>
-							<div style="font-size: 10px; color: #f97316; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">
+							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
 								🔊 ${tr("sfx")}
 							</div>
 							<div style="display: flex; align-items: center; gap: 10px;">
@@ -4494,15 +4494,15 @@ function createHUD(ui) {
 
 						<!-- Difficulty -->
 						<div>
-							<div style="font-size: 10px; color: #f97316; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">
+							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
 								⚔️ ${tr("difficulty")}
 							</div>
 							<div style="display: flex; gap: 6px;">
 								${diffs.map(d => `
 								<button class="opt-diff" data-diff="${d}" style="
-									flex: 1; padding: 8px 4px;
+									flex: 1; padding: clamp(4px,0.8vh,8px) 4px;
 									border-radius: 8px; font-weight: 700;
-									font-size: 11px; cursor: pointer;
+									font-size: clamp(9px,1.6vh,11px); cursor: pointer;
 									font-family: monospace;
 									border: 2px solid ${settings.difficulty === d ? "#f97316" : "#374151"};
 									background: ${settings.difficulty === d ? "rgba(249,115,22,0.15)" : "#1f2937"};
@@ -4519,7 +4519,7 @@ function createHUD(ui) {
 								🎮 ${tr("vibration")}
 							</span>
 							<button id="opt-rum" style="
-								padding: 7px 14px; border-radius: 8px;
+								padding: clamp(4px,0.8vh,7px) clamp(8px,1.5vw,14px); border-radius: 8px;
 								font-weight: 700; cursor: pointer;
 								font-family: monospace;
 								border: 2px solid ${settings.rumble ? "#f97316" : "#374151"};
@@ -4537,7 +4537,7 @@ function createHUD(ui) {
 							</span>
 							<div style="display: flex; gap: 6px;">
 								<button class="lang-btn" data-lang="fr" style="
-									padding: 6px 12px; border-radius: 6px;
+									padding: clamp(3px,0.6vh,6px) clamp(8px,1.5vw,12px); border-radius: 6px;
 									cursor: pointer; font-weight: 700;
 									font-family: monospace;
 									border: 2px solid ${settings.lang === "fr" ? "#f97316" : "#374151"};
@@ -4547,7 +4547,7 @@ function createHUD(ui) {
 									🇫🇷 FR
 								</button>
 								<button class="lang-btn" data-lang="en" style="
-									padding: 6px 12px; border-radius: 6px;
+									padding: clamp(3px,0.6vh,6px) clamp(8px,1.5vw,12px); border-radius: 6px;
 									cursor: pointer; font-weight: 700;
 									font-family: monospace;
 									border: 2px solid ${settings.lang === "en" ? "#f97316" : "#374151"};
@@ -4561,7 +4561,7 @@ function createHUD(ui) {
 
 						<!-- Player name -->
 						<div>
-							<div style="font-size: 10px; color: #f97316; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px;">
+							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
 								👤 ${tr("playerNameLbl")}
 							</div>
 							<div style="display: flex; gap: 8px; align-items: center;">
@@ -4571,7 +4571,7 @@ function createHUD(ui) {
 									value="${settings.playerName || ""}"
 									placeholder="Pilot"
 									style="
-										flex: 1; padding: 7px 10px;
+										flex: 1; padding: clamp(4px,0.7vh,7px) 10px;
 										background: #1f2937;
 										border: 1px solid #374151;
 										border-radius: 6px; color: #fff;
@@ -4593,7 +4593,7 @@ function createHUD(ui) {
 					</div>
 
 					<!-- Zone danger : suppression des données -->
-					<div style="margin-top:clamp(6px,1.5vh,10px);border-top:1px solid #374151;padding-top:clamp(8px,1.5vh,14px);width:min(320px,90vw);box-sizing:border-box;">
+					<div style="margin-top:clamp(3px,0.6vh,10px);border-top:1px solid #374151;padding-top:clamp(4px,0.8vh,14px);width:min(320px,90vw);box-sizing:border-box;">
 						<button id="btn-delete-data" style="
 							width:100%;padding:clamp(6px,1.2vh,9px) 16px;
 							background:transparent;
@@ -4604,7 +4604,7 @@ function createHUD(ui) {
 					</div>
 
 					<button id="btn-back" style="
-						margin-top: clamp(8px,1.5vh,18px); padding: clamp(6px,1.2vh,9px) 28px;
+						margin-top: clamp(4px,0.8vh,18px); padding: clamp(4px,0.8vh,9px) 24px;
 						background: #1f2937; border: 1px solid #374151;
 						border-radius: 10px; color: #9ca3af;
 						cursor: pointer; font-weight: 700;

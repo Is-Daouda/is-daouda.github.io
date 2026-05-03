@@ -326,11 +326,13 @@ const T = {
 		tutoNext: "Suivant →",
 		tutoDone: "Commencer !",
 		tutoSlides: [
-			{ icon:"🕹️", title:"Se déplacer", body:"Utilisez les flèches ou WASD pour piloter votre vaisseau. Sur mobile, faites glisser votre doigt dans la zone gauche de l'écran." },
-			{ icon:"🔥", title:"Tirer", body:"Maintenez Espace ou Z pour tirer en continu. Sur mobile, touchez la zone droite. Améliorez votre puissance de feu pour des tirs multiples !" },
-			{ icon:"⚡", title:"Power-ups", body:"Récupérez les capsules : 🛡 Bouclier, 🎯 Missiles guidés, ⚡ Vitesse, 🔥 Puissance de feu, 💥 Mega Blast (touche X)." },
-			{ icon:"👾", title:"Ennemis & Boss", body:"Chaque niveau se termine par un Boss. Enchaînez les kills pour activer le mode FRENZY x2 et décupler votre score !" },
-			{ icon:"🗺️", title:"Modes de jeu", body:"Normal : plusieurs niveaux progressifs avec boss uniques. 💀 Survie : vagues infinies. ⚡ Daily : un run unique par jour avec missions spéciales." },
+			{ icon:"🕹️", title:"Se déplacer", body:"Utilisez les flèches ou WASD pour piloter. Sur mobile, faites glisser dans la zone gauche. Touchez la zone droite pour tirer et utilisez le bouton 💥 pour le Mega Blast." },
+			{ icon:"🔥", title:"Tirer & Power-ups", body:"Maintenez Espace ou Z pour tirer. Récupérez les capsules : 🔥 Puissance de feu, 🛡 Bouclier, 🎯 Missiles guidés, ⚡ Vitesse, 💥 Mega Blast. Ramasser 2 fois le même power-up active une version améliorée !" },
+			{ icon:"👑", title:"Ennemis spéciaux", body:"🛡 Bouclier-porteur : protège ses alliés, contournez-le ou utilisez le Mega Blast. 👑 Élite (couronne dorée) : 3× plus résistant, lâche 2 power-ups à sa mort. ☠️ Corrompu : plus résistant et plus rapide dès le niveau 3." },
+			{ icon:"💢", title:"Combos & Rage", body:"Enchaînez les kills sans interruption pour monter le combo. À x30 combos, entrez en MODE RAGE : tirs enflammés et effets visuels intenses !" },
+			{ icon:"🕳️", title:"Zones de danger", body:"Des trous noirs apparaissent sur le terrain. Ils aspirent visuellement ce qui les entoure — évitez tout contact ! En mode Survie, de nouveaux trous noirs apparaissent au fil des vagues." },
+			{ icon:"🗺️", title:"Modes de jeu", body:"🎮 Normal : des niveaux progressifs avec boss multi-phases. Terminez-le pour débloquer le mode Survie ! 💀 Survie : vagues infinies avec trous noirs croissants. 📅 Missions du jour : 4 défis quotidiens à accomplir dans n'importe quel mode." },
+			{ icon:"⬆️", title:"Améliorations & XP", body:"Après chaque boss, choisissez une amélioration : 🔥 +Puissance, 🛡 Bouclier du niveau, 🎯 Homing 45s, 🔫 Cadence ×1.5, 💫 Score ×2, ❤️ +Vie, 💥 Mega chargé. Gagnez de l'XP pour progresser et atteindre le rang ultime : Inferno !" },
 		],
 		deleteData: "Supprimer les données",
 		deleteDataConfirm: "Confirmer la suppression ?",
@@ -409,11 +411,13 @@ const T = {
 		tutoNext: "Next →",
 		tutoDone: "Let's go!",
 		tutoSlides: [
-			{ icon:"🕹️", title:"Move", body:"Use arrow keys or WASD to pilot your ship. On mobile, drag your finger in the left area of the screen." },
-			{ icon:"🔥", title:"Shoot", body:"Hold Space or Z to fire continuously. On mobile, tap the right area. Upgrade your fire level for multi-shot patterns!" },
-			{ icon:"⚡", title:"Power-ups", body:"Collect capsules: 🛡 Shield, 🎯 Homing missiles, ⚡ Speed, 🔥 Fire power, 💥 Mega Blast (press X)." },
-			{ icon:"👾", title:"Enemies & Bosses", body:"Each level ends with a unique Boss fight. Chain kills to trigger FRENZY x2 mode and multiply your score!" },
-			{ icon:"🗺️", title:"Game Modes", body:"Normal: progressive levels with unique bosses. 💀 Survival: endless waves. ⚡ Daily: one unique run per day with special missions." },
+			{ icon:"🕹️", title:"Move & Shoot", body:"Use arrow keys or WASD to move. Hold Space or Z to fire. On mobile: drag left area to move, tap right area to fire, and use the 💥 button for Mega Blast." },
+			{ icon:"🔥", title:"Power-ups & Combos", body:"Collect capsules: 🔥 Fire power, 🛡 Shield, 🎯 Homing, ⚡ Speed, 💥 Mega Blast. Tip: collecting the same power-up twice in a row activates an enhanced version!" },
+			{ icon:"👑", title:"Special Enemies", body:"🛡 Shield-bearer: protects allies nearby — flank it or use Mega Blast. 👑 Elite (golden crown): 3× tougher, drops 2 power-ups on death. ☠️ Corrupted: tougher and faster from level 3 onwards." },
+			{ icon:"💢", title:"Combo & Rage Mode", body:"Chain kills without stopping to build your combo. At x30 combo, RAGE MODE activates: fiery bullet trails and intense visual effects!" },
+			{ icon:"🕳️", title:"Danger Zones", body:"Black holes appear on the field — avoid contact at all costs! In Survival mode, new black holes keep appearing as waves progress." },
+			{ icon:"🗺️", title:"Game Modes", body:"🎮 Normal: progressive levels with multi-phase bosses. Complete it to unlock Survival! 💀 Survival: endless enemy waves with growing black holes. 📅 Daily Missions: 4 daily challenges you can complete in any mode." },
+			{ icon:"⬆️", title:"Upgrades & XP", body:"After each boss, pick an upgrade: 🔥 +Fire, 🛡 Level shield, 🎯 Homing 45s, 🔫 Rate ×1.5, 💫 Score ×2, ❤️ +Life, 💥 Mega ready. Earn XP to progress through the ranks and reach the ultimate title: Inferno!" },
 		],
 		deleteData: "Delete save data",
 		deleteDataConfirm: "Confirm deletion?",
@@ -4123,7 +4127,7 @@ function createHUD(ui) {
 					color: #fff; font-family: monospace;
 					overflow-y: auto; overflow-x: visible;
 					scrollbar-width: none;
-					padding: clamp(12px,2vh,24px) 0;
+					padding: clamp(2px,0.6vh,24px) 0 clamp(4px,1vh,12px);
 					box-sizing: border-box;
 				">
 					<!-- Animated background particles -->
@@ -4146,32 +4150,32 @@ function createHUD(ui) {
 					<!-- Titre hors du wrapper scrollable pour que le glow ne soit pas coupé -->
 					<div style="flex-shrink:0;text-align:center;padding:clamp(4px,1vh,10px) 0 0;overflow:visible;">
 						<h1 style="
-							font-size: clamp(20px, 5vh, 48px);
-							font-weight: 900; letter-spacing: 4px;
+							font-size: clamp(16px, min(4vh, 5vw), 48px);
+							font-weight: 900; letter-spacing: clamp(1px,0.5vw,4px);
 							color: #ff6600;
 							animation: popIn 0.6s ease both 0.1s, glowPulseMenu 3s ease-in-out infinite 0.7s;
-							margin: 0; padding: 0 8px clamp(2px,0.5vh,6px);
+							margin: 0; padding: 0 8px clamp(1px,0.3vh,6px);
 						">
 							${tr("title")}
 						</h1>
-						<p style="color: #fb923c; font-size: clamp(9px, 1.8vh, 14px); margin: 0;
+						<p style="color: #fb923c; font-size: clamp(8px, 1.5vh, 14px); margin: 0;
 							animation: fadeInUp 0.5s ease both 0.2s;">
 							${tr("subtitle")}
 						</p>
 					</div>
 
 					<!-- Content wrapper -->
-					<div style="display:flex;flex-direction:column;align-items:center;gap:clamp(4px,1.2vh,10px);width:100%;overflow:visible;padding:clamp(4px,1vh,8px) 4px 8px;box-sizing:border-box;">
+					<div style="display:flex;flex-direction:column;align-items:center;gap:clamp(2px,0.8vh,10px);width:100%;overflow:visible;padding:clamp(2px,0.6vh,8px) 4px 4px;box-sizing:border-box;">
 					<style>#ui-layer ::-webkit-scrollbar{display:none;}</style>
 
 					<!-- Action buttons -->
 					<div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
-						animation: fadeInUp 0.55s ease both 0.35s;">
+						animation: fadeInUp 0.55s ease both 0.35s; z-index: 10;">
 						<button id="btn-start" style="
-							padding: clamp(7px,1.5vh,12px) clamp(16px,3vw,32px);
+							padding: clamp(5px,1vh,12px) clamp(12px,2.5vw,32px);
 							background: linear-gradient(to right, #b22200, #ea580c);
 							border: none; border-radius: 12px;
-							font-weight: 900; font-size: clamp(12px,2vh,17px);
+							font-weight: 900; font-size: clamp(11px,1.8vh,17px);
 							color: #fff; cursor: pointer;
 							letter-spacing: 2px; font-family: monospace;
 							transition: transform 0.15s, box-shadow 0.15s;
@@ -4232,6 +4236,7 @@ function createHUD(ui) {
 						background:#111827;border:1px solid #374151;
 						border-radius:10px;padding:clamp(5px,1vh,8px) 14px;
 						width:min(300px,85vw);
+						z-index: 0;
 					">
 						${(() => {
 							const pl = pilotLevel.get();
@@ -4283,7 +4288,7 @@ function createHUD(ui) {
 						})()}
 					</div>
 
-					<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;animation:fadeInUp 0.5s ease both 0.4s;">
+					<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;animation:fadeInUp 0.5s ease both 0.4s; z-index: 10;">
 						${(() => {
 							const _survUnlocked = !!idb.getItem("iw_normal_cleared");
 							const _survLabel = (T[settings.lang||"en"]||T.en).surviveModeBtn||"SURVIE";
@@ -4325,13 +4330,13 @@ function createHUD(ui) {
 						${tr("hiScore")}: <span style="font-weight: 900;">${state.hiScore.toLocaleString()}</span>
 					</div>
 
-					<div style="font-size: 10px; color: #4b5563; margin-top: 2px;
+					<div data-hide-small style="font-size: 10px; color: #4b5563; margin-top: 2px;
 						animation: fadeInUp 0.5s ease both 0.55s;">
 						👤 ${settings.playerName || "Pilot"}
 					</div>
 
 					<!-- Studio + crédits -->
-					<div style="margin-top:clamp(6px,1vh,14px);text-align:center;
+					<div data-hide-small style="margin-top:clamp(4px,0.8vh,14px);text-align:center;
 						animation: fadeInUp 0.5s ease both 0.65s;">
 						<div style="font-size:11px;font-weight:900;
 							letter-spacing:2px;color:#ff6600;font-family:monospace;">
@@ -4376,15 +4381,21 @@ function createHUD(ui) {
 						// Mode verrouillé
 						audio.sfx.playerHit?.();
 						const lang = settings.lang || "en";
+						// Overlay plein écran — garantit centrage parfait dès le 1er affichage
 						const msg = document.createElement("div");
-						msg.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.95);border:2px solid #f97316;border-radius:14px;padding:20px 28px;color:#fff;font-family:monospace;z-index:99999;text-align:center;max-width:300px;animation:popIn 0.3s ease;";
-						msg.innerHTML = `<div style="font-size:28px;margin-bottom:8px;">🔒</div>
-							<div style="font-size:13px;color:#f97316;font-weight:900;letter-spacing:2px;margin-bottom:8px;">${lang==="fr"?"MODE VERROUILLÉ":"LOCKED MODE"}</div>
-							<div style="font-size:11px;color:#d1d5db;line-height:1.5;">${lang==="fr"?"Terminez le mode Normal pour débloquer la Survie !":"Complete Normal mode to unlock Survival!"}</div>
-							<button id="lock-msg-close" style="margin-top:12px;padding:6px 18px;background:#f97316;border:none;border-radius:8px;color:#fff;font-weight:900;font-family:monospace;cursor:pointer;">OK</button>`;
+						msg.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);z-index:99999;font-family:monospace;";
+						msg.innerHTML = `
+							<div style="background:rgba(0,0,0,0.97);border:2px solid #f97316;border-radius:14px;padding:24px 32px;color:#fff;text-align:center;max-width:min(300px,85vw);animation:popIn 0.3s ease;box-shadow:0 0 30px rgba(249,115,22,0.4);">
+								<div style="font-size:32px;margin-bottom:10px;">🔒</div>
+								<div style="font-size:13px;color:#f97316;font-weight:900;letter-spacing:2px;margin-bottom:10px;">${lang==="fr"?"MODE VERROUILLÉ":"LOCKED MODE"}</div>
+								<div style="font-size:11px;color:#d1d5db;line-height:1.6;margin-bottom:4px;">${lang==="fr"?"Terminez le mode Normal pour débloquer la Survie !":"Complete Normal mode to unlock Survival!"}</div>
+								<button id="lock-msg-close" style="margin-top:14px;padding:7px 22px;background:#f97316;border:none;border-radius:8px;color:#fff;font-weight:900;font-family:monospace;cursor:pointer;font-size:13px;">OK</button>
+							</div>`;
 						document.body.appendChild(msg);
-						document.getElementById("lock-msg-close")?.addEventListener("click", () => msg.remove());
-						setTimeout(() => { if (msg.parentNode) { msg.style.opacity="0"; msg.style.transition="opacity 0.4s"; setTimeout(()=>msg.remove(),450); }}, 3500);
+						const _closeMsg = () => { msg.style.transition="opacity 0.35s"; msg.style.opacity="0"; setTimeout(()=>msg.remove(),380); };
+						document.getElementById("lock-msg-close")?.addEventListener("click", _closeMsg);
+						msg.addEventListener("click", (e) => { if (e.target === msg) _closeMsg(); });
+						setTimeout(_closeMsg, 3500);
 						return;
 					}
 					audio.sfx.select();
@@ -4785,7 +4796,7 @@ function createHUD(ui) {
 					<p style="color: #fb923c; font-size: 15px; margin: 0;">
 						${tr("gameOverSub")}
 					</p>
-					<div style="font-size: 36px; font-weight: 900; color: #facc15; font-family: monospace;">
+					<div style="font-size: clamp(18px, 5vw, 36px); font-weight: 900; color: #facc15; font-family: monospace;">
 						${state.score.toLocaleString()}
 					</div>
 					<div style="color: #6b7280; font-size: 13px;">
@@ -4829,7 +4840,7 @@ function createHUD(ui) {
 					<p style="color: #fb923c; font-size: 15px; margin: 0;">
 						${tr("victorySub")}
 					</p>
-					<div style="font-size: 36px; font-weight: 900; color: #facc15; font-family: monospace;">
+					<div style="font-size: clamp(18px, 5vw, 36px); font-weight: 900; color: #facc15; font-family: monospace;">
 						${state.score.toLocaleString()}
 					</div>
 					<div style="color: #6b7280; font-size: 13px;">
@@ -8606,6 +8617,7 @@ idb.preload().then(() => {
 					});
 					// Daily time mission
 					dailySystem.setMissionAbsolute("time", state.runTotalTime || state.levelTime);
+					dailySystem.setMissionAbsolute("time2", state.runTotalTime || state.levelTime);
 					dailySystem.completeDailyRun(state.score); // Bonus XP quotidien une fois/jour
 				}
 				saveGame.clear();
@@ -9434,6 +9446,7 @@ idb.preload().then(() => {
 								diff: settings.difficulty,
 							});
 							dailySystem.setMissionAbsolute("time", state.runTotalTime || state.levelTime);
+					dailySystem.setMissionAbsolute("time2", state.runTotalTime || state.levelTime);
 							dailySystem.completeDailyRun(state.score); // Bonus XP quotidien une fois/jour
 						}
 						saveGame.clear();

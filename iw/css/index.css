@@ -3,6 +3,16 @@
 	padding: 0;
 	box-sizing: border-box;
 }
+/* Very small screens (568x320 landscape) */
+@media (max-height: 330px) {
+	#ui-layer [data-hide-small] { 
+		display: block !important; /* Force l'affichage même sur petit écran */
+		font-size: 10px; /* Réduit la taille pour que ça loge en 320px de haut */
+	}
+	#ui-layer [data-compact] { 
+		gap: 4px !important; /* Augmente un peu l'espace */
+	}
+}
 body {
 	background: #000;
 	overflow: hidden;
@@ -93,8 +103,8 @@ input, textarea {
 }
 #joy-ring {
 	position: fixed;
-	width: 120px;
-	height: 120px;
+	width: clamp(80px, 18vw, 120px);
+	height: clamp(80px, 18vw, 120px);
 	border-radius: 50%;
 	background: rgba(255, 255, 255, 0.06);
 	border: 2px solid rgba(255, 150, 0, 0.35);
@@ -104,8 +114,8 @@ input, textarea {
 }
 #joy-dot {
 	position: fixed;
-	width: 48px;
-	height: 48px;
+	width: clamp(32px, 7vw, 48px);
+	height: clamp(32px, 7vw, 48px);
 	border-radius: 50%;
 	background: radial-gradient(circle, #ffaa00, #ff4400);
 	border: 2px solid #ffdd00;
@@ -116,15 +126,15 @@ input, textarea {
 }
 #btn-fire {
 	position: fixed;
-	right: max(14px, 3vw); bottom: max(16px, 4vh);
+	right: max(10px, 2.5vw); bottom: max(10px, 3vh);
 	z-index: 24;
-	width: clamp(58px, 12vw, 82px); height: clamp(58px, 12vw, 82px);
+	width: clamp(50px, 11vw, 82px); height: clamp(50px, 11vw, 82px);
 	border-radius: 50%;
 	background: radial-gradient(circle, rgba(255,90,0,0.55), rgba(180,0,0,0.35));
 	border: 3px solid rgba(255,110,0,0.75);
 	display: none;
 	align-items: center; justify-content: center;
-	font-size: clamp(20px, 4vw, 30px);
+	font-size: clamp(18px, 3.5vw, 30px);
 	pointer-events: auto;
 	user-select: none; -webkit-user-select: none;
 	touch-action: none;
@@ -135,16 +145,16 @@ input, textarea {
 }
 #btn-mega {
 	position: fixed;
-	right: calc(max(14px, 3vw) + clamp(58px, 12vw, 82px) + 10px);
-	bottom: max(20px, 5vh);
+	right: calc(max(10px, 2.5vw) + clamp(50px, 11vw, 82px) + 8px);
+	bottom: max(14px, 4vh);
 	z-index: 24;
-	width: clamp(44px, 9vw, 64px); height: clamp(44px, 9vw, 64px);
+	width: clamp(38px, 8vw, 64px); height: clamp(38px, 8vw, 64px);
 	border-radius: 50%;
 	background: radial-gradient(circle, rgba(255,40,40,0.45), rgba(100,0,0,0.3));
 	border: 3px solid rgba(255,60,60,0.65);
 	display: none;
 	align-items: center; justify-content: center;
-	font-size: clamp(16px, 3.5vw, 24px);
+	font-size: clamp(14px, 3vw, 24px);
 	pointer-events: auto;
 	user-select: none; -webkit-user-select: none;
 	touch-action: none;

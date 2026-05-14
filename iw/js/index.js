@@ -8199,11 +8199,9 @@ idb.preload().then(() => {
 
 		// ── Publicité interstitielle ───────────────────────────────────────
 		function showAd() {
-			GamePix.interstitialAd().then(function (res) {
+			GamePix.rewardAd().then(function (res) {
 				if (res.success) {
-				  // Log the success if you want
 				} else {
-				  // Log the error if you want
 				}
 			  });
 		}

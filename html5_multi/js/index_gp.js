@@ -897,11 +897,8 @@ window.Module = {
 	canvas: canvas,
 	onRuntimeInitialized: function() {
 		if (!gameStarted) {
-			GamePix.loading(100);
-			GamePix.loaded().then(function () {
-				hideLoadingScreen();
-				gameStarted = true;
-			})
+			hideLoadingScreen();
+			gameStarted = true;
 		}
 		for(ms of [0, 100, 1000, 3000])
 			window.setTimeout(onResize, ms);

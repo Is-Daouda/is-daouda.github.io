@@ -54,19 +54,13 @@ function isJsHappyMoment() {
 
 function isJsShowGameAds() {
 	GamePix.interstitialAd().then(function (res) {
-		/*
-		if (res.success)
-		{
-			// Log the success if you want
-			info();
+		if (res.success) {
+		  // Log the success if you want
+		} else {
+		  // Log the error if you want
 		}
-		else
-		{
-			// Log the error if you want
-			errorInfo();
-		}
-		*/
-	});
+	  });
+	console.log("Show Ad");
 }
 
 // --- I Can Transform v2.5 >>>

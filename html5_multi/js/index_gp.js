@@ -53,7 +53,6 @@ function isJsHappyMoment() {
 }
 
 function isJsShowGameAds() {
-	console.log("Show Ad");
 	GamePix.interstitialAd().then(function (res) {
 		if (res.success) {
 		  // Log the success if you want

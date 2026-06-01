@@ -1,12 +1,14 @@
 function showAd()
 {
-	window.GamePix.interstitialAd().then(function (res) {
-		if (res.success) {
-		  // Log the success if you want
-		} else {
-		  // Log the error if you want
-		}
-	  });
+	if (window.GamePix) {
+		window.GamePix.interstitialAd().then(function (res) {
+			if (res.success) {
+			  // Log the success if you want
+			} else {
+			  // Log the error if you want
+			}
+		  });
+	}
 }
 
 window.addEventListener("load", function() {

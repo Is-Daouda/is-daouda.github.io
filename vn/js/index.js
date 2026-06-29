@@ -1,3 +1,10 @@
+window.addEventListener("load", function() {
+	window.focus();
+	document.body.addEventListener("click", function(e) {
+		window.focus();
+	}, false);
+});
+
 // ══════════════════════════════════════════
 //  CANVAS + SCALE
 // ══════════════════════════════════════════

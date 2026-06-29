@@ -6559,7 +6559,7 @@ function endGame() {
     checkAch("endGame");
     checkDailyChallenges();
     // Midgame ad — résultats + bannière affichés après
-    cgMidgameAd(() => {
+    //cgMidgameAd(() => {
         gs = "results";
         cgShowBanner();
         if (!animId) animId = requestAnimationFrame(loop);
@@ -6567,7 +6567,7 @@ function endGame() {
             if (gs === "results" && window.fbPush)
                 await window.fbPush(sd.name || "PLAYER", pendingDist);
         }, 800);
-    });
+    //});
 }
 
 // PAUSE
@@ -6932,7 +6932,7 @@ const _cg = () => window.CrazyGames && window.CrazyGames.SDK;
 let _bannerShown = false;
 function cgShowBanner() {
     playMenuMusic();
-    const sdk = _cg();
+    /*const sdk = _cg();
     if (!sdk) return;
     const wrap = document.getElementById('cg-banner-wrap');
     if (wrap) wrap.style.display = 'flex';
@@ -6940,13 +6940,13 @@ function cgShowBanner() {
         sdk.banner.requestBanner({ id: 'cg-banner', width: 320, height: 50 })
             .catch(() => {});
         _bannerShown = true;
-    }
+    }*/
 }
 function cgHideBanner() {
-    const sdk = _cg();
+    /*const sdk = _cg();
     if (sdk) sdk.banner.clearBanner('cg-banner').catch(() => {});
     const wrap = document.getElementById('cg-banner-wrap');
-    if (wrap) wrap.style.display = 'none';
+    if (wrap) wrap.style.display = 'none';*/
     _bannerShown = false;
 }
 
@@ -6961,7 +6961,7 @@ function cgGameplayStop() {
 // -- Vidéo midgame ------------------------------------
 // onDone() appelé dans tous les cas (fin d'ad ou erreur)
 function cgMidgameAd(onDone) {
-    const sdk = _cg();
+    /*const sdk = _cg();
     if (!sdk) { onDone(); return; }
     // Pause loop + mute audio
     if (animId) { cancelAnimationFrame(animId); animId = null; }
@@ -6971,7 +6971,7 @@ function cgMidgameAd(onDone) {
         adFinished: () => { _adResume(onDone); },
         adError:    () => { _adResume(onDone); },
     };
-    sdk.ad.requestAd('midgame', callbacks);
+    sdk.ad.requestAd('midgame', callbacks);*/
 }
 function _adResume(onDone) {
     if (_actx && _actx.state === 'suspended') _actx.resume();

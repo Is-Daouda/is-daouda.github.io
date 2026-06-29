@@ -1,9952 +1,7039 @@
-const MAX_COMBO_RAGE = 30;
+// ══════════════════════════════════════════
+//  CANVAS + SCALE
+// ══════════════════════════════════════════
+const cvs = document.getElementById("c");
+const ctx = cvs.getContext("2d");
+let W, H;
+const BH = 550; // base design height — LANDSCAPE reference
+let SC = 1;
+function resize() {
+    W = cvs.width = window.innerWidth;
+    H = cvs.height = window.innerHeight;
+    SC = Math.max(H / BH, 0.82); // proportional, min 0.82 so mobile stays visible
+}
+window.addEventListener("resize", () => {
+    resize();
+    initBg();
+    _skyGrad = null;
+    _moonGrad = null;
+});
+resize();
+const p = (v) => v * SC;
 
-const game = (setupCallback) => {
-	// 1. Paramètres de référence (Le "Zoom" de BuildWithStar)
-	// On simule une largeur de base. Plus ce nombre est petit, plus le jeu paraîtra "zoomé".
-	const REFERENCE_WIDTH = 800;
-
-	let canvas =
-		document.querySelector("canvas") ||
-		document.createElement("canvas");
-	canvas.setAttribute("tabindex", "0");
-	canvas.style.outline = "none";
-	if (!canvas.parentNode) {
-		const root =
-			document.getElementById("game-root") || document.body;
-		root.appendChild(canvas);
-	}
-	const ctx = canvas.getContext("2d");
-
-	// 2. Gestion du Scaling (Zoom)
-	const updateSize = () => {
-		const realWidth  = window.innerWidth;
-		const realHeight = window.innerHeight;
-
-		const scale = realWidth / REFERENCE_WIDTH;
-
-		// Set canvas backing-store resolution (this resets the ctx state)
-		canvas.width  = realWidth;
-		canvas.height = realHeight;
-
-		// Ensure canvas fills the screen via CSS
-		canvas.style.position = "fixed";
-		canvas.style.top  = "0";
-		canvas.style.left = "0";
-		canvas.style.width  = "100%";
-		canvas.style.height = "100%";
-
-		// Apply scale transform — ctx resets on canvas resize so this is safe
-		ctx.scale(scale, scale);
-
-		// Clip to virtual dimensions so nothing draws outside the scaled area
-		const vw = realWidth  / scale;
-		const vh = realHeight / scale;
-		ctx.beginPath();
-		ctx.rect(0, 0, vw, vh);
-		ctx.clip();
-
-		if (tools) {
-			tools.width  = vw;   // virtual game width  (≈800)
-			tools.height = vh;   // virtual game height (scales with screen)
-		}
-	};
-
-	let uiLayer =
-		document.getElementById("ui-layer") ||
-		document.createElement("div");
-	if (!uiLayer.parentNode) {
-		uiLayer.id = "ui-layer";
-		Object.assign(uiLayer.style, {
-			position: "absolute",
-			top: "0",
-			left: "0",
-			width: "100%",
-			height: "100%",
-			display: "flex",
-			flexDirection: "column",
-			alignItems: "center",
-			justifyContent: "center",
-			pointerEvents: "none",
-			// Higher than touch-layer (z-index:25) so menu buttons
-			// are always tappable above the joystick layer
-			zIndex: "30",
-		});
-		document.body.appendChild(uiLayer);
-	}
-
-	const tools = {
-		ctx,
-		canvas,
-		width: 0, // Sera rempli par updateSize
-		height: 0,
-		ui: {
-			render: (html, interactive = true) => {
-				uiLayer.style.pointerEvents = interactive ? "auto" : "none";
-				uiLayer.innerHTML = html;
-			},
-			clear: () => {
-				uiLayer.innerHTML = "";
-				uiLayer.style.pointerEvents = "none";
-			},
-		},
-		on: (type, selector, callback) => {
-			if (typeof selector === "function") {
-				callback = selector;
-				selector = null;
-			}
-			window.addEventListener(
-				type,
-				(e) => {
-					if (selector) {
-						if (
-							e.target.matches(selector) ||
-							e.target.closest(selector)
-						)
-							callback(e);
-					} else {
-						callback(e);
-					}
-				},
-				true,
-			);
-		},
-		loop: (callback) => {
-			let lastTime = 0;
-			const frame = (time) => {
-				const dt = lastTime > 0
-					? Math.min((time - lastTime) / 1000, 0.05) // cap at 50ms (20 FPS min)
-					: 1 / 60;
-				lastTime = time;
-				callback(dt);
-				requestAnimationFrame(frame);
-			};
-			requestAnimationFrame(frame);
-		},
-	};
-
-	tools.preset = tools.on;
-
-	// On initialise la taille avant de lancer le jeu
-	updateSize();
-	window.addEventListener("resize", updateSize);
-
-	if (typeof setupCallback === "function") {
-		setupCallback(tools);
-	}
+// ══════════════════════════════════════════
+//  SAVE — IndexedDB
+// ══════════════════════════════════════════
+const DEF = {
+    money: 0, best: 0, bestCombo: 0,
+    up: { cannon: 0, battery: 0, armor: 0 },
+    name: "", lang: "",
+    sound: true, music: true, vibration: true, setupDone: false,
+    totalDist: 0, totalCoins: 0, gamesPlayed: 0,
+    totalStars: 0, totalBoosts: 0, totalRings: 0,
+    totalChests: 0, totalHits: 0, totalEnemiesAvoided: 0,
+    maxDistSingle: 0, ach: [], bdg: [],
+    activeSkin: 0, activeTrail: 0, dcTotalDone: 0,
 };
+let sd = Object.assign({}, DEF);
 
-// ---
-// ═══ INDEXED-DB STORE ════════════════════════════════════════════════════
-// Cache mémoire synchrone + persistence IndexedDB asynchrone.
-// Toutes les lectures se font sur _cache (aucun changement de logique métier).
-// Toutes les écritures mettent à jour _cache puis écrivent en IDB (fire-and-forget).
-const idb = (() => {
-	const DB_NAME    = "inferno_wing";
-	const DB_VERSION = 1;
-	const STORE      = "kv";
-	const ALL_KEYS   = [
-		"iw_achstats","iw_pilot","iw_daily","iw_bdg","iw_history",
-		"iw_surv_best","iw_save","iw_musicVol","iw_sfxVol",
-		"iw_difficulty","iw_rumble","iw_lang","iw_playerName",
-		"inferno_hi","iw_tuto_done","iw_normal_cleared",
-	];
-	let _db    = null;
-	let _cache = {};
-	let _ready = false;
+const IDB_NAME = "vectonova", IDB_STORE = "save", IDB_KEY = "v1";
+let _idb = null;
+function _openIDB() {
+    return new Promise((resolve, reject) => {
+        if (_idb) { resolve(_idb); return; }
+        const req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = e => e.target.result.createObjectStore(IDB_STORE);
+        req.onsuccess = e => { _idb = e.target.result; resolve(_idb); };
+        req.onerror   = () => reject(req.error);
+    });
+}
+function save() {
+    _openIDB().then(db => {
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(JSON.parse(JSON.stringify(sd)), IDB_KEY);
+    }).catch(e => console.warn("save:", e));
+}
+function _loadAndStart() {
+    _openIDB().then(db => new Promise((res, rej) => {
+        const req = db.transaction(IDB_STORE,"readonly")
+                        .objectStore(IDB_STORE).get(IDB_KEY);
+        req.onsuccess = () => res(req.result);
+        req.onerror   = () => rej(req.error);
+    })).then(saved => {
+        if (saved) sd = Object.assign({}, DEF, saved);
+    }).catch(e => console.warn("load:", e))
+        .finally(() => _gameReady());
+}
 
-	function _open() {
-		return new Promise((resolve, reject) => {
-			const req = indexedDB.open(DB_NAME, DB_VERSION);
-			req.onupgradeneeded = e => {
-				if (!e.target.result.objectStoreNames.contains(STORE))
-					e.target.result.createObjectStore(STORE);
-			};
-			req.onsuccess = e => { _db = e.target.result; resolve(); };
-			req.onerror   = e => reject(e.target.error);
-		});
-	}
-	function _get(key) {
-		return new Promise(res => {
-			if (!_db) { res(null); return; }
-			const req = _db.transaction(STORE,"readonly").objectStore(STORE).get(key);
-			req.onsuccess = () => res(req.result ?? null);
-			req.onerror   = () => res(null);
-		});
-	}
-	function _set(key, value) {
-		if (!_db) return;
-		const tx = _db.transaction(STORE,"readwrite");
-		tx.objectStore(STORE).put(value, key);
-	}
-	function _del(key) {
-		if (!_db) return;
-		const tx = _db.transaction(STORE,"readwrite");
-		tx.objectStore(STORE).delete(key);
-	}
-
-	async function preload() {
-		const report = (pct, label) => {
-			if (typeof window._iwBootProgress === "function")
-				window._iwBootProgress(pct, label);
-		};
-		const labels = {
-			iw_achstats:   "SUCCÈS…",       iw_pilot:    "PILOTE…",
-			iw_daily:      "DÉFIS…",         iw_bdg:      "BADGES…",
-			iw_history:    "HISTORIQUE…",    iw_surv_best:"SURVIE…",
-			iw_save:       "SAUVEGARDE…",    iw_musicVol: "AUDIO…",
-			iw_sfxVol:     "AUDIO…",         iw_difficulty:"OPTIONS…",
-			iw_rumble:     "OPTIONS…",       iw_lang:     "LANGUE…",
-			iw_playerName: "PROFIL…",        inferno_hi:  "SCORES…",
-			iw_tuto_done:  "TUTORIEL…",
-			iw_normal_cleared: "PROGRESSION…",
-		};
-		report(5, "OUVERTURE BASE DE DONNÉES…");
-		await _open();
-		report(15, "BASE DE DONNÉES PRÊTE");
-		for (let i = 0; i < ALL_KEYS.length; i++) {
-			const key = ALL_KEYS[i];
-			let val = await _get(key);
-			if (val === null) {
-				const ls = localStorage.getItem(key);
-				if (ls !== null) { val = ls; _set(key, ls); }
-			}
-			if (val !== null) _cache[key] = val;
-			const pct = 15 + Math.round(((i + 1) / ALL_KEYS.length) * 75);
-			report(pct, labels[key] || "CHARGEMENT…");
-		}
-		for (const key of ALL_KEYS) localStorage.removeItem(key);
-		report(95, "FINALISATION…");
-		await new Promise(r => setTimeout(r, 120));
-		report(100, "PRÊT !");
-		await new Promise(r => setTimeout(r, 220));
-		_ready = true;
-	}
-
-	return {
-		isReady()      { return _ready; },
-		getItem(key)   { return Object.prototype.hasOwnProperty.call(_cache,key) ? _cache[key] : null; },
-		setItem(k,v)   { _cache[k] = v; _set(k, v); },
-		removeItem(k)  { delete _cache[k]; _del(k); },
-		hasItem(k)     { return Object.prototype.hasOwnProperty.call(_cache, k); },
-		getAllKeys()    { return ALL_KEYS; },
-		preload,
-	};
-})();
-
-// ---
-// ═══ SETTINGS ════════════════════════════════════════════════════════════
-
-const settings = {
-	musicVol:   parseFloat(idb.getItem("iw_musicVol") ?? "0.4"),
-	sfxVol:     parseFloat(idb.getItem("iw_sfxVol")   ?? "0.7"),
-	difficulty: idb.getItem("iw_difficulty") || "normal",
-	rumble:     idb.getItem("iw_rumble") !== "false",
-	lang:       idb.getItem("iw_lang")       || null,
-	playerName: idb.getItem("iw_playerName") || null,
-	save() {
-		idb.setItem("iw_musicVol",   String(this.musicVol));
-		idb.setItem("iw_sfxVol",     String(this.sfxVol));
-		idb.setItem("iw_difficulty", this.difficulty);
-		idb.setItem("iw_rumble",     String(this.rumble));
-		if (this.lang)       idb.setItem("iw_lang",       this.lang);
-		if (this.playerName) idb.setItem("iw_playerName", this.playerName);
-	},
-};
-
-// ── TRANSLATIONS ──────────────────────────────────────────────────────────
-const T = {
-	fr: {
-		title: "INFERNO WING",
-		subtitle: "Une Flamme Traverse les Enfers",
-		ignite: "JOUER",
-		continueBtn: "CONTINUER",
-		options: "OPTIONS",
-		achievements: "SUCCES",
-		leaderboard: "CLASSEMENT",
-		hiScore: "MEILLEUR SCORE",
-		controls:
-			"Fleches/WASD — Bouger | Espace/Z — Tirer | X — Mega",
-		music: "Musique",
-		sfx: "Effets",
-		difficulty: "Difficulte",
-		vibration: "Vibration",
-		easy: "Facile",
-		normal: "Normal",
-		hard: "Difficile",
-		back: "Retour",
-		lang: "Langue",
-		playerNameLbl: "Nom du Joueur",
-		pause: "PAUSE",
-		resume: "REPRENDRE",
-		mainMenu: "MENU PRINCIPAL",
-		pauseHint: "P / Echap pour reprendre",
-		gameOver: "GAME OVER",
-		gameOverSub: "La flamme est eteinte.",
-		tryAgain: "REJOUER",
-		victory: "VICTOIRE",
-		victorySub: "Inferno Wing triomphe !",
-		playAgain: "REJOUER",
-		level: "NIVEAU",
-		boss: "BOSS",
-		bossIncoming: "BOSS EN APPROCHE",
-		bossDefeated: "BOSS VAINCU",
-		levelUp: "NIVEAU SUIVANT",
-		resumeLevel: "REPRISE NIVEAU",
-		achTitle: "SUCCES",
-		achProgress: "Progression",
-		langSelect: "Choisissez votre langue",
-		namePrompt: "Votre nom de pilote",
-		namePlaceholder: "Ex: AceOfSpades",
-		nameConfirm: "Confirmer",
-		lbTitle: "CLASSEMENT MONDIAL",
-		lbRank: "#",
-		lbName: "Pilote",
-		lbScore: "Score",
-		lbLoading: "Chargement...",
-		lbEmpty: "Aucun score pour le moment.",
-		lbYou: "(vous)",
-		scoreSent: "Score soumis au classement !",
-		ach_basics: "Debuts",
-		ach_kills: "Destructions",
-		ach_score: "Score",
-		ach_combo: "Combo",
-		ach_survival: "Survie",
-		ach_shots: "Tirs",
-		ach_time: "Temps",
-		ach_powerups: "Power-ups",
-		ach_diff: "Difficulte",
-		ach_special: "Special",
-		ach_runs: "Parties",
-		ach_secret: "Secrets",
-		ach_meta: "Meta",
-		unlocked: "Succes debloque",
-		tutoBtn: "TUTORIEL",
-		tutoTitle: "COMMENT JOUER",
-		tutoSkip: "Passer",
-		tutoNext: "Suivant →",
-		tutoDone: "Commencer !",
-		tutoSlides: [
-			{ icon:"🕹️", title:"Se déplacer", body:"Utilisez les flèches ou WASD pour piloter. Sur mobile, faites glisser dans la zone gauche. Touchez la zone droite pour tirer et utilisez le bouton 💥 pour le Mega Blast." },
-			{ icon:"🔥", title:"Tirer & Power-ups", body:"Maintenez Espace ou Z pour tirer. Récupérez les capsules : 🔥 Puissance de feu, 🛡 Bouclier, 🎯 Missiles guidés, ⚡ Vitesse, 💥 Mega Blast. Ramasser 2 fois le même power-up active une version améliorée !" },
-			{ icon:"👑", title:"Ennemis spéciaux", body:"🛡 Bouclier-porteur : protège ses alliés, contournez-le ou utilisez le Mega Blast. 👑 Élite (couronne dorée) : 3× plus résistant, lâche 2 power-ups à sa mort. ☠️ Corrompu : plus résistant et plus rapide dès le niveau 3." },
-			{ icon:"💢", title:"Combos & Rage", body:"Enchaînez les kills sans interruption pour monter le combo. À x30 combos, entrez en MODE RAGE : tirs enflammés et effets visuels intenses !" },
-			{ icon:"🕳️", title:"Zones de danger", body:"Des trous noirs apparaissent sur le terrain. Ils aspirent visuellement ce qui les entoure — évitez tout contact ! En mode Survie, de nouveaux trous noirs apparaissent au fil des vagues." },
-			{ icon:"🗺️", title:"Modes de jeu", body:"🎮 Normal : des niveaux progressifs avec boss multi-phases. Terminez-le pour débloquer le mode Survie ! 💀 Survie : vagues infinies avec trous noirs croissants. 📅 Missions du jour : 4 défis quotidiens à accomplir dans n'importe quel mode." },
-			{ icon:"⬆️", title:"Améliorations & XP", body:"Après chaque boss, choisissez une amélioration : 🔥 +Puissance, 🛡 Bouclier du niveau, 🎯 Homing 45s, 🔫 Cadence ×1.5, 💫 Score ×2, ❤️ +Vie, 💥 Mega chargé. Gagnez de l'XP pour progresser et atteindre le rang ultime : Inferno !" },
-		],
-		deleteData: "Supprimer les données",
-		deleteDataConfirm: "Confirmer la suppression ?",
-		deleteDataWarn: "Scores, succès, historique et progression seront effacés définitivement.",
-		deleteDataYes: "Tout supprimer",
-		deleteDataNo: "Annuler",
-		deleteDataDone: "Données supprimées.",
-	},
-	en: {
-		title: "INFERNO WING",
-		subtitle: "A Flame Flies Through Hell",
-		ignite: "PLAY",
-		continueBtn: "CONTINUE",
-		options: "OPTIONS",
-		achievements: "ACHIEVEMENTS",
-		leaderboard: "LEADERBOARD",
-		hiScore: "HI-SCORE",
-		controls: "Arrows/WASD — Move | Space/Z — Shoot | X — Mega",
-		music: "Music",
-		sfx: "SFX",
-		difficulty: "Difficulty",
-		vibration: "Vibration",
-		easy: "Easy",
-		normal: "Normal",
-		hard: "Hard",
-		back: "Back",
-		lang: "Language",
-		playerNameLbl: "Player Name",
-		pause: "PAUSE",
-		resume: "RESUME",
-		mainMenu: "MAIN MENU",
-		pauseHint: "P / Escape to resume",
-		gameOver: "GAME OVER",
-		gameOverSub: "The flame has been extinguished.",
-		tryAgain: "TRY AGAIN",
-		victory: "VICTORY",
-		victorySub: "Inferno Wing reigns supreme!",
-		playAgain: "PLAY AGAIN",
-		level: "LEVEL",
-		boss: "BOSS",
-		bossIncoming: "BOSS INCOMING",
-		bossDefeated: "BOSS DEFEATED",
-		levelUp: "NEXT LEVEL",
-		resumeLevel: "RESUME LEVEL",
-		achTitle: "ACHIEVEMENTS",
-		achProgress: "Progress",
-		langSelect: "Choose your language",
-		namePrompt: "Your pilot name",
-		namePlaceholder: "e.g. AceOfSpades",
-		nameConfirm: "Confirm",
-		lbTitle: "WORLD LEADERBOARD",
-		lbRank: "#",
-		lbName: "Pilot",
-		lbScore: "Score",
-		lbLoading: "Loading...",
-		lbEmpty: "No scores yet.",
-		lbYou: "(you)",
-		scoreSent: "Score submitted!",
-		ach_basics: "Basics",
-		ach_kills: "Kills",
-		ach_score: "Score",
-		ach_combo: "Combo",
-		ach_survival: "Survival",
-		ach_shots: "Shots",
-		ach_time: "Time",
-		ach_powerups: "Power-ups",
-		ach_diff: "Difficulty",
-		ach_special: "Special",
-		ach_runs: "Runs",
-		ach_secret: "Secret",
-		ach_meta: "Meta",
-		unlocked: "Achievement unlocked",
-		tutoBtn: "TUTORIAL",
-		tutoTitle: "HOW TO PLAY",
-		tutoSkip: "Skip",
-		tutoNext: "Next →",
-		tutoDone: "Let's go!",
-		tutoSlides: [
-			{ icon:"🕹️", title:"Move & Shoot", body:"Use arrow keys or WASD to move. Hold Space or Z to fire. On mobile: drag left area to move, tap right area to fire, and use the 💥 button for Mega Blast." },
-			{ icon:"🔥", title:"Power-ups & Combos", body:"Collect capsules: 🔥 Fire power, 🛡 Shield, 🎯 Homing, ⚡ Speed, 💥 Mega Blast. Tip: collecting the same power-up twice in a row activates an enhanced version!" },
-			{ icon:"👑", title:"Special Enemies", body:"🛡 Shield-bearer: protects allies nearby — flank it or use Mega Blast. 👑 Elite (golden crown): 3× tougher, drops 2 power-ups on death. ☠️ Corrupted: tougher and faster from level 3 onwards." },
-			{ icon:"💢", title:"Combo & Rage Mode", body:"Chain kills without stopping to build your combo. At x30 combo, RAGE MODE activates: fiery bullet trails and intense visual effects!" },
-			{ icon:"🕳️", title:"Danger Zones", body:"Black holes appear on the field — avoid contact at all costs! In Survival mode, new black holes keep appearing as waves progress." },
-			{ icon:"🗺️", title:"Game Modes", body:"🎮 Normal: progressive levels with multi-phase bosses. Complete it to unlock Survival! 💀 Survival: endless enemy waves with growing black holes. 📅 Daily Missions: 4 daily challenges you can complete in any mode." },
-			{ icon:"⬆️", title:"Upgrades & XP", body:"After each boss, pick an upgrade: 🔥 +Fire, 🛡 Level shield, 🎯 Homing 45s, 🔫 Rate ×1.5, 💫 Score ×2, ❤️ +Life, 💥 Mega ready. Earn XP to progress through the ranks and reach the ultimate title: Inferno!" },
-		],
-		deleteData: "Delete save data",
-		deleteDataConfirm: "Confirm deletion?",
-		deleteDataWarn: "Scores, achievements, history and progression will be permanently erased.",
-		deleteDataYes: "Delete everything",
-		deleteDataNo: "Cancel",
-		deleteDataDone: "Data deleted.",
-	},
+// ══════════════════════════════════════════
+//  I18N
+// ══════════════════════════════════════════
+const L = {
+    fr: {
+        play: "► JOUER",
+        upgrades: "⚙ AMÉLIORATIONS",
+        scores: "🏆 SCORES",
+        options: "OPTIONS",
+        tutorial: "TUTORIEL",
+        daily: "DÉFIS",
+        back: "Retour",
+        save: "Sauvegarder",
+        record: "RECORD",
+        tap: "APPUIE POUR JOUER",
+        results: "RÉSULTATS",
+        distance: "Distance",
+        bonus: "Bonus",
+        stars: "Étoiles",
+        earned: "Gagné",
+        total: "Total",
+        shop: "SHOP",
+        retry: "REJOUER",
+        player: "Joueur",
+        sound: "Son",
+        music: "Musique",
+        vibration: "Vibration",
+        language: "Langue",
+        loading: "Chargement...",
+        noScores: "Aucun score encore.",
+        namePrompt: "TON PSEUDO ?",
+        nameSub: "Il apparaîtra dans le classement",
+        nameBtn: "COMMENCER",
+        tapContinue: "APPUIE POUR CONTINUER",
+        welcome: "BIENVENUE",
+        cannon: "Cannon",
+        battery: "Batterie",
+        armor: "Armure",
+        shieldLbl: "shield",
+        jetpackLbl: "jetpack",
+        notEnough: "Pas assez !",
+        select: "Sélectionne",
+        chooseLang: "CHOISIS TA LANGUE",
+        confirm: "CONFIRMER",
+        combo: "COMBO",
+        launch: "LANCE · VOLE · SURVIE",
+        pause: "PAUSE",
+        resume: "▶ REPRENDRE",
+        quit: "✕ QUITTER",
+        milestone: "RECORD !",
+        comboBreak: "COMBO PERDU !",
+        achievements: "🏅 SUCCÈS",
+        badges: "🎖 BADGES",
+        rotateLbl: "MODE PAYSAGE REQUIS",
+        rotateSub: "Tourne ton appareil pour jouer",
+        unlocked: "débloqué",
+        of: "sur",
+        newAch: "SUCCÈS DÉBLOQUÉ",
+        cannonDesc: "Lance le robot plus loin",
+        batteryDesc: "Augmente la durée du jetpack",
+        armorDesc: "Absorbe les chocs ennemis",
+        tutNext: "SUIVANT →",
+        tutDone: "TERMINER ✓",
+        tutClose: "✕",
+    },
+    en: {
+        play: "► PLAY",
+        upgrades: "⚙ UPGRADES",
+        scores: "🏆 SCORES",
+        options: "OPTIONS",
+        tutorial: "TUTORIAL",
+        daily: "DAILY",
+        back: "Back",
+        save: "Save",
+        record: "BEST",
+        tap: "TAP TO PLAY",
+        results: "RESULTS",
+        distance: "Distance",
+        bonus: "Bonus",
+        stars: "Stars",
+        earned: "Earned",
+        total: "Total",
+        shop: "SHOP",
+        retry: "RETRY",
+        player: "Player",
+        sound: "Sound",
+        music: "Music",
+        vibration: "Vibration",
+        language: "Language",
+        loading: "Loading...",
+        noScores: "No scores yet.",
+        namePrompt: "YOUR NAME?",
+        nameSub: "It will appear on the leaderboard",
+        nameBtn: "START",
+        tapContinue: "TAP TO CONTINUE",
+        welcome: "WELCOME",
+        cannon: "Cannon",
+        battery: "Battery",
+        armor: "Armor",
+        shieldLbl: "shield",
+        jetpackLbl: "jetpack",
+        notEnough: "Not enough!",
+        select: "Select",
+        chooseLang: "CHOOSE LANGUAGE",
+        confirm: "CONFIRM",
+        combo: "COMBO",
+        launch: "LAUNCH · FLY · SURVIVE",
+        pause: "PAUSE",
+        resume: "▶ RESUME",
+        quit: "✕ QUIT",
+        milestone: "NEW RECORD!",
+        comboBreak: "COMBO LOST!",
+        achievements: "🏅 ACHS",
+        badges: "🎖 BADGES",
+        rotateLbl: "LANDSCAPE MODE REQUIRED",
+        rotateSub: "Rotate your device to play",
+        unlocked: "unlocked",
+        of: "of",
+        newAch: "ACHIEVEMENT UNLOCKED",
+        cannonDesc: "Launches the robot farther",
+        batteryDesc: "Increases jetpack duration",
+        armorDesc: "Absorbs enemy hits",
+        tutNext: "NEXT →",
+        tutDone: "DONE ✓",
+        tutClose: "✕",
+    },
 };
 function t(k) {
-	return (T[settings.lang || "en"] || T.en)[k] || k;
+    return (L[sd.lang || "fr"] || L.fr)[k] || k;
+}
+function applyLang() {
+    document.querySelectorAll("[data-k]").forEach((el) => {
+        const k = el.getAttribute("data-k");
+        if (k) el.textContent = t(k);
+    });
+    const rw = document.getElementById("rwTitle");
+    const rs = document.getElementById("rwSub");
+    if (rw) rw.textContent = t("rotateLbl");
+    if (rs) rs.textContent = t("rotateSub");
 }
 
-// ── ACHIEVEMENTS ─────────────────────────────────────────────────────────
-const ACH_DEFS = [
-	{
-		id: "first_shot",
-		cat: "basics",
-		icon: "🔫",
-		fr: "Premier Tir",
-		en: "First Shot",
-		dfr: "Tirer pour la 1ere fois",
-		den: "Fire for the first time",
-		cond: (s) => s.totalShots >= 1,
-	},
-	{
-		id: "first_kill",
-		cat: "basics",
-		icon: "💀",
-		fr: "Premiere Victime",
-		en: "First Kill",
-		dfr: "Detruire un ennemi",
-		den: "Destroy an enemy",
-		cond: (s) => s.totalKills >= 1,
-	},
-	{
-		id: "first_level",
-		cat: "basics",
-		icon: "⭐",
-		fr: "Cap Passe",
-		en: "Level Up",
-		dfr: "Terminer le niveau 1",
-		den: "Complete level 1",
-		cond: (s) => s.levelsCleared >= 1,
-	},
-	{
-		id: "first_boss",
-		cat: "basics",
-		icon: "👑",
-		fr: "Regicide",
-		en: "Regicide",
-		dfr: "Vaincre le premier boss",
-		den: "Defeat the first boss",
-		cond: (s) => s.bossesKilled >= 1,
-	},
-	{
-		id: "first_power",
-		cat: "basics",
-		icon: "✨",
-		fr: "Ameliore",
-		en: "Powered Up",
-		dfr: "Ramasser un power-up",
-		den: "Collect a power-up",
-		cond: (s) => s.powerupsCollected >= 1,
-	},
-	{
-		id: "first_mega",
-		cat: "basics",
-		icon: "💥",
-		fr: "Mega Blast",
-		en: "Mega Blast",
-		dfr: "Utiliser le Mega Blast",
-		den: "Use the Mega Blast",
-		cond: (s) => s.megaUsed >= 1,
-	},
-	{
-		id: "first_pause",
-		cat: "basics",
-		icon: "⏸",
-		fr: "Prudent",
-		en: "Cautious",
-		dfr: "Mettre en pause",
-		den: "Pause the game",
-		cond: (s) => s.pauses >= 1,
-	},
-	{
-		id: "first_shield",
-		cat: "basics",
-		icon: "🛡",
-		fr: "Protege",
-		en: "Protected",
-		dfr: "Utiliser un bouclier",
-		den: "Use a shield",
-		cond: (s) => s.shieldsUsed >= 1,
-	},
-	{
-		id: "first_homing",
-		cat: "basics",
-		icon: "🎯",
-		fr: "Guide",
-		en: "Guided",
-		dfr: "Missiles guides actives",
-		den: "Use homing missiles",
-		cond: (s) => s.homingUsed >= 1,
-	},
-	{
-		id: "first_speed",
-		cat: "basics",
-		icon: "⚡",
-		fr: "Turbo",
-		en: "Turbo",
-		dfr: "Boost de vitesse active",
-		den: "Use the speed boost",
-		cond: (s) => s.speedsUsed >= 1,
-	},
-	{
-		id: "kills_10",
-		cat: "kills",
-		icon: "⚔",
-		fr: "Escarmouche",
-		en: "Skirmish",
-		dfr: "10 ennemis detruits",
-		den: "10 enemies destroyed",
-		cond: (s) => s.totalKills >= 10,
-	},
-	{
-		id: "kills_50",
-		cat: "kills",
-		icon: "⚔",
-		fr: "Guerrier",
-		en: "Warrior",
-		dfr: "50 ennemis detruits",
-		den: "50 enemies destroyed",
-		cond: (s) => s.totalKills >= 50,
-	},
-	{
-		id: "kills_100",
-		cat: "kills",
-		icon: "⚔",
-		fr: "Centurion",
-		en: "Centurion",
-		dfr: "100 ennemis detruits",
-		den: "100 enemies destroyed",
-		cond: (s) => s.totalKills >= 100,
-	},
-	{
-		id: "kills_250",
-		cat: "kills",
-		icon: "⚔",
-		fr: "Tueur de Masse",
-		en: "Mass Killer",
-		dfr: "250 ennemis detruits",
-		den: "250 enemies destroyed",
-		cond: (s) => s.totalKills >= 250,
-	},
-	{
-		id: "kills_500",
-		cat: "kills",
-		icon: "💀",
-		fr: "Machine de Guerre",
-		en: "War Machine",
-		dfr: "500 ennemis detruits",
-		den: "500 enemies destroyed",
-		cond: (s) => s.totalKills >= 500,
-	},
-	{
-		id: "kills_1000",
-		cat: "kills",
-		icon: "☠",
-		fr: "Exterminateur",
-		en: "Exterminator",
-		dfr: "1000 ennemis detruits",
-		den: "1000 enemies destroyed",
-		cond: (s) => s.totalKills >= 1000,
-	},
-	{
-		id: "drone_50",
-		cat: "kills",
-		icon: "🚁",
-		fr: "Chasseur de Drones",
-		en: "Drone Hunter",
-		dfr: "50 drones detruits",
-		den: "50 drones destroyed",
-		cond: (s) => s.droneKills >= 50,
-	},
-	{
-		id: "turret_25",
-		cat: "kills",
-		icon: "🔫",
-		fr: "Demoli",
-		en: "Demolisher",
-		dfr: "25 tourelles detruites",
-		den: "25 turrets destroyed",
-		cond: (s) => s.turretKills >= 25,
-	},
-	{
-		id: "kamikaze_30",
-		cat: "kills",
-		icon: "💣",
-		fr: "Anti-Suicide",
-		en: "Anti-Suicide",
-		dfr: "30 kamikazes arretes",
-		den: "30 kamikazes stopped",
-		cond: (s) => s.kamikazeKills >= 30,
-	},
-	{
-		id: "bosses_3",
-		cat: "kills",
-		icon: "👑",
-		fr: "Chasseur de Boss",
-		en: "Boss Hunter",
-		dfr: "Vaincre les 3 boss",
-		den: "Defeat all 3 bosses",
-		cond: (s) => s.bossesKilled >= 3,
-	},
-	{
-		id: "score_1k",
-		cat: "score",
-		icon: "🌟",
-		fr: "Debutant",
-		en: "Beginner",
-		dfr: "Score de 1 000",
-		den: "Score of 1,000",
-		cond: (s) => s.hiScore >= 1000,
-	},
-	{
-		id: "score_5k",
-		cat: "score",
-		icon: "🌟",
-		fr: "Competent",
-		en: "Competent",
-		dfr: "Score de 5 000",
-		den: "Score of 5,000",
-		cond: (s) => s.hiScore >= 5000,
-	},
-	{
-		id: "score_10k",
-		cat: "score",
-		icon: "⭐",
-		fr: "Expert",
-		en: "Expert",
-		dfr: "Score de 10 000",
-		den: "Score of 10,000",
-		cond: (s) => s.hiScore >= 10000,
-	},
-	{
-		id: "score_25k",
-		cat: "score",
-		icon: "⭐",
-		fr: "Maitre",
-		en: "Master",
-		dfr: "Score de 25 000",
-		den: "Score of 25,000",
-		cond: (s) => s.hiScore >= 25000,
-	},
-	{
-		id: "score_50k",
-		cat: "score",
-		icon: "💫",
-		fr: "Grand Maitre",
-		en: "Grand Master",
-		dfr: "Score de 50 000",
-		den: "Score of 50,000",
-		cond: (s) => s.hiScore >= 50000,
-	},
-	{
-		id: "score_100k",
-		cat: "score",
-		icon: "🔥",
-		fr: "Legendaire",
-		en: "Legendary",
-		dfr: "Score de 100 000",
-		den: "Score of 100,000",
-		cond: (s) => s.hiScore >= 100000,
-	},
-	{
-		id: "combo_3",
-		cat: "combo",
-		icon: "🔗",
-		fr: "En Rythme",
-		en: "In Rhythm",
-		dfr: "Combo x3",
-		den: "Combo x3",
-		cond: (s) => s.maxCombo >= 3,
-	},
-	{
-		id: "combo_5",
-		cat: "combo",
-		icon: "🔗",
-		fr: "Enchaineur",
-		en: "Chainer",
-		dfr: "Combo x5",
-		den: "Combo x5",
-		cond: (s) => s.maxCombo >= 5,
-	},
-	{
-		id: "combo_8",
-		cat: "combo",
-		icon: "⛓",
-		fr: "Devastateur",
-		en: "Devastating",
-		dfr: "Combo x8 (maximum)",
-		den: "Combo x8 (max)",
-		cond: (s) => s.maxCombo >= 8,
-	},
-	{
-		id: "survive_l1",
-		cat: "survival",
-		icon: "🏅",
-		fr: "Survivant",
-		en: "Survivor",
-		dfr: "Finir niveau 1 sans mourir",
-		den: "Beat level 1 without dying",
-		cond: (s) => s.l1NoDeath,
-	},
-	{
-		id: "survive_l2",
-		cat: "survival",
-		icon: "🥈",
-		fr: "Blinde",
-		en: "Armored",
-		dfr: "Finir niveau 2 sans mourir",
-		den: "Beat level 2 without dying",
-		cond: (s) => s.l2NoDeath,
-	},
-	{
-		id: "survive_l3",
-		cat: "survival",
-		icon: "🥇",
-		fr: "Intouchable",
-		en: "Untouchable",
-		dfr: "Finir niveau 3 sans mourir",
-		den: "Beat level 3 without dying",
-		cond: (s) => s.l3NoDeath,
-	},
-	{
-		id: "no_death_run",
-		cat: "survival",
-		icon: "💎",
-		fr: "Parfait",
-		en: "Flawless",
-		dfr: "Terminer le jeu sans mourir",
-		den: "Complete game without dying",
-		cond: (s) => s.fullRunNoDeath,
-	},
-	{
-		id: "lives_5",
-		cat: "survival",
-		icon: "❤",
-		fr: "Chanceux",
-		en: "Lucky",
-		dfr: "Avoir 5 vies simultanement",
-		den: "Have 5 lives at once",
-		cond: (s) => s.maxLives >= 5,
-	},
-	{
-		id: "close_call",
-		cat: "survival",
-		icon: "😰",
-		fr: "Ouf",
-		en: "Close Call",
-		dfr: "Survivre avec 1 vie restante",
-		den: "Survive with 1 life remaining",
-		cond: (s) => s.closeCalls >= 1,
-	},
-	{
-		id: "revive_3",
-		cat: "survival",
-		icon: "💗",
-		fr: "Resilient",
-		en: "Resilient",
-		dfr: "Ramasser 3 vies en jeu",
-		den: "Collect 3 life power-ups",
-		cond: (s) => s.livesCollected >= 3,
-	},
-	{
-		id: "shots_500",
-		cat: "shots",
-		icon: "💨",
-		fr: "Trigger Happy",
-		en: "Trigger Happy",
-		dfr: "500 projectiles tires",
-		den: "500 shots fired",
-		cond: (s) => s.totalShots >= 500,
-	},
-	{
-		id: "shots_2000",
-		cat: "shots",
-		icon: "🌀",
-		fr: "Arroseur",
-		en: "Sprayer",
-		dfr: "2000 projectiles tires",
-		den: "2000 shots fired",
-		cond: (s) => s.totalShots >= 2000,
-	},
-	{
-		id: "shots_5000",
-		cat: "shots",
-		icon: "🌊",
-		fr: "Deluge de Feu",
-		en: "Fire Flood",
-		dfr: "5000 projectiles tires",
-		den: "5000 shots fired",
-		cond: (s) => s.totalShots >= 5000,
-	},
-	{
-		id: "mega_5",
-		cat: "shots",
-		icon: "💥",
-		fr: "Artificier",
-		en: "Pyrotechnist",
-		dfr: "5 Mega Blast utilises",
-		den: "5 Mega Blasts used",
-		cond: (s) => s.megaUsed >= 5,
-	},
-	{
-		id: "mega_10",
-		cat: "shots",
-		icon: "🔱",
-		fr: "Destruction Totale",
-		en: "Total Destruction",
-		dfr: "10 Mega Blast utilises",
-		den: "10 Mega Blasts used",
-		cond: (s) => s.megaUsed >= 10,
-	},
-	{
-		id: "firemax",
-		cat: "shots",
-		icon: "🔥",
-		fr: "Feu Maximum",
-		en: "Max Fire",
-		dfr: "Niveau de feu 5 atteint",
-		den: "Reach fire level 5",
-		cond: (s) => s.maxFireLevel >= 5,
-	},
-	{
-		id: "homing_10",
-		cat: "shots",
-		icon: "🎯",
-		fr: "Precision Guidee",
-		en: "Guided Precision",
-		dfr: "10 tirs guides reussis",
-		den: "10 homing kills",
-		cond: (s) => s.homingKills >= 10,
-	},
-	{
-		id: "play_5min",
-		cat: "time",
-		icon: "⏱",
-		fr: "Accroc",
-		en: "Hooked",
-		dfr: "5 minutes de jeu total",
-		den: "5 minutes of play",
-		cond: (s) => s.totalTime >= 300,
-	},
-	{
-		id: "play_30min",
-		cat: "time",
-		icon: "⏱",
-		fr: "Acharne",
-		en: "Dedicated",
-		dfr: "30 minutes de jeu total",
-		den: "30 minutes of play",
-		cond: (s) => s.totalTime >= 1800,
-	},
-	{
-		id: "play_1hr",
-		cat: "time",
-		icon: "🕐",
-		fr: "No-Life",
-		en: "No-Lifer",
-		dfr: "1 heure de jeu total",
-		den: "1 hour of play",
-		cond: (s) => s.totalTime >= 3600,
-	},
-	{
-		id: "speedrun_l1",
-		cat: "time",
-		icon: "🏃",
-		fr: "Vitesse Niveau 1",
-		en: "Speed Level 1",
-		dfr: "Finir niveau 1 en moins de 50s",
-		den: "Beat level 1 in under 50s",
-		cond: (s) => s.l1Time > 0 && s.l1Time < 50,
-	},
-	{
-		id: "speedrun_l2",
-		cat: "time",
-		icon: "🏃",
-		fr: "Vitesse Niveau 2",
-		en: "Speed Level 2",
-		dfr: "Finir niveau 2 en moins de 60s",
-		den: "Beat level 2 in under 60s",
-		cond: (s) => s.l2Time > 0 && s.l2Time < 60,
-	},
-	{
-		id: "speedrun_all",
-		cat: "time",
-		icon: "🏆",
-		fr: "Any%",
-		en: "Any%",
-		dfr: "Jeu termine en moins de 4min",
-		den: "Beat game in under 4 min",
-		cond: (s) => s.totalRunTime > 0 && s.totalRunTime < 240,
-	},
-	{
-		id: "powerups_10",
-		cat: "powerups",
-		icon: "📦",
-		fr: "Collectionneur",
-		en: "Collector",
-		dfr: "10 power-ups ramasses",
-		den: "10 power-ups collected",
-		cond: (s) => s.powerupsCollected >= 10,
-	},
-	{
-		id: "powerups_25",
-		cat: "powerups",
-		icon: "📦",
-		fr: "Thesauriseur",
-		en: "Hoarder",
-		dfr: "25 power-ups ramasses",
-		den: "25 power-ups collected",
-		cond: (s) => s.powerupsCollected >= 25,
-	},
-	{
-		id: "powerups_50",
-		cat: "powerups",
-		icon: "📦",
-		fr: "Opportuniste",
-		en: "Opportunist",
-		dfr: "50 power-ups ramasses",
-		den: "50 power-ups collected",
-		cond: (s) => s.powerupsCollected >= 50,
-	},
-	{
-		id: "shields_5",
-		cat: "powerups",
-		icon: "🛡",
-		fr: "Tortue",
-		en: "Turtle",
-		dfr: "5 boucliers utilises",
-		den: "5 shields used",
-		cond: (s) => s.shieldsUsed >= 5,
-	},
-	{
-		id: "speed_5",
-		cat: "powerups",
-		icon: "⚡",
-		fr: "Dragster",
-		en: "Dragster",
-		dfr: "5 boosts de vitesse utilises",
-		den: "5 speed boosts used",
-		cond: (s) => s.speedsUsed >= 5,
-	},
-	{
-		id: "beat_easy",
-		cat: "diff",
-		icon: "🥉",
-		fr: "Vainqueur Facile",
-		en: "Easy Winner",
-		dfr: "Terminer le jeu en Facile",
-		den: "Beat the game on Easy",
-		cond: (s) => s.beatEasy,
-	},
-	{
-		id: "beat_normal",
-		cat: "diff",
-		icon: "🥈",
-		fr: "Vainqueur Normal",
-		en: "Normal Winner",
-		dfr: "Terminer le jeu en Normal",
-		den: "Beat the game on Normal",
-		cond: (s) => s.beatNormal,
-	},
-	{
-		id: "beat_hard",
-		cat: "diff",
-		icon: "🥇",
-		fr: "Vainqueur Difficile",
-		en: "Hard Winner",
-		dfr: "Terminer le jeu en Difficile",
-		den: "Beat the game on Hard",
-		cond: (s) => s.beatHard,
-	},
-	{
-		id: "hard_no_die",
-		cat: "diff",
-		icon: "💀",
-		fr: "Masochiste",
-		en: "Masochist",
-		dfr: "Finir Difficile sans mourir",
-		den: "Beat Hard without dying",
-		cond: (s) => s.hardNoDeath,
-	},
-	{
-		id: "comeback",
-		cat: "special",
-		icon: "🔄",
-		fr: "Comeback",
-		en: "Comeback",
-		dfr: "Reprendre une partie sauvegardee",
-		den: "Resume a saved game",
-		cond: (s) => s.resumes >= 1,
-	},
-	{
-		id: "shield_boss",
-		cat: "special",
-		icon: "🛡",
-		fr: "Invulnerable",
-		en: "Invulnerable",
-		dfr: "Vaincre un boss avec bouclier",
-		den: "Defeat boss with shield on",
-		cond: (s) => s.bossKilledWithShield >= 1,
-	},
-	{
-		id: "combo_boss",
-		cat: "special",
-		icon: "🌟",
-		fr: "Combo Boss",
-		en: "Combo Boss",
-		dfr: "Vaincre un boss avec combo x5+",
-		den: "Defeat boss with 5x+ combo",
-		cond: (s) => s.bossKilledWithCombo5 >= 1,
-	},
-	{
-		id: "multi_kill",
-		cat: "special",
-		icon: "💫",
-		fr: "Multi-Kill",
-		en: "Multi-Kill",
-		dfr: "Tuer 3 ennemis simultanement",
-		den: "Kill 3 enemies simultaneously",
-		cond: (s) => s.multiKills >= 1,
-	},
-	{
-		id: "no_powerup_l1",
-		cat: "special",
-		icon: "🚫",
-		fr: "Ascete",
-		en: "Ascetic",
-		dfr: "Finir niveau 1 sans power-up",
-		den: "Beat level 1 with no power-ups",
-		cond: (s) => s.l1NoPowerup,
-	},
-	{
-		id: "fire5_boss",
-		cat: "special",
-		icon: "🔱",
-		fr: "Feu Maximal Boss",
-		en: "Max Fire Boss",
-		dfr: "Vaincre boss avec feu niveau 5",
-		den: "Defeat boss at fire level 5",
-		cond: (s) => s.bossKilledAtMaxFire >= 1,
-	},
-	{
-		id: "all_types",
-		cat: "special",
-		icon: "📋",
-		fr: "Encyclopediste",
-		en: "Encyclopedist",
-		dfr: "Tuer chaque type ennemi",
-		den: "Kill every enemy type",
-		cond: (s) =>
-			s.droneKills >= 1 &&
-			s.turretKills >= 1 &&
-			s.kamikazeKills >= 1,
-	},
-	{
-		id: "lucky_7",
-		cat: "special",
-		icon: "🍀",
-		fr: "Chanceux 7",
-		en: "Lucky 7",
-		dfr: "Score se terminant par 777",
-		den: "Score ending in 777",
-		cond: (s) => s.hiScore % 1000 === 777,
-	},
-	{
-		id: "elite_shooter",
-		cat: "special",
-		icon: "🎯",
-		fr: "Tireur Elite",
-		en: "Elite Shooter",
-		dfr: "Vaincre un boss sans manquer",
-		den: "Defeat boss without missing",
-		cond: (s) => s.bossNoMiss >= 1,
-	},
-	{
-		id: "lb_top10",
-		cat: "special",
-		icon: "🌐",
-		fr: "Top 10 Mondial",
-		en: "World Top 10",
-		dfr: "Entrer dans le top 10 mondial",
-		den: "Enter world top 10",
-		cond: (s) => s.lbBestRank > 0 && s.lbBestRank <= 10,
-	},
-	{
-		id: "lb_top1",
-		cat: "special",
-		icon: "👑",
-		fr: "Champion Mondial",
-		en: "World Champion",
-		dfr: "1er au classement mondial",
-		den: "Reach rank 1 worldwide",
-		cond: (s) => s.lbBestRank === 1,
-	},
-	{
-		id: "runs_5",
-		cat: "runs",
-		icon: "🎮",
-		fr: "Habitue",
-		en: "Regular",
-		dfr: "5 parties jouees",
-		den: "5 games played",
-		cond: (s) => s.totalRuns >= 5,
-	},
-	{
-		id: "runs_10",
-		cat: "runs",
-		icon: "🎮",
-		fr: "Passionne",
-		en: "Enthusiast",
-		dfr: "10 parties jouees",
-		den: "10 games played",
-		cond: (s) => s.totalRuns >= 10,
-	},
-	{
-		id: "runs_25",
-		cat: "runs",
-		icon: "🎮",
-		fr: "Veteran",
-		en: "Veteran",
-		dfr: "25 parties jouees",
-		den: "25 games played",
-		cond: (s) => s.totalRuns >= 25,
-	},
-	{
-		id: "runs_50",
-		cat: "runs",
-		icon: "🕹",
-		fr: "Addict",
-		en: "Addict",
-		dfr: "50 parties jouees",
-		den: "50 games played",
-		cond: (s) => s.totalRuns >= 50,
-	},
-	{
-		id: "secret_pauses",
-		cat: "secret",
-		icon: "🔮",
-		fr: "???",
-		en: "???",
-		dfr: "A decouvrir en jouant",
-		den: "Discover by playing",
-		cond: (s) => s.pauses >= 10,
-		sfr: "Accro a la Pause",
-		sen: "Pause Addict",
-	},
-	{
-		id: "secret_noboss",
-		cat: "secret",
-		icon: "🌙",
-		fr: "???",
-		en: "???",
-		dfr: "A decouvrir en jouant",
-		den: "Discover by playing",
-		cond: (s) => s.bossesKilled >= 3 && s.totalShots < 500,
-		sfr: "Sniper",
-		sen: "Sniper",
-	},
-	{
-		id: "secret_score0",
-		cat: "secret",
-		icon: "⚡",
-		fr: "???",
-		en: "???",
-		dfr: "A decouvrir en jouant",
-		den: "Discover by playing",
-		cond: (s) => s.totalRuns >= 3 && s.hiScore === 0,
-		sfr: "Zero Absolu",
-		sen: "Absolute Zero",
-	},
-	{
-		id: "secret_30s",
-		cat: "secret",
-		icon: "☮",
-		fr: "???",
-		en: "???",
-		dfr: "A decouvrir en jouant",
-		den: "Discover by playing",
-		cond: (s) => s.pacifistTime >= 30,
-		sfr: "Pacifiste",
-		sen: "Pacifist",
-	},
-	{
-		id: "ach_10",
-		cat: "meta",
-		icon: "🏅",
-		fr: "Rookie des Succes",
-		en: "Achievement Rookie",
-		dfr: "10 succes debloques",
-		den: "10 achievements unlocked",
-		cond: (s) => s.unlockedCount >= 10,
-	},
-	{
-		id: "ach_25",
-		cat: "meta",
-		icon: "🏅",
-		fr: "Chasseur de Succes",
-		en: "Achievement Hunter",
-		dfr: "25 succes debloques",
-		den: "25 achievements unlocked",
-		cond: (s) => s.unlockedCount >= 25,
-	},
-	{
-		id: "ach_50",
-		cat: "meta",
-		icon: "🏆",
-		fr: "Maitre des Succes",
-		en: "Achievement Master",
-		dfr: "50 succes debloques",
-		den: "50 achievements unlocked",
-		cond: (s) => s.unlockedCount >= 50,
-	},
-	{
-		id: "ach_100",
-		cat: "meta",
-		icon: "💎",
-		fr: "100% Complete",
-		en: "100% Complete",
-		dfr: "Tous les succes debloques",
-		den: "All achievements unlocked",
-		cond: (s) => s.unlockedCount >= 100,
-	},
-	{
-		id: "score_lb",
-		cat: "meta",
-		icon: "🌐",
-		fr: "Connecte",
-		en: "Connected",
-		dfr: "Envoyer un score au classement",
-		den: "Submit a score to leaderboard",
-		cond: (s) => s.scoreSubmitted >= 1,
-	},
-	{
-		id: "win_all_diff",
-		cat: "meta",
-		icon: "🌈",
-		fr: "Conquerant",
-		en: "Conqueror",
-		dfr: "Gagner dans les 3 difficultes",
-		den: "Win on all 3 difficulties",
-		cond: (s) => s.beatEasy && s.beatNormal && s.beatHard,
-	},
-	{
-		id: "powerup_streak",
-		cat: "meta",
-		icon: "🎆",
-		fr: "Ramasseur",
-		en: "Gatherer",
-		dfr: "5 power-ups consecutifs",
-		den: "5 power-ups in a row",
-		cond: (s) => s.powerupStreak >= 5,
-	},
-	{
-		id: "boss_dmg_none",
-		cat: "meta",
-		icon: "🛡",
-		fr: "Sans Egratignure",
-		en: "Unscratchable",
-		dfr: "Vaincre un boss sans perdre de vie",
-		den: "Defeat a boss without losing lives",
-		cond: (s) => s.bossNoDmg >= 1,
-	},
-	{
-		id: "max_score_run",
-		cat: "meta",
-		icon: "💰",
-		fr: "Efficient",
-		en: "Efficient",
-		dfr: "10k+ score avec 1 seule vie",
-		den: "10k+ score with 1 life only",
-		cond: (s) => s.highScoreSingleLife >= 10000,
-	},
-	{
-		id: "kills_2000",
-		cat: "kills",
-		icon: "💀",
-		fr: "Genocidaire",
-		en: "Genocidal",
-		dfr: "2000 ennemis detruits",
-		den: "2000 enemies destroyed",
-		cond: (s) => s.totalKills >= 2000,
-	},
-	{
-		id: "shots_10k",
-		cat: "shots",
-		icon: "🌊",
-		fr: "Ocean de Feu",
-		en: "Ocean of Fire",
-		dfr: "10000 projectiles tires",
-		den: "10000 shots fired",
-		cond: (s) => s.totalShots >= 10000,
-	},
-	{
-		id: "score_200k",
-		cat: "score",
-		icon: "🔥",
-		fr: "Mythique",
-		en: "Mythical",
-		dfr: "Score de 200 000",
-		den: "Score of 200,000",
-		cond: (s) => s.hiScore >= 200000,
-	},
-	{
-		id: "runs_100",
-		cat: "runs",
-		icon: "🕹",
-		fr: "Ultra-Addict",
-		en: "Ultra-Addict",
-		dfr: "100 parties jouees",
-		den: "100 games played",
-		cond: (s) => s.totalRuns >= 100,
-	},
-	{
-		id: "play_3hr",
-		cat: "time",
-		icon: "🕐",
-		fr: "Eternel",
-		en: "Eternal",
-		dfr: "3 heures de jeu total",
-		den: "3 hours of play",
-		cond: (s) => s.totalTime >= 10800,
-	},
-	{
-		id: "bosses_6",
-		cat: "kills",
-		icon: "👑",
-		fr: "Tueur de Titans",
-		en: "Titan Slayer",
-		dfr: "Vaincre 6 boss total",
-		den: "Defeat 6 bosses total",
-		cond: (s) => s.bossesKilled >= 6,
-	},
-	{
-		id: "bosses_10",
-		cat: "kills",
-		icon: "💀",
-		fr: "Nemesis",
-		en: "Nemesis",
-		dfr: "Vaincre 10 boss total",
-		den: "Defeat 10 bosses total",
-		cond: (s) => s.bossesKilled >= 10,
-	},
-	{
-		id: "turret_50",
-		cat: "kills",
-		icon: "🔫",
-		fr: "Anti-Tourelle",
-		en: "Anti-Turret",
-		dfr: "50 tourelles detruites",
-		den: "50 turrets destroyed",
-		cond: (s) => s.turretKills >= 50,
-	},
-	{
-		id: "score_500k",
-		cat: "score",
-		icon: "⚡",
-		fr: "Absolu",
-		en: "Absolute",
-		dfr: "Score de 500 000",
-		den: "Score of 500,000",
-		cond: (s) => s.hiScore >= 500000,
-	},
-	{
-		id: "speedboss_1",
-		cat: "time",
-		icon: "⚡",
-		fr: "Liquidateur Rapide",
-		en: "Speed Liquidator",
-		dfr: "Vaincre un boss en moins de 30s",
-		den: "Defeat a boss in under 30s",
-		cond: (s) => s.fastBossKill >= 1,
-	},
-	{
-		id: "no_miss_l1",
-		cat: "survival",
-		icon: "🎯",
-		fr: "Tir Parfait L1",
-		en: "Perfect Shot L1",
-		dfr: "Finir niveau 1 sans perdre une vie",
-		den: "Beat level 1 without losing life",
-		cond: (s) => s.l1NoDeath,
-	},
-	{
-		id: "turret_100",
-		cat: "kills",
-		icon: "🔫",
-		fr: "Demolisseur Total",
-		en: "Total Demolisher",
-		dfr: "100 tourelles detruites",
-		den: "100 turrets destroyed",
-		cond: (s) => s.turretKills >= 100,
-	},
-	{
-		id: "kamikaze_100",
-		cat: "kills",
-		icon: "💣",
-		fr: "Exorciste",
-		en: "Exorcist",
-		dfr: "100 kamikazes stoppes",
-		den: "100 kamikazes stopped",
-		cond: (s) => s.kamikazeKills >= 100,
-	},
-	{
-		id: "score_1m",
-		cat: "score",
-		icon: "🌟",
-		fr: "Divin",
-		en: "Divine",
-		dfr: "Score de 1 000 000",
-		den: "Score of 1,000,000",
-		cond: (s) => s.hiScore >= 1000000,
-	},
+// ══════════════════════════════════════════
+//  UPGRADES
+// ══════════════════════════════════════════
+const UDEFS = {
+    cannon: {
+        costs: [1500, 2800, 4800, 7500],
+        tips_fr: [
+            "Vitesse +18%",
+            "Vitesse +36%",
+            "Vitesse +55%",
+            "Vitesse +100% MAX",
+        ],
+        tips_en: [
+            "Speed +18%",
+            "Speed +36%",
+            "Speed +55%",
+            "Speed +100% MAX",
+        ],
+        icon: "🔫",
+        vals: [11, 13, 16, 20, 24],
+        desc_fr:
+            "Lance le robot à pleine puissance. Chaque niveau augmente la vitesse de lancement et la portée maximale.",
+        desc_en:
+            "Launches the robot at full power. Each level increases launch speed and max range.",
+        stat_fr: "Puissance de tir",
+        stat_en: "Launch power",
+        statFmt: (i) => [11, 13, 16, 20, 24][i] + "× base",
+    },
+    battery: {
+        costs: [1500, 3000, 5500, 8500],
+        tips_fr: [
+            "Carburant +22%",
+            "Carburant +54%",
+            "Carburant +95%",
+            "Carburant +145% MAX",
+        ],
+        tips_en: [
+            "Fuel +22%",
+            "Fuel +54%",
+            "Fuel +95%",
+            "Fuel +145% MAX",
+        ],
+        icon: "⚡",
+        vals: [220, 270, 340, 430, 540],
+        desc_fr:
+            "Augmente la capacité de la jauge jetpack. Plus de carburant = plus long en l'air.",
+        desc_en:
+            "Increases jetpack fuel capacity. More fuel means more time in the air.",
+        stat_fr: "Capacité jauge",
+        stat_en: "Fuel capacity",
+        statFmt: (i) =>
+            Math.round(([220, 270, 340, 430, 540][i] / 220) * 100) +
+            "%",
+    },
+    armor: {
+        costs: [2000, 3500, 6000, 9500],
+        tips_fr: [
+            "Bouclier ×1",
+            "Bouclier ×2",
+            "Bouclier ×3",
+            "Bouclier ×4 MAX",
+        ],
+        tips_en: [
+            "Shield ×1",
+            "Shield ×2",
+            "Shield ×3",
+            "Shield ×4 MAX",
+        ],
+        icon: "🛡️",
+        vals: [0, 1, 2, 3, 4],
+        desc_fr:
+            "Absorbe les chocs ennemis avant de perdre du carburant. Chaque bouclier = 1 hit gratuit.",
+        desc_en:
+            "Absorbs enemy hits before losing fuel. Each shield = 1 free hit.",
+        stat_fr: "Résistance",
+        stat_en: "Hit buffer",
+        statFmt: (i) => [0, 1, 2, 3, 4][i] + " hits",
+    },
+};
+const uv = (k) => UDEFS[k].vals[sd.up[k]];
+
+// ══════════════════════════════════════════
+//  ACHIEVEMENTS (100)
+// ══════════════════════════════════════════
+// Format: [id, icon, name_fr, name_en, desc_fr, desc_en, condition_key, threshold, cat]
+const ACHS = [
+    // 🚀 Distance — run (15)
+    [
+        "d1",
+        "🚀",
+        "Premiers mètres",
+        "First Meters",
+        "Vole 25m",
+        "Fly 25m",
+        "dist",
+        25,
+        "dist",
+    ],
+    [
+        "d2",
+        "✈️",
+        "Décollage",
+        "Take Off",
+        "Vole 75m",
+        "Fly 75m",
+        "dist",
+        75,
+        "dist",
+    ],
+    [
+        "d3",
+        "🛫",
+        "En route",
+        "Airborne",
+        "Vole 150m",
+        "Fly 150m",
+        "dist",
+        150,
+        "dist",
+    ],
+    [
+        "d4",
+        "🌆",
+        "Voyageur",
+        "Traveler",
+        "Vole 300m",
+        "Fly 300m",
+        "dist",
+        300,
+        "dist",
+    ],
+    [
+        "d5",
+        "🌇",
+        "Grand voyageur",
+        "Long Haul",
+        "Vole 500m",
+        "Fly 500m",
+        "dist",
+        500,
+        "dist",
+    ],
+    [
+        "d6",
+        "🌉",
+        "1 kilomètre !",
+        "1 Kilometer!",
+        "Vole 1000m",
+        "Fly 1000m",
+        "dist",
+        1000,
+        "dist",
+    ],
+    [
+        "d7",
+        "🌌",
+        "Explorateur",
+        "Explorer",
+        "Vole 1500m",
+        "Fly 1500m",
+        "dist",
+        1500,
+        "dist",
+    ],
+    [
+        "d8",
+        "🪐",
+        "Cosmonaute",
+        "Cosmonaut",
+        "Vole 2500m",
+        "Fly 2500m",
+        "dist",
+        2500,
+        "dist",
+    ],
+    [
+        "d9",
+        "⭐",
+        "Étoile filante",
+        "Shooting Star",
+        "Vole 4000m",
+        "Fly 4000m",
+        "dist",
+        4000,
+        "dist",
+    ],
+    [
+        "d10",
+        "🌠",
+        "Légende",
+        "Legend",
+        "Vole 6000m",
+        "Fly 6000m",
+        "dist",
+        6000,
+        "dist",
+    ],
+    [
+        "d11",
+        "🏆",
+        "Champion",
+        "Champion",
+        "Vole 8000m",
+        "Fly 8000m",
+        "dist",
+        8000,
+        "dist",
+    ],
+    [
+        "d12",
+        "💫",
+        "Maître de l'air",
+        "Air Master",
+        "Vole 10000m",
+        "Fly 10000m",
+        "dist",
+        10000,
+        "dist",
+    ],
+    [
+        "d13",
+        "🔥",
+        "Supersonique",
+        "Supersonic",
+        "Vole 15000m",
+        "Fly 15000m",
+        "dist",
+        15000,
+        "dist",
+    ],
+    [
+        "d14",
+        "👑",
+        "Roi du ciel",
+        "Sky King",
+        "Vole 20000m",
+        "Fly 20000m",
+        "dist",
+        20000,
+        "dist",
+    ],
+    [
+        "d15",
+        "🌟",
+        "Absolu",
+        "Absolute",
+        "Vole 30000m",
+        "Fly 30000m",
+        "dist",
+        30000,
+        "dist",
+    ],
+    // 📏 Distance cumulée (10)
+    [
+        "cd1",
+        "📏",
+        "Marcheur",
+        "Walker",
+        "Total 500m",
+        "Total 500m",
+        "totalDist",
+        500,
+        "total",
+    ],
+    [
+        "cd2",
+        "🛣️",
+        "Routier",
+        "Road Runner",
+        "Total 2km",
+        "Total 2km",
+        "totalDist",
+        2000,
+        "total",
+    ],
+    [
+        "cd3",
+        "🗺️",
+        "Cartographe",
+        "Cartographer",
+        "Total 5km",
+        "Total 5km",
+        "totalDist",
+        5000,
+        "total",
+    ],
+    [
+        "cd4",
+        "🌍",
+        "Tour du monde",
+        "World Tour",
+        "Total 10km",
+        "Total 10km",
+        "totalDist",
+        10000,
+        "total",
+    ],
+    [
+        "cd5",
+        "🏔️",
+        "Alpiniste",
+        "Alpinist",
+        "Total 25km",
+        "Total 25km",
+        "totalDist",
+        25000,
+        "total",
+    ],
+    [
+        "cd6",
+        "🚂",
+        "Chemin de fer",
+        "Railroad",
+        "Total 50km",
+        "Total 50km",
+        "totalDist",
+        50000,
+        "total",
+    ],
+    [
+        "cd7",
+        "🛸",
+        "UFO",
+        "UFO",
+        "Total 100km",
+        "Total 100km",
+        "totalDist",
+        100000,
+        "total",
+    ],
+    [
+        "cd8",
+        "🌙",
+        "Vers la lune",
+        "To the Moon",
+        "Total 250km",
+        "Total 250km",
+        "totalDist",
+        250000,
+        "total",
+    ],
+    [
+        "cd9",
+        "☀️",
+        "Tour du soleil",
+        "Solar Tour",
+        "Total 500km",
+        "Total 500km",
+        "totalDist",
+        500000,
+        "total",
+    ],
+    [
+        "cd10",
+        "🪐",
+        "Odyssée",
+        "Odyssey",
+        "Total 1000km",
+        "Total 1000km",
+        "totalDist",
+        1000000,
+        "total",
+    ],
+    // ⭐ Étoiles (10)
+    [
+        "s1",
+        "⭐",
+        "Collectionneur",
+        "Collector",
+        "Ramasse 10 étoiles",
+        "Collect 10 stars",
+        "totalStars",
+        10,
+        "stars",
+    ],
+    [
+        "s2",
+        "🌟",
+        "Chasseur d'étoiles",
+        "Star Hunter",
+        "Ramasse 50 étoiles",
+        "Collect 50 stars",
+        "totalStars",
+        50,
+        "stars",
+    ],
+    [
+        "s3",
+        "✨",
+        "Galaxie",
+        "Galaxy",
+        "Ramasse 100 étoiles",
+        "Collect 100 stars",
+        "totalStars",
+        100,
+        "stars",
+    ],
+    [
+        "s4",
+        "💫",
+        "Pluie d'étoiles",
+        "Star Rain",
+        "Ramasse 250 étoiles",
+        "Collect 250 stars",
+        "totalStars",
+        250,
+        "stars",
+    ],
+    [
+        "s5",
+        "🌌",
+        "Nébuleuse",
+        "Nebula",
+        "Ramasse 500 étoiles",
+        "Collect 500 stars",
+        "totalStars",
+        500,
+        "stars",
+    ],
+    [
+        "s6",
+        "🪐",
+        "Astéroïde",
+        "Asteroid",
+        "Ramasse 1000 étoiles",
+        "Collect 1000 stars",
+        "totalStars",
+        1000,
+        "stars",
+    ],
+    [
+        "s7",
+        "☄️",
+        "Comète",
+        "Comet",
+        "Ramasse 2000 étoiles",
+        "Collect 2000 stars",
+        "totalStars",
+        2000,
+        "stars",
+    ],
+    [
+        "s8",
+        "🔭",
+        "Astronome",
+        "Astronomer",
+        "Ramasse 5000 étoiles",
+        "Collect 5000 stars",
+        "totalStars",
+        5000,
+        "stars",
+    ],
+    [
+        "s9",
+        "🛸",
+        "Alien",
+        "Alien",
+        "Ramasse 10000 étoiles",
+        "Collect 10000 stars",
+        "totalStars",
+        10000,
+        "stars",
+    ],
+    [
+        "s10",
+        "👾",
+        "Maître des étoiles",
+        "Star Master",
+        "Ramasse 25000 étoiles",
+        "Collect 25000 stars",
+        "totalStars",
+        25000,
+        "stars",
+    ],
+    // 🔥 Combo (10)
+    [
+        "c1",
+        "🔥",
+        "Double",
+        "Double",
+        "Atteins x2 combo",
+        "Reach x2 combo",
+        "bestCombo",
+        2,
+        "combo",
+    ],
+    [
+        "c2",
+        "💥",
+        "Triple",
+        "Triple",
+        "Atteins x3 combo",
+        "Reach x3 combo",
+        "bestCombo",
+        3,
+        "combo",
+    ],
+    [
+        "c3",
+        "⚡",
+        "Électrique",
+        "Electric",
+        "Atteins x5 combo",
+        "Reach x5 combo",
+        "bestCombo",
+        5,
+        "combo",
+    ],
+    [
+        "c4",
+        "🌊",
+        "Tsunami",
+        "Tsunami",
+        "Atteins x7 combo",
+        "Reach x7 combo",
+        "bestCombo",
+        7,
+        "combo",
+    ],
+    [
+        "c5",
+        "🚀",
+        "Orbital",
+        "Orbital",
+        "Atteins x10 combo",
+        "Reach x10 combo",
+        "bestCombo",
+        10,
+        "combo",
+    ],
+    [
+        "c6",
+        "🌪️",
+        "Tornade",
+        "Tornado",
+        "Atteins x12 combo",
+        "Reach x12 combo",
+        "bestCombo",
+        12,
+        "combo",
+    ],
+    [
+        "c7",
+        "🔮",
+        "Mystique",
+        "Mystic",
+        "Atteins x15 combo",
+        "Reach x15 combo",
+        "bestCombo",
+        15,
+        "combo",
+    ],
+    [
+        "c8",
+        "👁️",
+        "Omniscient",
+        "Omniscient",
+        "Atteins x20 combo",
+        "Reach x20 combo",
+        "bestCombo",
+        20,
+        "combo",
+    ],
+    [
+        "c9",
+        "🌀",
+        "Vortex",
+        "Vortex",
+        "Atteins x25 combo",
+        "Reach x25 combo",
+        "bestCombo",
+        25,
+        "combo",
+    ],
+    [
+        "c10",
+        "♾️",
+        "Infini",
+        "Infinite",
+        "Atteins x30 combo",
+        "Reach x30 combo",
+        "bestCombo",
+        30,
+        "combo",
+    ],
+    // 💰 Pièces (10)
+    [
+        "m1",
+        "💰",
+        "Économe",
+        "Saver",
+        "Gagne 500$",
+        "Earn $500",
+        "money",
+        500,
+        "coins",
+    ],
+    [
+        "m2",
+        "💵",
+        "Investisseur",
+        "Investor",
+        "Gagne 2000$",
+        "Earn $2000",
+        "money",
+        2000,
+        "coins",
+    ],
+    [
+        "m3",
+        "💎",
+        "Riche",
+        "Rich",
+        "Gagne 5000$",
+        "Earn $5000",
+        "money",
+        5000,
+        "coins",
+    ],
+    [
+        "m4",
+        "🤑",
+        "Millionnaire",
+        "Millionaire",
+        "Gagne 10000$",
+        "Earn $10000",
+        "money",
+        10000,
+        "coins",
+    ],
+    [
+        "m5",
+        "🏦",
+        "Banquier",
+        "Banker",
+        "Gagne 25000$",
+        "Earn $25000",
+        "money",
+        25000,
+        "coins",
+    ],
+    [
+        "m6",
+        "👑",
+        "Oligarque",
+        "Oligarch",
+        "Gagne 50000$",
+        "Earn $50000",
+        "money",
+        50000,
+        "coins",
+    ],
+    [
+        "m7",
+        "💫",
+        "Tycoon",
+        "Tycoon",
+        "Gagne 100000$",
+        "Earn $100000",
+        "money",
+        100000,
+        "coins",
+    ],
+    [
+        "m8",
+        "🌟",
+        "Financier",
+        "Financier",
+        "Gagne 250000$",
+        "Earn $250000",
+        "money",
+        250000,
+        "coins",
+    ],
+    [
+        "m9",
+        "🔥",
+        "Magnat",
+        "Magnate",
+        "Gagne 500000$",
+        "Earn $500000",
+        "money",
+        500000,
+        "coins",
+    ],
+    [
+        "m10",
+        "♾️",
+        "Sans limites",
+        "Limitless",
+        "Gagne 1000000$",
+        "Earn $1000000",
+        "money",
+        1000000,
+        "coins",
+    ],
+    // 🔧 Shop (10)
+    [
+        "sh1",
+        "🔧",
+        "Premier achat",
+        "First Buy",
+        "Achète une amélioration",
+        "Buy an upgrade",
+        "totalShopBuys",
+        1,
+        "shop",
+    ],
+    [
+        "sh2",
+        "⚙️",
+        "Bricoleur",
+        "Tinkerer",
+        "Achète 3 améliorations",
+        "Buy 3 upgrades",
+        "totalShopBuys",
+        3,
+        "shop",
+    ],
+    [
+        "sh3",
+        "🛠️",
+        "Mécanicien",
+        "Mechanic",
+        "Achète 5 améliorations",
+        "Buy 5 upgrades",
+        "totalShopBuys",
+        5,
+        "shop",
+    ],
+    [
+        "sh4",
+        "🔩",
+        "Ingénieur",
+        "Engineer",
+        "Achète 8 améliorations",
+        "Buy 8 upgrades",
+        "totalShopBuys",
+        8,
+        "shop",
+    ],
+    [
+        "sh5",
+        "🚀",
+        "Max Cannon",
+        "Max Cannon",
+        "Cannon niveau max",
+        "Max Cannon level",
+        "cannonMax",
+        1,
+        "shop",
+    ],
+    [
+        "sh6",
+        "⚡",
+        "Max Batterie",
+        "Max Battery",
+        "Batterie niveau max",
+        "Max Battery level",
+        "batteryMax",
+        1,
+        "shop",
+    ],
+    [
+        "sh7",
+        "🛡️",
+        "Max Armure",
+        "Max Armor",
+        "Armure niveau max",
+        "Max Armor level",
+        "armorMax",
+        1,
+        "shop",
+    ],
+    [
+        "sh8",
+        "💪",
+        "Armé jusqu'aux dents",
+        "Armed to Teeth",
+        "2 catégories au max",
+        "2 categories maxed",
+        "twoMax",
+        1,
+        "shop",
+    ],
+    [
+        "sh9",
+        "🔫",
+        "Arsenal complet",
+        "Full Arsenal",
+        "Toutes catégories au max",
+        "All categories maxed",
+        "allMax",
+        1,
+        "shop",
+    ],
+    [
+        "sh10",
+        "💰",
+        "Dépensier",
+        "Big Spender",
+        "Dépense 2000$",
+        "Spend $2000",
+        "totalSpent",
+        2000,
+        "shop",
+    ],
+    // 🎯 Items collectés (10)
+    [
+        "i1",
+        "💙",
+        "Boosté",
+        "Boosted",
+        "Collecte 1 ellipse bleue",
+        "Collect 1 blue orb",
+        "totalBoosts",
+        1,
+        "items",
+    ],
+    [
+        "i2",
+        "⚡",
+        "Accéléré",
+        "Accelerated",
+        "Collecte 10 ellipses",
+        "Collect 10 orbs",
+        "totalBoosts",
+        10,
+        "items",
+    ],
+    [
+        "i3",
+        "🔵",
+        "Orbiteur",
+        "Orbiter",
+        "Collecte 50 ellipses",
+        "Collect 50 orbs",
+        "totalBoosts",
+        50,
+        "items",
+    ],
+    [
+        "i4",
+        "🌀",
+        "Tourbillon",
+        "Whirlwind",
+        "Collecte 100 ellipses",
+        "Collect 100 orbs",
+        "totalBoosts",
+        100,
+        "items",
+    ],
+    [
+        "i5",
+        "⭕",
+        "Premier anneau",
+        "First Ring",
+        "Passe un anneau doré",
+        "Pass a ring",
+        "totalRings",
+        1,
+        "items",
+    ],
+    [
+        "i6",
+        "🥇",
+        "Acrobate",
+        "Acrobat",
+        "Passe 10 anneaux",
+        "Pass 10 rings",
+        "totalRings",
+        10,
+        "items",
+    ],
+    [
+        "i7",
+        "🏅",
+        "Gymnaste",
+        "Gymnast",
+        "Passe 50 anneaux",
+        "Pass 50 rings",
+        "totalRings",
+        50,
+        "items",
+    ],
+    [
+        "i8",
+        "📦",
+        "Découvreur",
+        "Discoverer",
+        "Ouvre 1 coffre",
+        "Open 1 chest",
+        "totalChests",
+        1,
+        "items",
+    ],
+    [
+        "i9",
+        "🎁",
+        "Chasseur de trésors",
+        "Treasure Hunter",
+        "Ouvre 20 coffres",
+        "Open 20 chests",
+        "totalChests",
+        20,
+        "items",
+    ],
+    [
+        "i10",
+        "💎",
+        "Indiana Robo",
+        "Indiana Robo",
+        "Ouvre 100 coffres",
+        "Open 100 chests",
+        "totalChests",
+        100,
+        "items",
+    ],
+    // 💀 Ennemis & survie (10)
+    [
+        "e1",
+        "👊",
+        "Premier choc",
+        "First Impact",
+        "Touche 1 ennemi",
+        "Hit 1 enemy",
+        "totalHits",
+        1,
+        "enemy",
+    ],
+    [
+        "e2",
+        "🤕",
+        "Résistant",
+        "Resilient",
+        "Prends 5 chocs",
+        "Take 5 hits",
+        "totalHits",
+        5,
+        "enemy",
+    ],
+    [
+        "e3",
+        "💢",
+        "Dur à cuire",
+        "Tough Guy",
+        "Prends 15 chocs",
+        "Take 15 hits",
+        "totalHits",
+        15,
+        "enemy",
+    ],
+    [
+        "e4",
+        "🔥",
+        "Survivant",
+        "Survivor",
+        "Prends 30 chocs",
+        "Take 30 hits",
+        "totalHits",
+        30,
+        "enemy",
+    ],
+    [
+        "e5",
+        "💥",
+        "Invincible",
+        "Invincible",
+        "Prends 50 chocs",
+        "Take 50 hits",
+        "totalHits",
+        50,
+        "enemy",
+    ],
+    [
+        "e6",
+        "😤",
+        "Indestructible",
+        "Indestructible",
+        "Prends 100 chocs",
+        "Take 100 hits",
+        "totalHits",
+        100,
+        "enemy",
+    ],
+    [
+        "e7",
+        "🏃",
+        "Esquiveur",
+        "Dodger",
+        "Joue 5 parties sans hit",
+        "Play 5 games no-hit",
+        "perfectGames",
+        5,
+        "enemy",
+    ],
+    [
+        "e8",
+        "🦸",
+        "Héros",
+        "Hero",
+        "Joue 10 parties sans hit",
+        "Play 10 games no-hit",
+        "perfectGames",
+        10,
+        "enemy",
+    ],
+    [
+        "e9",
+        "🥷",
+        "Ninja",
+        "Ninja",
+        "Joue 20 parties sans hit",
+        "Play 20 games no-hit",
+        "perfectGames",
+        20,
+        "enemy",
+    ],
+    [
+        "e10",
+        "👻",
+        "Fantôme",
+        "Ghost",
+        "Joue 50 parties sans hit",
+        "Play 50 games no-hit",
+        "perfectGames",
+        50,
+        "enemy",
+    ],
+    // 🎮 Parties jouées (10)
+    [
+        "g1",
+        "🎮",
+        "Débutant",
+        "Beginner",
+        "Joue 1 partie",
+        "Play 1 game",
+        "gamesPlayed",
+        1,
+        "games",
+    ],
+    [
+        "g2",
+        "🕹️",
+        "Habitué",
+        "Regular",
+        "Joue 5 parties",
+        "Play 5 games",
+        "gamesPlayed",
+        5,
+        "games",
+    ],
+    [
+        "g3",
+        "🎯",
+        "Pratiquant",
+        "Practitioner",
+        "Joue 10 parties",
+        "Play 10 games",
+        "gamesPlayed",
+        10,
+        "games",
+    ],
+    [
+        "g4",
+        "🎪",
+        "Amateur",
+        "Amateur",
+        "Joue 25 parties",
+        "Play 25 games",
+        "gamesPlayed",
+        25,
+        "games",
+    ],
+    [
+        "g5",
+        "🏋️",
+        "Entraîné",
+        "Trained",
+        "Joue 50 parties",
+        "Play 50 games",
+        "gamesPlayed",
+        50,
+        "games",
+    ],
+    [
+        "g6",
+        "🥋",
+        "Expert",
+        "Expert",
+        "Joue 100 parties",
+        "Play 100 games",
+        "gamesPlayed",
+        100,
+        "games",
+    ],
+    [
+        "g7",
+        "🎖️",
+        "Vétéran",
+        "Veteran",
+        "Joue 200 parties",
+        "Play 200 games",
+        "gamesPlayed",
+        200,
+        "games",
+    ],
+    [
+        "g8",
+        "🏆",
+        "Pro",
+        "Pro",
+        "Joue 500 parties",
+        "Play 500 games",
+        "gamesPlayed",
+        500,
+        "games",
+    ],
+    [
+        "g9",
+        "👑",
+        "Maître",
+        "Master",
+        "Joue 1000 parties",
+        "Play 1000 games",
+        "gamesPlayed",
+        1000,
+        "games",
+    ],
+    [
+        "g10",
+        "🌟",
+        "Légende vivante",
+        "Living Legend",
+        "Joue 2000 parties",
+        "Play 2000 games",
+        "gamesPlayed",
+        2000,
+        "games",
+    ],
+    // 🌟 Spéciaux (5)
+    [
+        "sp1",
+        "☄️",
+        "Météore évité",
+        "Meteor Dodger",
+        "Évite un météore",
+        "Dodge a meteor",
+        "meteorsDodged",
+        1,
+        "special",
+    ],
+    [
+        "sp2",
+        "🌧️",
+        "Pluie de météores",
+        "Meteor Rain",
+        "Évite 10 météores",
+        "Dodge 10 meteors",
+        "meteorsDodged",
+        10,
+        "special",
+    ],
+    [
+        "sp3",
+        "🌠",
+        "Tempête cosmique",
+        "Cosmic Storm",
+        "Évite 50 météores",
+        "Dodge 50 meteors",
+        "meteorsDodged",
+        50,
+        "special",
+    ],
+    [
+        "sp4",
+        "🎰",
+        "Chanceux",
+        "Lucky",
+        "Ouvre 3 coffres en une partie",
+        "Open 3 chests in one run",
+        "chestsOneRun",
+        3,
+        "special",
+    ],
+    [
+        "sp5",
+        "🌈",
+        "Arc-en-ciel",
+        "Rainbow",
+        "Collecte tous les types en une partie",
+        "Collect all types in one run",
+        "allTypesRun",
+        1,
+        "special",
+    ],
+    [
+        "sp6",
+        "🔴",
+        "Pleine Puissance !",
+        "Full Power!",
+        "Atteins la vitesse maximale (jauge rouge)",
+        "Reach max speed (red gauge)",
+        "redZoneCount",
+        1,
+        "special",
+    ],
 ];
-// Verify count >= 100
-// console.log('ACH count:', ACH_DEFS.length);
 
-const achStats = (() => {
-	const KEY = "iw_achstats";
-	let _s = null;
-	function _def() {
-		return {
-			totalShots: 0,
-			totalKills: 0,
-			droneKills: 0,
-			turretKills: 0,
-			kamikazeKills: 0,
-			bossesKilled: 0,
-			levelsCleared: 0,
-			powerupsCollected: 0,
-			megaUsed: 0,
-			shieldsUsed: 0,
-			homingUsed: 0,
-			speedsUsed: 0,
-			pauses: 0,
-			maxCombo: 0,
-			hiScore: 0,
-			totalTime: 0,
-			totalRuns: 0,
-			resumes: 0,
-			l1NoDeath: false,
-			l2NoDeath: false,
-			l3NoDeath: false,
-			fullRunNoDeath: false,
-			hardNoDeath: false,
-			beatEasy: false,
-			beatNormal: false,
-			beatHard: false,
-			closeCalls: 0,
-			livesCollected: 0,
-			maxLives: 0,
-			l1Time: 0,
-			l2Time: 0,
-			totalRunTime: 0,
-			homingKills: 0,
-			bossKilledWithShield: 0,
-			bossKilledWithCombo5: 0,
-			multiKills: 0,
-			l1NoPowerup: false,
-			bossKilledAtMaxFire: 0,
-			bossNoMiss: 0,
-			bossNoDmg: 0,
-			highScoreSingleLife: 0,
-			powerupStreak: 0,
-			powerupStreakCur: 0,
-			killStreak: 0,
-			lastPowerupType: null,
-			rageMode: false,
-			eliteKillCount: 0,
-			eliteWaveCount: 0,
-			ragePulse: 0,
-			maxKillStreak: 0,
-			killStreakTimer: 0,
-			pacifistTime: 0,
-			maxFireLevel: 0,
-			lbBestRank: 0,
-			scoreSubmitted: 0,
-			unlockedCount: 0,
-			unlocked: {},
-		};
-	}
-	function load() {
-		if (_s) return _s;
-		try {
-			_s = Object.assign(_def(), JSON.parse(idb.getItem(KEY) || "{}"));
-		} catch (e) { _s = _def(); }
-		return _s;
-	}
-	function save() {
-		_s.unlockedCount = Object.keys(_s.unlocked).length;
-		idb.setItem(KEY, JSON.stringify(_s));
-	}
-	function get() {
-		return load();
-	}
-	function check(onUnlock) {
-		const s = load();
-		for (const a of ACH_DEFS) {
-			if (s.unlocked[a.id]) continue;
-			try {
-				if (a.cond(s)) {
-					s.unlocked[a.id] = Date.now();
-					save();
-					onUnlock?.(a);
-				}
-			} catch (e) {}
-		}
-	}
-	function reload() { _s = null; } // force re-read from idb after preload
-	return { get, save, check, load, reload };
-})();
-
-// ═══ SAVE GAME ════════════════════════════════════════════════════════════
-const saveGame = {
-	KEY: "iw_save",
-	save(state, player) {
-		idb.setItem(this.KEY, JSON.stringify({
-			level: state.level, score: state.score, lives: state.lives,
-			levelTime: state.levelTime, phase: state.phase,
-			fireLevel: player.fireLevel, hasShield: player.hasShield,
-			hasHoming: player.hasHoming, speedBoost: player.speedBoost,
-			megaReady: player.megaReady, isSurvival: state.isSurvival,
-			survivalWave: state.survivalWave,
-			survivalWaveTimer: state.survivalWaveTimer,
-			survivalTotalTime: state.survivalTotalTime,
-			bossSpawned: state.bossSpawned,
-			dangerZones: state.dangerZones || [],
-			firePowerupPending: state._firePowerupPending || false,
-			firePowerupKills: state._firePowerupKills || 0,
-			ts: Date.now(),
-		}));
-	},
-	load() {
-		try {
-			const d = JSON.parse(idb.getItem(this.KEY) || "null");
-			if (!d || Date.now() - d.ts > 7 * 86400000) { this.clear(); return null; }
-			return d;
-		} catch (e) { return null; }
-	},
-	clear() { idb.removeItem(this.KEY); },
-	has()   { return idb.hasItem(this.KEY); },
+// Achievement categories metadata
+const ACH_CATS = {
+    dist: {
+        icon: "🚀",
+        fr: "Distance (course)",
+        en: "Distance (run)",
+    },
+    total: {
+        icon: "📏",
+        fr: "Distance totale",
+        en: "Total distance",
+    },
+    stars: { icon: "⭐", fr: "Étoiles", en: "Stars" },
+    combo: { icon: "🔥", fr: "Combos", en: "Combos" },
+    coins: { icon: "💰", fr: "Pièces", en: "Coins" },
+    shop: { icon: "🔧", fr: "Boutique", en: "Shop" },
+    items: { icon: "🎯", fr: "Objets", en: "Items" },
+    enemy: { icon: "💀", fr: "Ennemis", en: "Enemies" },
+    games: { icon: "🎮", fr: "Parties", en: "Games" },
+    special: { icon: "🌟", fr: "Spéciaux", en: "Special" },
 };
 
-// ═══ PILOT LEVEL SYSTEM ══════════════════════════════════════════════════
-const pilotLevel = (() => {
-	const KEY = "iw_pilot";
-	const TITLES = [
-		"Recrue", "Apprenti", "Aviateur", "Pilote", "As",
-		"Vétéran", "Élite", "Ace", "Légende", "Mythique",
-		"Invincible", "Divin", "Suprême", "Immortel", "Inferno"
-	];
-	const XP_TABLE = [0, 500, 1200, 2500, 4500, 7500, 12000, 18000, 26000, 36000, 48000, 63000, 81000, 103000, 130000];
+// ══════════════════════════════════════════
+//  BADGES (20)
+// ══════════════════════════════════════════
+const BADGES = [
+    {
+        id: "b_dist",
+        icon: "✈️",
+        name_fr: "Pilote",
+        name_en: "Pilot",
+        desc_fr: "5 succès Distance",
+        desc_en: "5 Distance achievements",
+        cat: "dist",
+        need: 5,
+    },
+    {
+        id: "b_ace",
+        icon: "🚀",
+        name_fr: "As de l'air",
+        name_en: "Air Ace",
+        desc_fr: "10 succès Distance",
+        desc_en: "10 Distance achievements",
+        cat: "dist",
+        need: 10,
+    },
+    {
+        id: "b_legend",
+        icon: "🌟",
+        name_fr: "Légende",
+        name_en: "Legend",
+        desc_fr: "15 succès Distance",
+        desc_en: "15 Distance achievements",
+        cat: "dist",
+        need: 15,
+    },
+    {
+        id: "b_road",
+        icon: "🛣️",
+        name_fr: "Grand routier",
+        name_en: "Road Warrior",
+        desc_fr: "5 succès Distance totale",
+        desc_en: "5 Total distance achievements",
+        cat: "total",
+        need: 5,
+    },
+    {
+        id: "b_star",
+        icon: "⭐",
+        name_fr: "Étoile",
+        name_en: "Star",
+        desc_fr: "5 succès Étoiles",
+        desc_en: "5 Stars achievements",
+        cat: "stars",
+        need: 5,
+    },
+    {
+        id: "b_galaxy",
+        icon: "🌌",
+        name_fr: "Galaxie",
+        name_en: "Galaxy",
+        desc_fr: "8 succès Étoiles",
+        desc_en: "8 Stars achievements",
+        cat: "stars",
+        need: 8,
+    },
+    {
+        id: "b_combo",
+        icon: "🔥",
+        name_fr: "Enflammé",
+        name_en: "On Fire",
+        desc_fr: "5 succès Combo",
+        desc_en: "5 Combo achievements",
+        cat: "combo",
+        need: 5,
+    },
+    {
+        id: "b_inferno",
+        icon: "💫",
+        name_fr: "Inferno",
+        name_en: "Inferno",
+        desc_fr: "8 succès Combo",
+        desc_en: "8 Combo achievements",
+        cat: "combo",
+        need: 8,
+    },
+    {
+        id: "b_rich",
+        icon: "💰",
+        name_fr: "Riche",
+        name_en: "Rich",
+        desc_fr: "5 succès Pièces",
+        desc_en: "5 Coin achievements",
+        cat: "coins",
+        need: 5,
+    },
+    {
+        id: "b_craft",
+        icon: "🔧",
+        name_fr: "Artisan",
+        name_en: "Craftsman",
+        desc_fr: "5 succès Boutique",
+        desc_en: "5 Shop achievements",
+        cat: "shop",
+        need: 5,
+    },
+    {
+        id: "b_maxed",
+        icon: "💪",
+        name_fr: "Équipé",
+        name_en: "Geared",
+        desc_fr: "Arsenal complet débloqué",
+        desc_en: "Full arsenal unlocked",
+        achId: "sh9",
+        need: 1,
+    },
+    {
+        id: "b_item",
+        icon: "🎁",
+        name_fr: "Collecteur",
+        name_en: "Collector",
+        desc_fr: "5 succès Objets",
+        desc_en: "5 Items achievements",
+        cat: "items",
+        need: 5,
+    },
+    {
+        id: "b_dodge",
+        icon: "🥷",
+        name_fr: "Esquiveur",
+        name_en: "Dodger",
+        desc_fr: "5 succès Ennemis",
+        desc_en: "5 Enemy achievements",
+        cat: "enemy",
+        need: 5,
+    },
+    [
+        "b_survivor",
+        "👊",
+        "Survivant",
+        "Survivor",
+        "...will not be used, see array format",
+    ],
+    {
+        id: "b_games",
+        icon: "🎮",
+        name_fr: "Joueur",
+        name_en: "Player",
+        desc_fr: "5 succès Parties",
+        desc_en: "5 Games achievements",
+        cat: "games",
+        need: 5,
+    },
+    {
+        id: "b_veteran",
+        icon: "🎖️",
+        name_fr: "Vétéran",
+        name_en: "Veteran",
+        desc_fr: "8 succès Parties",
+        desc_en: "8 Games achievements",
+        cat: "games",
+        need: 8,
+    },
+    {
+        id: "b_special",
+        icon: "🌈",
+        name_fr: "Spécialiste",
+        name_en: "Specialist",
+        desc_fr: "3 succès Spéciaux",
+        desc_en: "3 Special achievements",
+        cat: "special",
+        need: 3,
+    },
+    {
+        id: "b_half",
+        icon: "🏅",
+        name_fr: "Mi-chemin",
+        name_en: "Halfway",
+        desc_fr: "50 succès débloqués",
+        desc_en: "50 achievements unlocked",
+        total: 50,
+    },
+    {
+        id: "b_full",
+        icon: "🏆",
+        name_fr: "Complétiste",
+        name_en: "Completionist",
+        desc_fr: "100 succès débloqués",
+        desc_en: "100 achievements unlocked",
+        total: 100,
+    },
+    {
+        id: "b_ultra",
+        icon: "👑",
+        name_fr: "Ultra Champion",
+        name_en: "Ultra Champion",
+        desc_fr: "Tous badges obtenus",
+        desc_en: "All badges earned",
+        allBadges: 18,
+    },
+].filter((b) => !Array.isArray(b)); // remove placeholder
 
-	let _data = null;
+// ══════════════════════════════════════════
+//  ACHIEVEMENT ENGINE
+// ══════════════════════════════════════════
+// Per-run tracking
+let runHits = 0,
+    runChests = 0,
+    runBoosts = 0,
+    runRings = 0,
+    runStars = 0,
+    runMeteorsDodged = 0,
+    runHasRing = false,
+    runHasBoost = false,
+    runHasStar = false,
+    runHasChest = false,
+    runRedZone = false;
 
-	function _load() {
-		try {
-			const raw = idb.getItem(KEY);
-			if (raw) _data = JSON.parse(raw);
-		} catch(e) {}
-		if (!_data) _data = { level: 1, xp: 0, gamesPlayed: 0 };
-		return _data;
-	}
-
-	function _save() { idb.setItem(KEY, JSON.stringify(_data)); }
-
-	_load();
-
-	return {
-		reload() { _load(); },
-		get() {
-			return _data;
-		},
-		getXpForNext() {
-			const lvl = _data.level;
-			if (lvl >= XP_TABLE.length) return 0;
-			const next = XP_TABLE[lvl] || XP_TABLE[XP_TABLE.length - 1] * 2;
-			const cur  = XP_TABLE[lvl - 1] || 0;
-			return next - cur;
-		},
-		getTitle() {
-			const idx = Math.min(_data.level - 1, TITLES.length - 1);
-			return TITLES[idx];
-		},
-		addXP(amount) {
-			// Ne pas accumuler d'XP au niveau max
-			if (_data.level >= XP_TABLE.length) {
-				_data.xp = 0;
-				return;
-			}
-			_data.xp = (_data.xp || 0) + (amount || 0);
-			// Level up loop
-			while (_data.level < XP_TABLE.length) {
-				const needed = XP_TABLE[_data.level] - (XP_TABLE[_data.level - 1] || 0);
-				if (_data.xp >= needed) {
-					_data.xp -= needed;
-					_data.level++;
-				} else {
-					break;
-				}
-			}
-			// Remettre à 0 si on a atteint le max lors de ce gain
-			if (_data.level >= XP_TABLE.length) _data.xp = 0;
-		},
-		save() {
-			_save();
-		},
-	};
-})();
-
-// ═══ DAILY MISSION SYSTEM ═════════════════════════════════════════════════
-const dailySystem = (() => {
-	const KEY = "iw_daily";
-
-	const MISSION_TEMPLATES = [
-		{ id: "score",    type: "absolute", target: 5000,  xp: 200, en: "Score 5 000 pts",        fr: "Atteindre 5 000 pts" },
-		{ id: "score2",   type: "absolute", target: 10000, xp: 350, en: "Score 10 000 pts",       fr: "Atteindre 10 000 pts" },
-		{ id: "kills",    type: "progress", target: 30,    xp: 150, en: "Destroy 30 enemies",     fr: "Détruire 30 ennemis" },
-		{ id: "kills2",   type: "progress", target: 60,    xp: 250, en: "Destroy 60 enemies",     fr: "Détruire 60 ennemis" },
-		{ id: "streak",   type: "absolute", target: 10,    xp: 150, en: "10 kill streak",         fr: "Série de 10 kills" },
-		{ id: "streak2",  type: "absolute", target: 15,    xp: 250, en: "15 kill streak",         fr: "Série de 15 kills" },
-		{ id: "bosses",   type: "progress", target: 2,     xp: 250, en: "Defeat 2 bosses",        fr: "Vaincre 2 boss" },
-		{ id: "boss1",    type: "progress", target: 1,     xp: 150, en: "Defeat 1 boss",          fr: "Vaincre 1 boss" },
-		{ id: "time",     type: "absolute", target: 120,   xp: 100, en: "Survive 2 minutes",      fr: "Survivre 2 minutes" },
-		{ id: "time2",    type: "absolute", target: 300,   xp: 200, en: "Survive 5 minutes",      fr: "Survivre 5 minutes" },
-		{ id: "nodmg",    type: "progress", target: 1,     xp: 300, en: "No-damage wave",         fr: "Une vague sans dégât" },
-		{ id: "powerups", type: "progress", target: 5,     xp: 100, en: "Collect 5 power-ups",    fr: "Ramasser 5 power-ups" },
-		{ id: "powerups2",type: "progress", target: 10,    xp: 180, en: "Collect 10 power-ups",   fr: "Ramasser 10 power-ups" },
-		{ id: "elite",    type: "progress", target: 1,     xp: 400, en: "Defeat 1 elite enemy",   fr: "Vaincre 1 ennemi élite" },
-		{ id: "combo10",  type: "absolute", target: 10,    xp: 280, en: "Reach combo x10",        fr: "Atteindre combo x10" },
-		{ id: "rage",     type: "progress", target: 1,     xp: 220, en: "Activate Rage mode",     fr: "Activer le mode Rage" },
-	];
-
-	function _todayKey() {
-		const d = new Date();
-		return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-	}
-
-	function _defaultMissions() {
-		// Pick 4 missions deterministically based on the day
-		// Use a better hash to get more varied daily picks
-		const d = new Date();
-		const seed = d.getDate() * 7 + d.getMonth() * 31 + d.getFullYear() % 100 * 3;
-		const shuffled = [...MISSION_TEMPLATES].sort((a, b) => {
-			const ha = (seed * 37 + a.id.charCodeAt(0) * 13 + (a.id.charCodeAt(1)||0) * 7) % 127;
-			const hb = (seed * 37 + b.id.charCodeAt(0) * 13 + (b.id.charCodeAt(1)||0) * 7) % 127;
-			return ha - hb;
-		});
-		return shuffled.slice(0, 4).map(t => ({
-			...t,
-			progress: 0,
-			done: false,
-		}));
-	}
-
-	let _data = null;
-
-	function _load() {
-		try {
-			const raw = idb.getItem(KEY);
-			if (raw) {
-				const d = JSON.parse(raw);
-				if (d.day === _todayKey()) { _data = d; return; }
-			}
-		} catch(e) {}
-		_data = { day: _todayKey(), missions: _defaultMissions(), dailyRunDone: false, dailyRunScore: 0 };
-		_save();
-	}
-
-	function _save() { idb.setItem(KEY, JSON.stringify(_data)); }
-
-	_load();
-
-	return {
-		reload() { _load(); },
-		get() {
-			return _data;
-		},
-		isDailyRunDone() {
-			return false; // Daily mode supprimé
-		},
-		completeDailyRun(score) {
-			// Daily mode supprimé — méthode conservée pour compatibilité
-		},
-		/** Update an absolute-type mission (e.g. score, streak). Returns newly completed missions. */
-		setMissionAbsolute(id, value) {
-			const completed = [];
-			for (const m of _data.missions) {
-				if (m.id === id && !m.done && m.type === "absolute") {
-					m.progress = Math.max(m.progress || 0, value || 0);
-					if (m.progress >= m.target) {
-						m.done = true;
-						completed.push(m);
-					}
-				}
-			}
-			if (completed.length) _save();
-			return completed;
-		},
-		/** Increment a progress-type mission. Returns newly completed missions. */
-		markMissionProgress(id, amount) {
-			const completed = [];
-			for (const m of _data.missions) {
-				if (m.id === id && !m.done) {
-					m.progress = (m.progress || 0) + (amount || 1);
-					if (m.progress >= m.target) {
-						m.done = true;
-						completed.push(m);
-					}
-				}
-			}
-			if (completed.length) _save();
-			return completed;
-		},
-	};
-})();
-
-// ═══ SEASON BADGES ════════════════════════════════════════════════════════
-const seasonBadges = (() => {
-	const KEY = "iw_bdg";
-	const BADGE_DEFS = [
-		{ id:"firstBlood",  icon:"🩸", en:"First Kill",         fr:"Premier Kill",          earned:false },
-		{ id:"boss1",       icon:"💀", en:"Boss Slayer",         fr:"Tueur de Boss",         earned:false },
-		{ id:"dailyDone",   icon:"📅", en:"Daily Complete x1",   fr:"Daily Complétée x1",    earned:false },
-		{ id:"survive5",    icon:"⏱️", en:"Survived 5 min",     fr:"5 min de survie",       earned:false },
-		{ id:"score10k",    icon:"🏆", en:"Score 1 000 000",      fr:"1 000 000 points",       earned:false },
-		{ id:"kills100",    icon:"🔥", en:"1 000 Kills",          fr:"1 000 ennemis",          earned:false },
-		{ id:"noHit",       icon:"🛡️", en:"No-Damage Wave",     fr:"Vague sans dégât",      earned:false },
-		{ id:"pilot5",      icon:"✈️", en:"Pilot Level 5",      fr:"Pilote Niveau 5",       earned:false },
-		{ id:"eliteSlayer", icon:"👑", en:"Elite Defeated",      fr:"Élite Vaincu",          earned:false },
-		{ id:"comboMaster", icon:"⚡", en:"Combo x50",            fr:"Combo x50",              earned:false },
-	];
-	let _data = null;
-	function _load() {
-		try {
-			const raw = JSON.parse(idb.getItem(KEY) || "{}");
-			_data = BADGE_DEFS.map(b => ({ ...b, earned: !!raw[b.id] }));
-		} catch(e) {
-			_data = BADGE_DEFS.map(b => ({ ...b }));
-		}
-	}
-	_load();
-	return {
-		reload() { _load(); },
-		getAll() { return _data; },
-		unlock(id) {
-			const b = _data.find(x=>x.id===id);
-			if (b && !b.earned) {
-				b.earned = true;
-				const raw = JSON.parse(idb.getItem(KEY) || "{}");
-				raw[id] = true;
-				idb.setItem(KEY, JSON.stringify(raw));
-			}
-		},
-	};
-})();
-
-// ═══ MATCH HISTORY ════════════════════════════════════════════════════════
-const matchHistory = (() => {
-	const KEY = "iw_history";
-	const MAX = 50;
-	let _list = null;
-	function _load() {
-		try { _list = JSON.parse(idb.getItem(KEY) || "[]"); }
-		catch(e) { _list = []; }
-	}
-	function _save() { idb.setItem(KEY, JSON.stringify(_list)); }
-	_load();
-	return {
-		reload() { _load(); },
-		push(entry) {
-			_list.unshift({ ...entry, date: Date.now() });
-			if (_list.length > MAX) _list.length = MAX;
-			_save();
-		},
-		getAll() { return _list; },
-		clear() { _list = []; _save(); },
-	};
-})();
-
-// ═══ SURVIVAL DATA ═══════════════════════════════════════════════════════
-const survivalData = (() => {
-	const KEY = "iw_surv_best";
-	let _best = 0;
-	try { _best = parseInt(idb.getItem(KEY) || "0", 10) || 0; } catch(e) {}
-	return {
-		getBest() { return _best; },
-		setBest(wave) {
-			if (wave > _best) { _best = wave; idb.setItem(KEY, String(_best)); }
-		},
-	};
-})();
-
-// ═══ AUDIO ════════════════════════════════════════════════════════════════
-const audio = (() => {
-	let _levelMusicEl = null;  // spaceship_1 — musique niveaux
-	let _bossMusicEl  = null;  // overdrive_1 — musique boss
-	let _activeMusicEl = null; // element actif
-	let _menuSynthId  = 0;     // compteur de session synthé menu
-	let C = null,
-		MG = null,
-		SG = null,
-		mn = [],
-		mp = false,
-		ok = false;
-
-	// Initialiser l'élément audio dès que possible (indépendant de AudioContext)
-	function _initMusicEl() {
-		if (!_levelMusicEl) {
-			_levelMusicEl = document.getElementById("iw-level-music");
-			if (_levelMusicEl) _levelMusicEl.volume = Math.min(1, settings.musicVol);
-		}
-		if (!_bossMusicEl) {
-			_bossMusicEl = document.getElementById("iw-boss-music");
-			if (_bossMusicEl) _bossMusicEl.volume = Math.min(1, settings.musicVol);
-		}
-	}
-	// Essayer maintenant et au chargement complet du DOM
-	_initMusicEl();
-	if (document.readyState !== "complete") {
-		window.addEventListener("load", _initMusicEl, { once: true });
-	}
-
-	function init() {
-		_initMusicEl(); // s'assurer que l'élément est prêt
-		try {
-			if (C) return;
-			const AC =
-				window.AudioContext || window.webkitAudioContext;
-			if (!AC) return;
-			C = new AC();
-			MG = C.createGain();
-			MG.gain.value = settings.musicVol;
-			MG.connect(C.destination);
-			SG = C.createGain();
-			SG.gain.value = settings.sfxVol;
-			SG.connect(C.destination);
-			ok = true;
-		} catch (e) {
-			C = null;
-			ok = false;
-		}
-	}
-	function resume() {
-		try {
-			if (C && C.state === "suspended") C.resume();
-		} catch (e) {}
-	}
-	function tone(f, t, d, v, dst, ef) {
-		if (!ok || !C) return;
-		try {
-			const o = C.createOscillator(),
-				g = C.createGain();
-			o.type = t || "square";
-			o.frequency.setValueAtTime(f, C.currentTime);
-			if (ef)
-				o.frequency.exponentialRampToValueAtTime(
-					Math.max(ef, 1),
-					C.currentTime + d,
-				);
-			g.gain.setValueAtTime(v || 0.3, C.currentTime);
-			g.gain.exponentialRampToValueAtTime(
-				0.001,
-				C.currentTime + d,
-			);
-			o.connect(g);
-			g.connect(dst || SG);
-			o.start();
-			o.stop(C.currentTime + d);
-		} catch (e) {}
-	}
-	function burst(d, v) {
-		if (!ok || !C) return;
-		try {
-			const n = Math.floor(C.sampleRate * d),
-				b = C.createBuffer(1, n, C.sampleRate),
-				da = b.getChannelData(0);
-			for (let i = 0; i < n; i++)
-				da[i] = Math.random() * 2 - 1;
-			const s = C.createBufferSource(),
-				g = C.createGain();
-			s.buffer = b;
-			g.gain.setValueAtTime(v || 0.2, C.currentTime);
-			g.gain.exponentialRampToValueAtTime(
-				0.001,
-				C.currentTime + d,
-			);
-			s.connect(g);
-			g.connect(SG);
-			s.start();
-			s.stop(C.currentTime + d);
-		} catch (e) {}
-	}
-	const sfx = {
-		shoot() {
-			tone(480, "square", 0.07, 0.15);
-		},
-		shootHoming() {
-			tone(780, "sine", 0.1, 0.18, null, 1100);
-		},
-		megaBlast() {
-			burst(0.25, 0.45);
-			tone(90, "sawtooth", 0.35, 0.35, null, 45);
-		},
-		enemyHit() {
-			tone(280, "square", 0.05, 0.12, null, 180);
-		},
-		explosion() {
-			burst(0.18, 0.3);
-			tone(95, "sawtooth", 0.18, 0.22, null, 40);
-		},
-		bossHit() {
-			tone(170, "sawtooth", 0.07, 0.22, null, 110);
-		},
-		playerHit() {
-			burst(0.35, 0.45);
-			tone(140, "square", 0.28, 0.32, null, 55);
-		},
-		powerUp() {
-			[440, 550, 660, 880].forEach((f, i) =>
-				setTimeout(
-					() => tone(f, "sine", 0.14, 0.22),
-					i * 55,
-				),
-			);
-		},
-		bossWarn() {
-			[200, 160, 200, 160].forEach((f, i) =>
-				setTimeout(
-					() => tone(f, "square", 0.16, 0.28),
-					i * 180,
-				),
-			);
-		},
-		bossDead() {
-			[200, 300, 500, 750].forEach((f, i) =>
-				setTimeout(
-					() => tone(f, "sine", 0.22, 0.3),
-					i * 110,
-				),
-			);
-		},
-		levelUp() {
-			[330, 440, 660, 880].forEach((f, i) =>
-				setTimeout(
-					() => tone(f, "sine", 0.18, 0.28),
-					i * 75,
-				),
-			);
-		},
-		gameOver() {
-			[300, 240, 180, 120].forEach((f, i) =>
-				setTimeout(
-					() => tone(f, "sawtooth", 0.28, 0.3),
-					i * 140,
-				),
-			);
-		},
-		victory() {
-			[440, 550, 660, 880, 1100].forEach((f, i) =>
-				setTimeout(
-					() => tone(f, "sine", 0.28, 0.3),
-					i * 90,
-				),
-			);
-		},
-		click() {
-			tone(640, "sine", 0.07, 0.16);
-		},
-		select() {
-			tone(860, "sine", 0.1, 0.24);
-		},
-	};
-	function startMusic(level) {
-		stopMusic();
-		if (settings.musicVol === 0) return;
-		mp = true;
-		_initMusicEl();
-
-		// Routing : "boss" → overdrive | "menu" → synthé | tout le reste → spaceship
-		let target = null;
-		if (level === "boss") {
-			target = _bossMusicEl;
-		} else if (level !== "menu") {
-			// Niveaux 0,1,2,3,4,5,6… → tous utilisent spaceship_1
-			target = _levelMusicEl;
-		}
-		// level === "menu" → synthé procédural ci-dessous
-
-		if (target) {
-			_activeMusicEl = target;
-			target.volume = Math.min(1, settings.musicVol);
-			target.currentTime = 0;
-			const playPromise = target.play();
-			if (playPromise !== undefined) {
-				playPromise.catch(() => {
-					const retry = () => {
-						if (mp && _activeMusicEl === target) target.play().catch(() => {});
-					};
-					document.addEventListener("pointerdown", retry, { once: true, capture: true });
-					document.addEventListener("keydown",     retry, { once: true, capture: true });
-				});
-			}
-			return;
-		}
-		// Synthé thématique pour le menu — ambiance spatiale/infernale
-		if (!ok || !C) return;
-		try { MG.gain.value = settings.musicVol; } catch (e) {}
-
-		// Identifiant de session — chaque appel à startMusic invalide les ticks précédents
-		const _sid = ++_menuSynthId;
-
-		const melody = [
-			{ f: 110, dur: 0.8, type: "sine",     vol: 0.10 },
-			{ f: 146, dur: 0.6, type: "sine",     vol: 0.07 },
-			{ f: 130, dur: 0.5, type: "sine",     vol: 0.08 },
-			{ f: 165, dur: 0.8, type: "sine",     vol: 0.06 },
-			{ f: 110, dur: 0.4, type: "sine",     vol: 0.09 },
-			{ f: 123, dur: 0.7, type: "sine",     vol: 0.07 },
-		];
-		const bass = [55, 55, 73, 55];
-		let mStep = 0, bStep = 0;
-
-		function tickMelody() {
-			if (!mp || !ok || !C || _sid !== _menuSynthId) return;
-			const note = melody[mStep++ % melody.length];
-			try {
-				const o = C.createOscillator(), g = C.createGain();
-				o.type = note.type;
-				o.frequency.value = note.f;
-				g.gain.setValueAtTime(0.001, C.currentTime);
-				g.gain.linearRampToValueAtTime(note.vol, C.currentTime + 0.15);
-				g.gain.exponentialRampToValueAtTime(0.001, C.currentTime + note.dur * 0.9);
-				o.connect(g); g.connect(MG);
-				o.start(); o.stop(C.currentTime + note.dur);
-				mn.push(o, g);
-			} catch(e) { ok = false; return; }
-			if (mp && _sid === _menuSynthId) setTimeout(tickMelody, note.dur * 1000);
-		}
-
-		function tickBass() {
-			if (!mp || !ok || !C || _sid !== _menuSynthId) return;
-			const f = bass[bStep++ % bass.length];
-			try {
-				const o = C.createOscillator(), g = C.createGain();
-				o.type = "triangle";
-				o.frequency.value = f;
-				g.gain.setValueAtTime(0.001, C.currentTime);
-				g.gain.linearRampToValueAtTime(0.14, C.currentTime + 0.3);
-				g.gain.exponentialRampToValueAtTime(0.001, C.currentTime + 1.6);
-				o.connect(g); g.connect(MG);
-				o.start(); o.stop(C.currentTime + 1.8);
-				mn.push(o, g);
-			} catch(e) { ok = false; return; }
-			if (mp && _sid === _menuSynthId) setTimeout(tickBass, 1800);
-		}
-
-		function tickPad() {
-			if (!mp || !ok || !C || _sid !== _menuSynthId) return;
-			try {
-				const o = C.createOscillator(), g = C.createGain();
-				o.type = "sine";
-				o.frequency.value = 55 + Math.random() * 3;
-				g.gain.setValueAtTime(0.001, C.currentTime);
-				g.gain.linearRampToValueAtTime(0.04, C.currentTime + 1.5);
-				g.gain.exponentialRampToValueAtTime(0.001, C.currentTime + 3.8);
-				o.connect(g); g.connect(MG);
-				o.start(); o.stop(C.currentTime + 4);
-				mn.push(o, g);
-			} catch(e) {}
-			if (mp && _sid === _menuSynthId) setTimeout(tickPad, 3800);
-		}
-
-		setTimeout(tickMelody, 0);
-		setTimeout(tickBass,   200);
-		setTimeout(tickPad,    500);
-	}
-	function pauseMusic() {
-		_menuSynthId++; // invalide tous les ticks synthé en cours
-		mp = false;
-		mn.forEach((n) => { try { n.disconnect(); } catch (e) {} });
-		mn = [];
-		[_levelMusicEl, _bossMusicEl].forEach(el => {
-			if (el) { try { el.pause(); } catch(e) {} }
-		});
-	}
-
-	function stopMusic() {
-		_menuSynthId++; // invalide tous les ticks synthé en cours
-		mp = false;
-		mn.forEach((n) => { try { n.disconnect(); } catch (e) {} });
-		mn = [];
-		[_levelMusicEl, _bossMusicEl].forEach(el => {
-			if (el) { try { el.pause(); el.currentTime = 0; } catch(e) {} }
-		});
-		_activeMusicEl = null;
-	}
-
-	function resumeMusic() {
-		// Reprend la piste active sans la recommencer depuis le début
-		if (!mp && settings.musicVol > 0) {
-			if (_activeMusicEl) {
-				mp = true;
-				_activeMusicEl.volume = Math.min(1, settings.musicVol);
-				_activeMusicEl.play().catch(() => {});
-			} else {
-				// Synthé menu actif — on le relance
-				startMusic("menu");
-			}
-		}
-	}
-	function setMusicVol(v) {
-		try { if (MG) MG.gain.value = v; } catch (e) {}
-		[_levelMusicEl, _bossMusicEl].forEach(el => {
-			if (el) el.volume = Math.min(1, v);
-		});
-	}
-	function setSfxVol(v) {
-		try {
-			if (SG) SG.gain.value = v;
-		} catch (e) {}
-	}
-	return {
-		init,
-		resume,
-		sfx,
-		startMusic,
-		stopMusic,
-		pauseMusic,
-		resumeMusic,
-		setMusicVol,
-		setSfxVol,
-	};
-})();
-
-// ═══ GAMEPAD ══════════════════════════════════════════════════════════════
-const gamepad = (() => {
-	let _p = null;
-	const D = 0.2;
-	function poll() {
-		_p = null;
-		try {
-			for (const p of navigator.getGamepads?.() || []) {
-				if (p && p.connected) {
-					_p = p;
-					break;
-				}
-			}
-		} catch (e) {}
-	}
-	function ax(i) {
-		if (!_p) return 0;
-		const v = _p.axes[i] || 0;
-		return Math.abs(v) > D ? v : 0;
-	}
-	function bt(i) {
-		return _p ? !!_p.buttons[i]?.pressed : false;
-	}
-	function inject(keys) {
-		poll();
-		if (!_p) return;
-
-		const up = ax(1) < -D || (_p.axes[7] || 0) < -0.5 || bt(12);
-		const dn = ax(1) >  D || (_p.axes[7] || 0) >  0.5 || bt(13);
-		const lf = ax(0) < -D || (_p.axes[6] || 0) < -0.5 || bt(14);
-		const rt = ax(0) >  D || (_p.axes[6] || 0) >  0.5 || bt(15);
-		const sh = bt(0) || bt(7) || bt(5);
-		const mg = bt(1) || bt(6) || bt(4);
-		const pause = bt(9) || bt(8); // Start / Select
-
-		// keys is a plain object here — set arrow-key equivalents
-		keys['ArrowUp']    = up;
-		keys['ArrowDown']  = dn;
-		keys['ArrowLeft']  = lf;
-		keys['ArrowRight'] = rt;
-		keys[' ']          = sh;
-		keys['x']          = mg;
-
-		// Gamepad pause (debounced via pauseJustPressed on keys object)
-		if (pause && !keys._gpPauseHeld) {
-			keys._gpPauseHeld = true;
-			if (typeof _pauseToggle === 'function') _pauseToggle();
-		} else if (!pause) {
-			keys._gpPauseHeld = false;
-		}
-	}
-	function rumble(dur, wk, st) {
-		if (!settings.rumble || !_p || !_p.vibrationActuator)
-			return;
-		try {
-			_p.vibrationActuator.playEffect("dual-rumble", {
-				startDelay: 0,
-				duration: dur,
-				weakMagnitude: wk || 0.3,
-				strongMagnitude: st || 0.6,
-			});
-		} catch (e) {}
-	}
-	function connected() {
-		return _p !== null;
-	}
-	return { inject, rumble, connected };
-})();
-
-const keys = new Set();
-let _canvas = null;
-
-// ═══ INPUT ════════════════════════════════════════════════════════════════
-const _touch = { moveX: 0, moveY: 0, firing: false, mega: false };
-
-function initInput(cvs) {
-	_canvas = cvs;
-	const STOP = new Set([
-		"ArrowUp",
-		"ArrowDown",
-		"ArrowLeft",
-		"ArrowRight",
-		"Space",
-		"KeyW",
-		"KeyA",
-		"KeyS",
-		"KeyD",
-	]);
-
-	function onDown(e) {
-		keys.add(e.code);
-		if (STOP.has(e.code)) e.preventDefault();
-		try {
-			audio.resume();
-		} catch (_) {}
-		if (e.code === "KeyP" || e.code === "Escape") {
-			e.preventDefault();
-			_pauseToggle?.();
-		}
-	}
-	function onUp(e) {
-		keys.delete(e.code);
-	}
-
-	// Attach to canvas directly — works in iframes when canvas has tabindex
-	cvs.addEventListener("keydown", onDown);
-	cvs.addEventListener("keyup", onUp);
-	cvs.addEventListener("blur", () => keys.clear());
-
-	// Fallback: window (non-capture = no conflict with UI)
-	window.addEventListener("keydown", onDown);
-	window.addEventListener("keyup", onUp);
-	window.addEventListener("blur", () => keys.clear());
-
-	// Keep canvas focused on any interaction
-	function grabFocus() {
-		try {
-			cvs.focus({ preventScroll: true });
-		} catch (e) {}
-	}
-	document.addEventListener("pointerdown", grabFocus, true);
-	document.addEventListener("click", grabFocus, true);
-	setTimeout(grabFocus, 0);
-	setTimeout(grabFocus, 500);
-
-	document.addEventListener("visibilitychange", () => {
-		if (document.hidden) keys.clear();
-	});
-
-	_initTouch();
+let toastQueue = [];
+let toastTimer = 0;
+function showToast(ach) {
+    const lang = sd.lang || "fr";
+    document.getElementById("toastIcon").textContent = ach[1];
+    document.getElementById("toastName").textContent =
+        lang === "en" ? ach[3] : ach[2];
+    document.getElementById("toastDesc").textContent =
+        lang === "en" ? ach[5] : ach[4];
+    document.querySelector("#achToast .toast-label").textContent =
+        t("newAch");
+    const el = document.getElementById("achToast");
+    el.classList.add("show");
+    toastTimer = 220;
+}
+function tickToast() {
+    if (toastTimer > 0) {
+        toastTimer--;
+        if (toastTimer === 0) {
+            document
+                .getElementById("achToast")
+                .classList.remove("show");
+            setTimeout(() => {
+                if (toastQueue.length) {
+                    showToast(toastQueue.shift());
+                }
+            }, 500);
+        }
+    }
+}
+function queueToast(ach) {
+    if (toastTimer > 0 || toastQueue.length > 0)
+        toastQueue.push(ach);
+    else showToast(ach);
 }
 
-let _pauseToggle = null; // set after game() callback initializes
-
-// ═══ MENU KEYBOARD / GAMEPAD NAVIGATION ══════════════════════════════════
-const menuNav = (() => {
-	let _active  = false;
-	let _items   = [];
-	let _idx     = 0;
-	let _prevHeld = false, _nextHeld = false, _okHeld = false;
-
-	const FOCUS_STYLE = "outline: 3px solid #f97316 !important; outline-offset: 3px; transform: scale(1.07); box-shadow: 0 0 14px rgba(249,115,22,0.6) !important;";
-
-	// position:fixed elements always have offsetParent===null — use getBoundingClientRect
-	function _isPauseVisible() {
-		const ov = document.getElementById("pause-ov");
-		if (!ov) return false;
-		const r = ov.getBoundingClientRect();
-		return r.width > 0 && r.height > 0;
-	}
-
-	function _getButtons() {
-		if (_isPauseVisible()) {
-			const ov = document.getElementById("pause-ov");
-			return Array.from(ov.querySelectorAll("button:not([disabled])")).filter(b => {
-				const r = b.getBoundingClientRect();
-				return r.width > 0 && r.height > 0;
-			});
-		}
-		const uiLayer = document.getElementById("ui-layer");
-		if (!uiLayer) return [];
-		return Array.from(uiLayer.querySelectorAll("button:not([disabled])")).filter(b => {
-			const r = b.getBoundingClientRect();
-			return r.width > 0 && r.height > 0;
-		});
-	}
-
-	function _applyFocus() {
-		_items = _getButtons();
-		if (!_items.length) return;
-		_idx = Math.min(_idx, _items.length - 1);
-		_items.forEach((b, i) => {
-			if (i === _idx) {
-				b.setAttribute("data-mnav-focus", "1");
-				b.style.cssText += FOCUS_STYLE;
-				b.scrollIntoView({ block: "nearest", behavior: "smooth" });
-			} else {
-				b.removeAttribute("data-mnav-focus");
-				b.style.outline = "";
-				b.style.outlineOffset = "";
-				b.style.transform = "";
-				b.style.boxShadow = "";
-			}
-		});
-	}
-
-	function _move(dir) {
-		_items = _getButtons();
-		if (!_items.length) return;
-		_idx = (_idx + dir + _items.length) % _items.length;
-		_applyFocus();
-	}
-
-	function _confirm() {
-		_items = _getButtons();
-		const btn = _items[_idx];
-		if (btn) btn.click();
-	}
-
-	function activate() {
-		_active = true;
-		_idx = 0;
-		setTimeout(_applyFocus, 50);
-	}
-
-	// Variante : ré-active la nav sans remettre _idx à 0.
-	// Utilisée quand le menu options se re-rend après un clic
-	// (difficulté, langue, vibration) pour garder le curseur en place.
-	function activateKeepIdx() {
-		_active = true;
-		// _idx inchangé
-		setTimeout(_applyFocus, 50);
-	}
-
-	function deactivate() {
-		_active = false;
-		_items = _getButtons();
-		_items.forEach(b => {
-			b.removeAttribute("data-mnav-focus");
-			b.style.outline = "";
-			b.style.outlineOffset = "";
-			b.style.transform = "";
-			b.style.boxShadow = "";
-		});
-	}
-
-	// Navigation clavier
-	window.addEventListener("keydown", (e) => {
-		const tag = document.activeElement?.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA") return;
-
-		const hasPause = _isPauseVisible();
-		const uiLayer  = document.getElementById("ui-layer");
-		const hasUI    = uiLayer && uiLayer.innerHTML.trim().length > 0;
-		if (!hasPause && !hasUI) return;
-
-		const isNext = e.key === "ArrowDown" || e.key === "ArrowRight" || e.key === "s" || e.key === "d";
-		const isPrev = e.key === "ArrowUp"   || e.key === "ArrowLeft"  || e.key === "w" || e.key === "a";
-		const isOk   = e.key === "Enter" || e.key === " ";
-
-		if (isNext || isPrev) {
-			e.preventDefault();
-			if (!_active) { activate(); return; }
-			_move(isNext ? 1 : -1);
-		} else if (isOk && _active) {
-			e.preventDefault();
-			_confirm();
-		}
-	});
-
-	// Navigation gamepad — appelée à chaque frame depuis la boucle de jeu
-	function injectGamepadNav(gp) {
-		if (!gp) { _prevHeld = _nextHeld = _okHeld = false; return; }
-
-		const hasPause = _isPauseVisible();
-		const uiLayer  = document.getElementById("ui-layer");
-		const hasUI    = uiLayer && uiLayer.innerHTML.trim().length > 0;
-		if (!hasPause && !hasUI) {
-			_prevHeld = _nextHeld = _okHeld = false;
-			return;
-		}
-
-		// Axes: 0=LX, 1=LY | D-pad: 12=haut, 13=bas, 14=gauche, 15=droite
-		const prev = gp.axes[1] < -0.4 || gp.axes[0] < -0.4 ||
-					 !!gp.buttons[12]?.pressed || !!gp.buttons[14]?.pressed;
-		const next = gp.axes[1] >  0.4 || gp.axes[0] >  0.4 ||
-					 !!gp.buttons[13]?.pressed || !!gp.buttons[15]?.pressed;
-		const ok   = !!gp.buttons[0]?.pressed || !!gp.buttons[1]?.pressed;
-
-		if ((prev || next) && !_active) activate();
-
-		if (prev && !_prevHeld) { _prevHeld = true;  _move(-1); }
-		else if (!prev)           _prevHeld = false;
-
-		if (next && !_nextHeld) { _nextHeld = true;  _move(1); }
-		else if (!next)           _nextHeld = false;
-
-		if (ok && !_okHeld) { _okHeld = true; _confirm(); }
-		else if (!ok)         _okHeld = false;
-	}
-
-	return { activate, activateKeepIdx, deactivate, injectGamepadNav };
-})();
-
-
-// Exposé par _initTouch — permet à _showTouchLayer de forcer joyId=null
-// quand le layer est caché en cours de toucher (mort du joueur, pause…)
-let _joyReset = null;
-
-function _initTouch() {
-	const zone   = document.getElementById("joy-zone");
-	const ring   = document.getElementById("joy-ring");
-	const dot    = document.getElementById("joy-dot");
-	const firBtn = document.getElementById("btn-fire");
-	const megBtn = document.getElementById("btn-mega");
-
-	// Positionner ring/dot en (0,0), déplacement via transform
-	[ring, dot].forEach(el => {
-		if (!el) return;
-		el.style.left = "0";
-		el.style.top  = "0";
-		el.style.transform = "translate(-50%,-50%)";
-		el.style.willChange = "transform";
-		el.style.display = "none";
-	});
-
-	let joyId = null, jOX = 0, jOY = 0;
-	const R = 70;
-	let _raf = false, _dotX = 0, _dotY = 0;
-
-	// Libère l'état joystick depuis l'extérieur de la closure
-	_joyReset = function() {
-		joyId = null;
-		_touch.moveX = _touch.moveY = 0;
-		_touch.firing = false;
-		_touch.mega   = false;
-		if (ring) ring.style.display = "none";
-		if (dot)  dot.style.display  = "none";
-	};
-
-	function _flush() {
-		_raf = false;
-		if (ring) ring.style.transform = `translate(${jOX}px,${jOY}px) translate(-50%,-50%)`;
-		if (dot)  dot.style.transform  = `translate(${_dotX}px,${_dotY}px) translate(-50%,-50%)`;
-	}
-
-	function jStart(e) {
-		e.preventDefault();
-		if (joyId !== null) return; // un toucher est déjà actif, ignorer
-		const t = e.changedTouches[0];
-		joyId = t.identifier;
-		jOX = _dotX = t.clientX;
-		jOY = _dotY = t.clientY;
-		if (ring) ring.style.display = "block";
-		if (dot)  dot.style.display  = "block";
-		if (!_raf) { _raf = true; requestAnimationFrame(_flush); }
-	}
-	function jMove(e) {
-		e.preventDefault();
-		for (const t of e.changedTouches) {
-			if (t.identifier !== joyId) continue;
-			
-			let dx = t.clientX - jOX;
-			let dy = t.clientY - jOY;
-			let dist = Math.hypot(dx, dy);
-			let a  = Math.atan2(dy, dx);
-			
-			// --- LE SECRET DU JOYSTICK FLOTTANT ---
-			// Si le joueur tire le pouce au-delà du rayon max (R),
-			// on déplace le centre du joystick (jOX, jOY) pour qu'il suive le doigt.
-			if (dist > R) {
-				jOX = t.clientX - Math.cos(a) * R;
-				jOY = t.clientY - Math.sin(a) * R;
-				dist = R; // On bride la distance pour le calcul de vitesse
-			}
-			
-			_touch.moveX = (dist / R) * Math.cos(a);
-			_touch.moveY = (dist / R) * Math.sin(a);
-			
-			_dotX = jOX + Math.cos(a) * dist;
-			_dotY = jOY + Math.sin(a) * dist;
-			
-			if (!_raf) { _raf = true; requestAnimationFrame(_flush); }
-		}
-	}
-	function _releaseJoy() {
-		joyId = null;
-		_touch.moveX = _touch.moveY = 0;
-		if (ring) ring.style.display = "none";
-		if (dot)  dot.style.display  = "none";
-	}
-	function jEnd(e) {
-		e.preventDefault();
-		for (const t of e.changedTouches) {
-			if (t.identifier !== joyId) continue;
-			_releaseJoy();
-		}
-	}
-
-	// Capturer les touchend/cancel globaux : si le doigt quitte joy-zone
-	// et est relâché ailleurs (sur un autre élément), le touchend local
-	// ne se déclenche pas → joyId reste bloqué indéfiniment.
-	document.addEventListener("touchend", function(e) {
-		if (joyId === null) return;
-		for (const t of e.changedTouches)
-			if (t.identifier === joyId) { _releaseJoy(); break; }
-	}, { passive: true });
-	document.addEventListener("touchcancel", function(e) {
-		if (joyId === null) return;
-		for (const t of e.changedTouches)
-			if (t.identifier === joyId) { _releaseJoy(); break; }
-	}, { passive: true });
-
-	if (zone) {
-		zone.addEventListener("touchstart",  jStart, { passive: false });
-		zone.addEventListener("touchmove",   jMove,  { passive: false });
-		zone.addEventListener("touchend",    jEnd,   { passive: false });
-		zone.addEventListener("touchcancel", jEnd,   { passive: false });
-	}
-
-	// Boutons fire / mega
-	function _bindBtn(el, flag) {
-		if (!el) return;
-		const on  = (e) => { e.preventDefault(); e.stopPropagation(); _touch[flag] = true; };
-		const off = (e) => { e.preventDefault(); e.stopPropagation(); _touch[flag] = false; };
-		
-		// Événements tactiles natifs (Priorité mobile)
-		el.addEventListener("touchstart",  on,  { passive: false });
-		el.addEventListener("touchend",    off, { passive: false });
-		el.addEventListener("touchcancel", off, { passive: false });
-		
-		// Fallback PC / DevTools (Remplace pointer* par mouse* pour éviter le bug de glissement)
-		el.addEventListener("mousedown",  on,  { passive: false });
-		el.addEventListener("mouseup",    off, { passive: false });
-		el.addEventListener("mouseleave", off, { passive: false });
-	}
-	_bindBtn(firBtn, "firing");
-	_bindBtn(megBtn, "mega");
+function unlockAch(id) {
+    if (sd.ach.includes(id)) return false;
+    sd.ach.push(id);
+    save();
+    const ach = ACHS.find((a) => a[0] === id);
+    if (ach) queueToast(ach);
+    checkBadges();
+    return true;
 }
 
-function _showTouchLayer(show) {
-	const hasTouch = navigator.maxTouchPoints > 0
-		|| 'ontouchstart' in window;
-
-	// Les contrôles sont directement dans body (pas enfants de touch-layer)
-	// ce qui contourne le bug Safari iOS pointer-events:none inheritance.
-	const zone    = document.getElementById("joy-zone");
-	const btnFire = document.getElementById("btn-fire");
-	const btnMega = document.getElementById("btn-mega");
-
-	if (show && hasTouch) {
-		if (zone)    zone.style.display    = "block";
-		if (btnFire) btnFire.style.display = "flex";
-		if (btnMega) btnMega.style.display = "flex";
-	} else {
-		// Réinitialiser joyId AVANT de cacher : si un toucher est actif
-		// pendant la mort du joueur ou une pause, joyId doit être forcé à
-		// null maintenant — sinon les prochains touchend n'auront pas
-		// l'identifier correspondant et le joystick restera bloqué.
-		if (typeof _joyReset === "function") _joyReset();
-		if (zone)    zone.style.display    = "none";
-		if (btnFire) btnFire.style.display = "none";
-		if (btnMega) btnMega.style.display = "none";
-	}
-}
-function _showPauseBtn(show) {
-	const b = document.getElementById("pause-btn");
-	if (b) {
-		if (show) b.classList.add("active");
-		else b.classList.remove("active");
-	}
-}
-function _setPauseIcon(paused) {
-	const ico = document.getElementById("pause-ico");
-	if (ico)
-		ico.innerHTML = paused
-			? '<polygon points="5,3 19,12 5,21"/>'
-			: '<rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/>';
-}
-
-function isKeyDown(code) {
-	return keys.has(code);
-}
-
-function getKeys() {
-	return keys;
+function checkAch(event) {
+    const vals = {
+        dist: distM,
+        money: sd.money || 0,
+        totalDist: sd.totalDist || 0,
+        totalStars: sd.totalStars || 0,
+        totalBoosts: sd.totalBoosts || 0,
+        totalRings: sd.totalRings || 0,
+        totalChests: sd.totalChests || 0,
+        totalHits: sd.totalHits || 0,
+        totalCoins: sd.totalCoins || 0,
+        gamesPlayed: sd.gamesPlayed || 0,
+        bestCombo: sd.bestCombo || 0,
+        totalShopBuys: sd.totalShopBuys || 0,
+        totalSpent: sd.totalSpent || 0,
+        cannonMax: sd.up.cannon >= 4 ? 1 : 0,
+        batteryMax: sd.up.battery >= 4 ? 1 : 0,
+        armorMax: sd.up.armor >= 4 ? 1 : 0,
+        twoMax:
+            [sd.up.cannon, sd.up.battery, sd.up.armor].filter(
+                (v) => v >= 4,
+            ).length >= 2
+                ? 1
+                : 0,
+        allMax:
+            sd.up.cannon >= 4 &&
+            sd.up.battery >= 4 &&
+            sd.up.armor >= 4
+                ? 1
+                : 0,
+        meteorsDodged: sd.meteorsDodged || 0,
+        perfectGames: sd.perfectGames || 0,
+        redZoneCount: sd.redZoneCount || 0,
+        chestsOneRun: runChests,
+        allTypesRun:
+            runHasStar && runHasBoost && runHasRing && runHasChest
+                ? 1
+                : 0,
+    };
+    ACHS.forEach((a) => {
+        if (sd.ach.includes(a[0])) return;
+        const v = vals[a[6]];
+        if (v !== undefined && v >= a[7]) unlockAch(a[0]);
+    });
 }
 
-const SHOOT_COOLDOWN = 0.18;
-const SPEED = 200;
-const INVINCIBLE_TIME = 2.0;
-
-function createPlayer(width, height) {
-	const p = {
-		x: 80,
-		y: height / 2,
-		w: 36,
-		h: 28,
-		speed: SPEED,
-		hp: 3,
-		invincible: false,
-		invincibleTimer: 0,
-		shootTimer: 0,
-		fireLevel: 1, // 1-5
-		hasShield: false,
-		shieldTimer: 0,
-		hasHoming: false,
-		homingTimer: 0,
-		speedBoost: false,
-		speedTimer: 0,
-		megaReady: false,
-		shootRateBoost: false,
-		shootRateTimer: 0,
-		thrustAnim: 0,
-		width,
-		height,
-		// Touch/pointer aim
-		touchAimY: null,
-
-		reset() {
-			this.fireLevel = 1;
-			this.hasShield = false;
-			this.hasHoming = false;
-			this.speedBoost = false;
-			this.megaReady = false;
-			this.shootRateBoost = false;
-			this.shootRateTimer = 0;
-			this.hp = 3;
-			this.invincible = false;
-			this.invincibleTimer = 0;
-			this.x = 80;
-			this.y = this.height / 2;
-		},
-
-		resetPosition(w, h) {
-			this.x = 80;
-			this.y = h / 2;
-		},
-
-		respawn() {
-			this.invincible = true;
-			this.invincibleTimer = INVINCIBLE_TIME;
-			this.x = 80;
-			this.y = this.height / 2;
-		},
-
-		hitbox() {
-			return {
-				x: this.x - this.w * 0.35,
-				y: this.y - this.h * 0.3,
-				w: this.w * 0.7,
-				h: this.h * 0.6,
-			};
-		},
-
-		applyPowerUp(type, state) {
-			switch (type) {
-				case "fire":
-					this.fireLevel = Math.min(
-						this.fireLevel + 1,
-						5,
-					);
-					break;
-				case "shield":
-					this.hasShield = true;
-					// Ne pas réduire si le bouclier permanent (Infinity) est actif
-					if (this.invincibleTimer !== Infinity) {
-						this.shieldTimer = 8.0;
-						this.invincible = true;
-						this.invincibleTimer = 8.0;
-					}
-					break;
-				case "homing":
-					this.hasHoming = true;
-					// Ne pas réduire si l'amélioration (45s) est encore active
-					if (this.homingTimer < 10.0) {
-						this.homingTimer = 10.0;
-					}
-					break;
-				case "speed":
-					this.speedBoost = true;
-					this.speedTimer = 7.0;
-					break;
-				case "mega":
-					this.megaReady = true;
-					break;
-				case "life":
-					state.lives = Math.min(state.lives + 1, 5);
-					break;
-			}
-		},
-
-		update(dt, w, h, isKeyDown, bullets, particles, level) {
-			this.thrustAnim += dt * 8;
-
-			// Invincibility
-			if (this.invincible) {
-				this.invincibleTimer -= dt;
-				if (this.invincibleTimer <= 0) {
-					this.invincible = false;
-					this.hasShield = false;
-				}
-			}
-			if (this.hasShield) {
-				this.shieldTimer -= dt;
-				if (this.shieldTimer <= 0) {
-					this.hasShield = false;
-					this.invincible = false;
-				}
-			}
-			if (this.hasHoming) {
-				this.homingTimer -= dt;
-				if (this.homingTimer <= 0) this.hasHoming = false;
-			}
-			if (this.shootRateBoost) {
-				this.shootRateTimer -= dt;
-				if (this.shootRateTimer <= 0) this.shootRateBoost = false;
-			}
-			if (this.speedBoost) {
-				this.speedTimer -= dt;
-				if (this.speedTimer <= 0) this.speedBoost = false;
-			}
-
-			const spd = this.speedBoost
-				? this.speed * 1.6
-				: this.speed;
-
-			// Movement
-			// Keyboard + touch joystick movement
-			let _dx = 0,
-				_dy = 0;
-			
-			if (isKeyDown('left'))  _dx -= 1;
-			if (isKeyDown('right')) _dx += 1;
-			if (isKeyDown('up'))    _dy -= 1;
-			if (isKeyDown('down'))  _dy += 1;
-
-			_dx += _touch.moveX;
-			_dy += _touch.moveY;
-			if (_dx !== 0 && _dy !== 0) {
-				const _l = Math.hypot(_dx, _dy);
-				_dx /= _l;
-				_dy /= _l;
-			}
-			this.x += _dx * spd * dt;
-			this.y += _dy * spd * dt;
-
-			this.x = Math.max(
-				this.w / 2,
-				Math.min(w - this.w / 2, this.x),
-			);
-			this.y = Math.max(
-				this.h / 2 + 40,
-				Math.min(h - this.h / 2 - 30, this.y),
-			);
-
-			// Shooting
-			this.shootTimer -= dt;
-			const firing = isKeyDown('shoot') || _touch.firing;
-			if (firing && this.shootTimer <= 0) {
-				this.shootTimer =
-					SHOOT_COOLDOWN /
-					(this.fireLevel >= 4 ? 1.4 : 1) /
-					(this.shootRateBoost ? 1.5 : 1);
-				this._fire(bullets, w, h);
-			}
-
-			// Mega blast
-			if ((isKeyDown('mega') || _touch.mega) && this.megaReady) {
-				_touch.mega = false;
-				this.megaReady = false;
-				this._megaBlast(bullets, particles, w, h);
-			}
-
-			// Thruster particles — couleur selon le bg du niveau
-			if (Math.random() < 0.6) {
-				const levelColors = [
-					["#ff8800","#ff4400","#ffcc44","#ffffff"],  // 0 Volcanic Rift  rouge-orange
-					["#cc44ff","#8800cc","#ee88ff","#ffffff"],  // 1 Inferno Depths violet
-					["#ff2200","#cc0000","#ff6644","#ffffff"],  // 2 Solar Core     rouge
-					["#44ff44","#00cc00","#aaffaa","#ffffff"],  // 3 Toxic Nebula   vert
-					["#44aaff","#0066ff","#aaddff","#ffffff"],  // 4 Crystal Abyss  bleu
-					["#cc44ff","#8800ff","#dd88ff","#ffffff"],  // 5 Phantom Void   violet
-				];
-				const _rageNow = typeof state !== "undefined" && state.rageMode;
-				const tc = _rageNow ? { c0: "#ffffff", c1: "#ffcccc", c2: "#ff4444" } : (levelColors[level] || levelColors[0]);
-				particles.add({
-					x: this.x - this.w * 0.5,
-					y: this.y + (Math.random() - 0.5) * 8,
-					vx: -120 - Math.random() * 60,
-					vy: (Math.random() - 0.5) * 30,
-					life: 0.3 + Math.random() * 0.2,
-					maxLife: 0.5,
-					r: 4 + Math.random() * 4,
-					colors: tc,
-					type: "spark",
-				});
-			}
-		},
-
-		_fire(bullets, w, h) {
-			const lvl = this.fireLevel;
-			const homing = this.hasHoming;
-
-			// Level 1: single
-			// Level 2: double
-			// Level 3: triple spread
-			// Level 4: quad
-			// Level 5: 5-way spread
-
-			const patterns = {
-				1: [{ dy: 0, angle: 0 }],
-				2: [
-					{ dy: -6, angle: 0 },
-					{ dy: 6, angle: 0 },
-				],
-				3: [
-					{ dy: 0, angle: 0 },
-					{ dy: -10, angle: -0.12 },
-					{ dy: 10, angle: 0.12 },
-				],
-				4: [
-					{ dy: -9, angle: -0.05 },
-					{ dy: -3, angle: 0 },
-					{ dy: 3, angle: 0 },
-					{ dy: 9, angle: 0.05 },
-				],
-				5: [
-					{ dy: 0, angle: 0 },
-					{ dy: -10, angle: -0.18 },
-					{ dy: 10, angle: 0.18 },
-					{ dy: -16, angle: -0.32 },
-					{ dy: 16, angle: 0.32 },
-				],
-			};
-
-			const shots = patterns[lvl] || patterns[1];
-			for (const s of shots) {
-				const spd = 520;
-				bullets.addPlayer({
-					x: this.x + this.w * 0.4,
-					y: this.y + s.dy,
-					vx: Math.cos(s.angle) * spd,
-					vy: Math.sin(s.angle) * spd,
-					w: 14,
-					h: 5,
-					dmg: 1 + Math.floor(lvl / 2),
-					homing,
-					color: homing ? "#ff88ff" : "#ff9900",
-					glowColor: homing ? "#cc44cc" : "#ff5500",
-				});
-			}
-			if (homing) audio.sfx.shootHoming();
-			else audio.sfx.shoot();
-			{
-				const _as = achStats.get();
-				_as.totalShots = (_as.totalShots || 0) + 1;
-				_as.maxFireLevel = Math.max(
-					_as.maxFireLevel || 0,
-					this.fireLevel,
-				);
-				achStats.save();
-			}
-		},
-
-		_megaBlast(bullets, particles, w, h) {
-			audio.sfx.megaBlast();
-			{
-				const _as = achStats.get();
-				_as.megaUsed = (_as.megaUsed || 0) + 1;
-				achStats.save();
-			}
-			for (let i = 0; i < 16; i++) {
-				const angle = (i / 16) * Math.PI * 2;
-				bullets.addPlayer({
-					x: this.x,
-					y: this.y,
-					vx: Math.cos(angle) * 400,
-					vy: Math.sin(angle) * 400,
-					w: 16,
-					h: 16,
-					dmg: 4,
-					color: "#ff4400",
-					glowColor: "#ff0000",
-					isMega: true,
-				});
-			}
-			for (let i = 0; i < 50; i++) {
-				const angle = Math.random() * Math.PI * 2;
-				const spd = 100 + Math.random() * 300;
-				particles.add({
-					x: this.x,
-					y: this.y,
-					vx: Math.cos(angle) * spd,
-					vy: Math.sin(angle) * spd,
-					life: 0.6 + Math.random() * 0.5,
-					maxLife: 1.1,
-					r: 6 + Math.random() * 8,
-					colors: [
-						"#ff0000",
-						"#ff6600",
-						"#ffaa00",
-						"#ffff00",
-					],
-					type: "explosion",
-				});
-			}
-		},
-	};
-	return p;
+function checkBadges() {
+    const achByCat = {};
+    sd.ach.forEach((id) => {
+        const a = ACHS.find((x) => x[0] === id);
+        if (a) achByCat[a[8]] = (achByCat[a[8]] || 0) + 1;
+    });
+    BADGES.forEach((b) => {
+        if (sd.bdg.includes(b.id)) return;
+        let earned = false;
+        if (b.cat && achByCat[b.cat] >= (b.need || 1))
+            earned = true;
+        if (b.achId && sd.ach.includes(b.achId)) earned = true;
+        if (b.total && sd.ach.length >= b.total) earned = true;
+        if (b.allBadges && sd.bdg.length + 1 >= b.allBadges)
+            earned = true;
+        if (earned) {
+            sd.bdg.push(b.id);
+            save();
+        }
+    });
 }
 
-let _spawnedGroups = new Set();
-
-let _currentLevel = 0; // shared with _spawnGroup for corruption
-function createEnemyManager() {
-	const mgr = {
-		list: [],
-		_spawnedGroups: new Set(),
-		_shootTimers: new Map(),
-
-		reset() {
-			this.list = [];
-			this._spawnedGroups = new Set();
-			this._shootTimers = new Map();
-		},
-
-		// Marquer un groupe comme déjà spawné (utilisé au resume)
-		_updateInterceptor(e, dt, width, height) {
-			if (e.phase === "charge") {
-				e.x -= e.speed * dt;
-				// Steer toward player Y (tracked by playerRef)
-				const py = typeof _playerY !== "undefined" ? _playerY : height/2;
-				const dy = py - e.y;
-				e.y += Math.sign(dy) * Math.min(Math.abs(dy), 200 * dt);
-				if (e.x < width * 0.3) {
-					e.phase = "retreat";
-					e.retreatTimer = 0.8;
-				}
-			} else {
-				e.retreatTimer -= dt;
-				e.x += e.speed * 1.6 * dt;
-				if (e.retreatTimer <= 0) {
-					e.phase = "charge";
-					if (e.x > width + 40) e.x = width + 40;
-				}
-				if (e.x > width + 80) e.dead = true;
-			}
-			e.y = Math.max(50, Math.min(height - 50, e.y));
-		},
-
-		_updateCarrier(e, dt, width, height, mgr) {
-			e.x -= e.speed * dt;
-			e.spawnTimer -= dt;
-			if (e.spawnTimer <= 0 && e.spawned < 6) {
-				e.spawnTimer = 2.5;
-				e.spawned++;
-				// Spawn a drone from the carrier
-				mgr.list.push(mgr._createEnemy("drone", e.x - 20, e.y + (Math.random()-0.5)*30, 0));
-			}
-			if (e.x < -80) e.dead = true;
-		},
-
-		markSpawned(key) {
-			this._spawnedGroups.add(key);
-		},
-
-		update(dt, lvlData, levelTime, width, height, level) {
-			// Check for group spawns
-			for (const group of lvlData.enemyGroups) {
-				const key = `${group.time}_${group.type}`;
-				if (
-					!this._spawnedGroups.has(key) &&
-					levelTime >= group.time
-				) {
-					this._spawnedGroups.add(key);
-					this._spawnGroup(group, width, height, level);
-				}
-			}
-
-			// Update each enemy
-			for (const e of this.list) {
-				if (e.dead) continue;
-				e.timer = (e.timer || 0) + dt;
-				e.animT = (e.animT || 0) + dt;
-				// Corruption zigzag behaviour
-				if (e.corrupted && e.zigzag) {
-					e.y = e.baseY + Math.sin(e.animT * e.zigzagFreq) * e.zigzagAmp;
-				}
-
-				switch (e.type) {
-					case "drone":
-						this._updateDrone(e, dt, width, height);
-						break;
-					case "turret":
-						this._updateTurret(e, dt, width, height);
-						break;
-					case "kamikaze":
-						this._updateKamikaze(e, dt, width, height);
-						break;
-					case "interceptor":
-						this._updateInterceptor(e, dt, width, height);
-						break;
-					case "carrier":
-						this._updateCarrier(e, dt, width, height, this);
-						break;
-					case "shielder":
-						e.x -= e.speed * dt;
-						e.y = e.baseY + Math.sin(e.animT * 1.2) * 18;
-						break;
-				}
-
-				if (e.x < -80) e.dead = true;
-			}
-		},
-
-		_spawnGroup(group, width, height, level) {
-			_currentLevel = level || 0; // used by _createEnemy for corruption
-			const margin = 40;
-			const positions = [];
-
-			switch (group.formation) {
-				case "line-v":
-					for (let i = 0; i < group.count; i++) {
-						positions.push({
-							x: width + margin + i * 30,
-							y:
-								height *
-								(0.2 +
-									(i * 0.6) /
-										Math.max(
-											group.count - 1,
-											1,
-										)),
-						});
-					}
-					break;
-				case "wave":
-					for (let i = 0; i < group.count; i++) {
-						positions.push({
-							x: width + margin + i * 40,
-							y:
-								height * 0.2 +
-								(i % 2) * height * 0.5,
-						});
-					}
-					break;
-				case "v-shape":
-					for (let i = 0; i < group.count; i++) {
-						const half = Math.floor(group.count / 2);
-						const row =
-							i < half ? i : group.count - 1 - i;
-						positions.push({
-							x: width + margin + i * 35,
-							y:
-								height / 2 -
-								row * 28 +
-								(i >= half ? row * 56 : 0),
-						});
-					}
-					break;
-				case "top-bottom":
-					for (let i = 0; i < group.count; i++) {
-						positions.push({
-							x:
-								width +
-								margin +
-								Math.floor(i / 2) * 50,
-							y:
-								i % 2 === 0
-									? height * 0.15
-									: height * 0.85,
-						});
-					}
-					break;
-				case "spread":
-					for (let i = 0; i < group.count; i++) {
-						positions.push({
-							x: width + margin,
-							y:
-								height *
-								(0.1 +
-									(i / (group.count - 1 || 1)) *
-										0.8),
-						});
-					}
-					break;
-				case "random":
-				default:
-					for (let i = 0; i < group.count; i++) {
-						positions.push({
-							x: width + margin + Math.random() * 100,
-							y: height * (0.1 + Math.random() * 0.8),
-						});
-					}
-			}
-
-			for (let i = 0; i < group.count; i++) {
-				const pos = positions[i] || positions[0];
-				const e = this._createEnemy(group.type, pos.x, pos.y, i);
-				// Corruption progressive : niveau >= 3 ET spawn tardif
-				if (typeof _currentLevel !== "undefined" && _currentLevel >= 3) {
-					const corruptChance = 0.25 + (_currentLevel - 3) * 0.12;
-					if (Math.random() < corruptChance) {
-						e.corrupted = true;
-						e.corruptLevel = _currentLevel;
-						e.hp = Math.ceil(e.hp * 1.25);
-						e.w = Math.ceil(e.w * 1.15);
-						e.h = Math.ceil(e.h * 1.15);
-						e.score = Math.ceil(e.score * 1.5);
-						e.zigzag = Math.random() < 0.5; // comportement zigzag
-						e.zigzagAmp = 18 + Math.random() * 18;
-						e.zigzagFreq = 2.5 + Math.random() * 2;
-					}
-				}
-				this.list.push(e);
-			}
-		},
-
-		_createEnemy(type, x, y, idx) {
-			const base = {
-				type,
-				x,
-				y,
-				dead: false,
-				timer: 0,
-				animT: 0,
-				shootTimer: Math.random() * 2,
-			};
-			const _dm =
-				settings.difficulty === "easy"
-					? 0.7
-					: settings.difficulty === "hard"
-					  ? 1.5
-					  : 1;
-			switch (type) {
-				case "drone":
-					return {
-						...base,
-						w: 32,
-						h: 22,
-						hp: Math.ceil(2 * _dm),
-						score: 100,
-						speed: 90 + Math.random() * 40,
-						color: "#cc3300",
-						movePattern: idx % 3,
-						baseY: y,
-					};
-				case "turret":
-					return {
-						...base,
-						w: 28,
-						h: 28,
-						hp: Math.ceil(4 * _dm),
-						score: 200,
-						speed: 55,
-						color: "#445566",
-						movePattern: "steady",
-						baseY: y,
-					};
-				case "kamikaze":
-					return {
-						...base,
-						w: 22,
-						h: 20,
-						hp: Math.ceil(1 * _dm),
-						score: 150,
-						speed: 160 + Math.random() * 60,
-						color: "#ff4400",
-						movePattern: "charge",
-						baseY: y,
-						diveTimer: 0.5 + Math.random(),
-					};
-				case "interceptor":
-					return {
-						...base,
-						w: 28, h: 20,
-						hp: Math.ceil(3 * _dm),
-						score: 250,
-						speed: 200 + Math.random() * 80,
-						color: "#0088ff",
-						movePattern: "intercept",
-						baseY: y,
-						phase: "charge", // "charge" → "retreat" → "charge"
-						retreatTimer: 0,
-					};
-				case "carrier":
-					return {
-						...base,
-						w: 55, h: 38,
-						hp: Math.ceil(12 * _dm),
-						_maxHp: Math.ceil(12 * _dm),
-						score: 500,
-						speed: 45,
-						color: "#aa5500",
-						movePattern: "steady",
-						baseY: y,
-						spawnTimer: 3 + Math.random() * 2,
-						spawned: 0,
-					};
-				case "shielder":
-					return {
-						...base,
-						w: 38, h: 30,
-						hp: Math.ceil(8 * _dm),
-						score: 400,
-						speed: 50,
-						color: "#0066cc",
-						movePattern: "steady",
-						baseY: y,
-						shieldActive: true,
-						shieldRadius: 55, // protège les alliés dans ce rayon
-					};
-			}
-			return base;
-		},
-
-		_updateDrone(e, dt, width, height) {
-			e.x -= e.speed * dt;
-			const wobble =
-				Math.sin(e.animT * 2 + e.movePattern) * 30;
-			e.y = e.baseY + wobble;
-			e.y = Math.max(50, Math.min(height - 50, e.y));
-
-			// Shoot
-			e.shootTimer -= dt;
-			if (e.shootTimer <= 0) {
-				e.shootTimer = 1.8 + Math.random() * 1.5;
-				this._shootAt(e, width * 0.3, height / 2, 200);
-			}
-		},
-
-		_updateTurret(e, dt, width, height) {
-			e.x -= e.speed * dt;
-			e.y += Math.sin(e.animT * 1.5) * 20 * dt;
-			e.y = Math.max(50, Math.min(height - 50, e.y));
-
-			e.shootTimer -= dt;
-			if (e.shootTimer <= 0) {
-				e.shootTimer = 1.2 + Math.random() * 0.8;
-				// Spread shot
-				for (let i = -1; i <= 1; i++) {
-					const angle = Math.PI + i * 0.25;
-					this._shootBullet(
-						e.x,
-						e.y,
-						Math.cos(angle) * 240,
-						Math.sin(angle) * 240,
-						"#ff4400",
-						8,
-						8,
-					);
-				}
-			}
-		},
-
-		_updateKamikaze(e, dt, width, height) {
-			e.diveTimer -= dt;
-			if (e.diveTimer > 0) {
-				e.x -= 40 * dt; // slow approach
-			} else {
-				// Charge!
-				e.x -= e.speed * dt;
-				e.y += Math.sin(e.animT * 4) * 60 * dt;
-			}
-		},
-
-		_shootAt(e, tx, ty, spd) {
-			const dx = tx - e.x,
-				dy = ty - e.y;
-			const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-			this._shootBullet(
-				e.x,
-				e.y,
-				(dx / dist) * spd,
-				(dy / dist) * spd,
-				"#ff6633",
-				8,
-				8,
-			);
-		},
-
-		_shootBullet(x, y, vx, vy, color, w, h) {
-			// Store bullets to be added to bullet manager - they come from main
-			// We expose them here
-			if (!this._pendingBullets) this._pendingBullets = [];
-			this._pendingBullets.push({
-				x,
-				y,
-				vx,
-				vy,
-				color,
-				w,
-				h,
-			});
-		},
-
-		cleanup() {
-			this.list = this.list.filter(
-				(e) => !e.dead && e.x > -100,
-			);
-		},
-
-		drainPendingBullets() {
-			const pb = this._pendingBullets || [];
-			this._pendingBullets = [];
-			return pb;
-		},
-	};
-	return mgr;
+function openAch() {
+    gs = "ach";
+    show("achDiv");
+    const lang = sd.lang || "fr";
+    document.getElementById("achStats").textContent =
+        sd.ach.length +
+        " " +
+        t("unlocked") +
+        " " +
+        t("of") +
+        " " +
+        ACHS.length;
+    const cont = document.getElementById("achContent");
+    cont.innerHTML = "";
+    const cats = Object.keys(ACH_CATS);
+    cats.forEach((cat) => {
+        const meta = ACH_CATS[cat];
+        const items = ACHS.filter((a) => a[8] === cat);
+        const div = document.createElement("div");
+        const catTitle = document.createElement("div");
+        catTitle.className = "ach-cat";
+        catTitle.textContent =
+            meta.icon +
+            " " +
+            (lang === "en" ? meta.en : meta.fr) +
+            " (" +
+            items.filter((a) => sd.ach.includes(a[0])).length +
+            "/" +
+            items.length +
+            ")";
+        div.appendChild(catTitle);
+        const grid = document.createElement("div");
+        grid.className = "ach-grid";
+        items.forEach((a) => {
+            const unlocked = sd.ach.includes(a[0]);
+            const item = document.createElement("div");
+            item.className =
+                "ach-item" + (unlocked ? " unlocked" : "");
+            item.innerHTML = `<div class="ach-icon">${a[1]}</div><div class="ach-text"><div class="ach-name">${lang === "en" ? a[3] : a[2]}</div><div class="ach-desc">${lang === "en" ? a[5] : a[4]}</div></div>`;
+            grid.appendChild(item);
+        });
+        div.appendChild(grid);
+        cont.appendChild(div);
+    });
 }
+window.closeAch = function () {
+    hide("achDiv");
+    gs = "start";
+    cgShowBanner();
+};
 
-function createBulletManager() {
-	return {
-		playerBullets: [],
-		enemyBullets: [],
-
-		addPlayer(b) {
-			b.dead = false;
-			this.playerBullets.push(b);
-		},
-
-		addEnemy(b) {
-			b.dead = false;
-			b.w = b.w || 8;
-			b.h = b.h || 8;
-			this.enemyBullets.push(b);
-		},
-
-		update(dt, width, height, enemyList, bossRef) {
-			for (const b of this.playerBullets) {
-				if (b.dead) continue;
-
-				// ── Homing guidance ──────────────────────────────────────────
-				if (b.homing) {
-					// Find nearest alive target (enemies first, then boss)
-					let bestDist = Infinity;
-					let tx = null, ty = null;
-
-					// Scan enemies
-					if (enemyList) {
-						for (const e of enemyList) {
-							if (e.dead) continue;
-							const dx = e.x - b.x;
-							const dy = e.y - b.y;
-							// Only home toward targets ahead of the bullet (dx > 0)
-							if (dx < -20) continue;
-							const dist = dx * dx + dy * dy;
-							if (dist < bestDist) {
-								bestDist = dist;
-								tx = e.x;
-								ty = e.y;
-							}
-						}
-					}
-
-					// Boss is a valid target too
-					if (bossRef && bossRef.active) {
-						const dx = bossRef.x - b.x;
-						const dy = bossRef.y - b.y;
-						const dist = dx * dx + dy * dy;
-						if (dist < bestDist) {
-							bestDist = dist;
-							tx = bossRef.x;
-							ty = bossRef.y;
-						}
-					}
-
-					// Steer toward target if found (within 400px)
-					if (tx !== null && bestDist < 400 * 400) {
-						const dx = tx - b.x;
-						const dy = ty - b.y;
-						const len = Math.sqrt(dx * dx + dy * dy) || 1;
-						// Desired velocity (unit vector × bullet speed)
-						const spd = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
-						const desiredVx = (dx / len) * spd;
-						const desiredVy = (dy / len) * spd;
-						// Smoothly turn toward target — turn rate 6 rad/s
-						const turnRate = 6;
-						b.vx += (desiredVx - b.vx) * turnRate * dt;
-						b.vy += (desiredVy - b.vy) * turnRate * dt;
-						// Preserve speed after steering
-						const newSpd = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1;
-						b.vx = (b.vx / newSpd) * spd;
-						b.vy = (b.vy / newSpd) * spd;
-					}
-				}
-
-				b.x += b.vx * dt;
-				b.y += b.vy * dt;
-				if (
-					b.x > width + 30 ||
-					b.x < -30 ||
-					b.y < -30 ||
-					b.y > height + 30
-				)
-					b.dead = true;
-			}
-			for (const b of this.enemyBullets) {
-				if (b.dead) continue;
-				b.x += b.vx * dt;
-				b.y += b.vy * dt;
-				if (
-					b.x < -30 ||
-					b.x > width + 30 ||
-					b.y < -30 ||
-					b.y > height + 30
-				)
-					b.dead = true;
-			}
-		},
-
-		cleanup() {
-			this.playerBullets = this.playerBullets.filter(
-				(b) => !b.dead,
-			);
-			this.enemyBullets = this.enemyBullets.filter(
-				(b) => !b.dead,
-			);
-		},
-
-		reset() {
-			this.playerBullets = [];
-			this.enemyBullets = [];
-		},
-	};
+function openBdg() {
+    gs = "bdg";
+    show("bdgDiv");
+    const lang = sd.lang || "fr";
+    document.getElementById("bdgStats").textContent =
+        sd.bdg.length +
+        " " +
+        t("unlocked") +
+        " " +
+        t("of") +
+        " " +
+        BADGES.length;
+    const grid = document.getElementById("bdgGrid");
+    grid.innerHTML = "";
+    BADGES.forEach((b) => {
+        const earned = sd.bdg.includes(b.id);
+        const item = document.createElement("div");
+        item.className = "bdg-item" + (earned ? " earned" : "");
+        item.innerHTML = `<span class="bdg-icon">${b.icon}</span><div class="bdg-name">${lang === "en" ? b.name_en : b.name_fr}</div>`;
+        item.title = lang === "en" ? b.desc_en : b.desc_fr;
+        grid.appendChild(item);
+    });
 }
+window.closeBdg = function () {
+    hide("bdgDiv");
+    gs = "start";
+    cgShowBanner();
+};
 
-function createParticleSystem() {
-	return {
-		list: [],
+// ══════════════════════════════════════════
+//  TUTORIAL
+// ══════════════════════════════════════════
+let tutPage = 0;
 
-		add(p) {
-			p.dead = false;
-			this.list.push(p);
-		},
-
-		burst(x, y, color, count, type) {
-			for (let i = 0; i < count; i++) {
-				const angle = Math.random() * Math.PI * 2;
-				const spd =
-					type === "explosion"
-						? 60 + Math.random() * 180
-						: type === "spark"
-						  ? 80 + Math.random() * 250
-						  : 30 + Math.random() * 80;
-				this.add({
-					x,
-					y,
-					vx: Math.cos(angle) * spd,
-					vy: Math.sin(angle) * spd,
-					life: 0.3 + Math.random() * 0.6,
-					maxLife: 0.9,
-					r:
-						type === "explosion"
-							? 3 + Math.random() * 6
-							: 2 + Math.random() * 4,
-					colors:
-						typeof color === "string"
-							? [color, "#ffaa44", "#ffffff"]
-							: color,
-					type,
-				});
-			}
-		},
-
-		update(dt) {
-			for (const p of this.list) {
-				p.x += p.vx * dt;
-				p.y += p.vy * dt;
-				p.vx *= 0.95;
-				p.vy *= 0.95;
-				p.life -= dt;
-				if (p.life <= 0) p.dead = true;
-			}
-			this.list = this.list.filter((p) => !p.dead);
-		},
-
-		reset() {
-			this.list = [];
-		},
-	};
-}
-
-const TYPES = [
-	{
-		type: "fire",
-		label: "🔥 FIREPOWER",
-		color: "#ff6600",
-		w: 22,
-		h: 22,
-	},
-	{
-		type: "homing",
-		label: "🎯 HOMING",
-		color: "#ff44ff",
-		w: 22,
-		h: 22,
-	},
-	{
-		type: "shield",
-		label: "🛡 SHIELD",
-		color: "#4488ff",
-		w: 22,
-		h: 22,
-	},
-	{
-		type: "speed",
-		label: "⚡ SPEED",
-		color: "#ffff00",
-		w: 22,
-		h: 22,
-	},
-	{
-		type: "mega",
-		label: "💥 MEGA BLAST",
-		color: "#ff2200",
-		w: 22,
-		h: 22,
-	},
-	{
-		type: "life",
-		label: "❤️ EXTRA LIFE",
-		color: "#ff0044",
-		w: 22,
-		h: 22,
-	},
+const TUT_PAGES_FR = [
+    {
+        title: "🔫  LE LANCEMENT",
+        steps: [
+            "Le canon oscille automatiquement",
+            "Appuie au bon moment pour lancer",
+            "Plus l'angle est plat → plus tu vas loin",
+            "Tu ne peux lancer qu'une fois par partie",
+        ],
+        draw(cx, cy, sc) {
+            // Animated cannon diagram
+            const a =
+                -Math.PI * 0.35 +
+                Math.sin(Date.now() * 0.0015) * 0.28;
+            ctx.save();
+            ctx.translate(cx - sc * 30, cy);
+            // base
+            ctx.fillStyle = "#1a3a6a";
+            ctx.beginPath();
+            ctx.roundRect(
+                -sc * 22,
+                -sc * 6,
+                sc * 44,
+                sc * 12,
+                sc * 2,
+            );
+            ctx.fill();
+            // barrel
+            ctx.rotate(a);
+            ctx.fillStyle = "#2255cc";
+            ctx.beginPath();
+            ctx.roundRect(
+                sc * 2,
+                -sc * 5,
+                sc * 36,
+                sc * 10,
+                sc * 2,
+            );
+            ctx.fill();
+            // trajectory dots
+            ctx.restore();
+            let wx = cx - sc * 30 + Math.cos(a) * sc * 40,
+                wy = cy + Math.sin(a) * sc * 40;
+            let dvx = Math.cos(a) * sc * 5,
+                dvy = Math.sin(a) * sc * 5;
+            ctx.fillStyle = "rgba(136,170,255,0.7)";
+            for (let i = 0; i < 12; i++) {
+                dvy += sc * 0.18;
+                dvx *= 0.998;
+                wx += dvx;
+                wy += dvy;
+                if (wy > cy + sc * 60) break;
+                const r = Math.max(
+                    sc * 0.5,
+                    sc * 2.2 - i * sc * 0.15,
+                );
+                ctx.beginPath();
+                ctx.arc(wx, wy, r * (1 - i / 16), 0, Math.PI * 2);
+                ctx.globalAlpha = 0.7 - i * 0.05;
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+            // pulse ring at tip
+            const px = cx - sc * 30 + Math.cos(a) * sc * 40,
+                py = cy + Math.sin(a) * sc * 40;
+            const pulse = 0.5 + Math.sin(Date.now() * 0.005) * 0.5;
+            ctx.strokeStyle = `rgba(100,200,255,${pulse})`;
+            ctx.lineWidth = sc * 1.5;
+            ctx.beginPath();
+            ctx.arc(px, py, sc * 8 * pulse, 0, Math.PI * 2);
+            ctx.stroke();
+        },
+    },
+    {
+        title: "⚡  LE JETPACK",
+        steps: [
+            "Maintiens appuyé / touche pour activer",
+            "Le robot monte et accélère légèrement",
+            "La jauge orange en bas = carburant",
+            "Les ennemis drainent 50% du carburant",
+        ],
+        draw(cx, cy, sc) {
+            // Robot with jetpack flames
+            ctx.save();
+            ctx.translate(cx, cy);
+            const r = sc * 14;
+            // robot body
+            const bg = ctx.createRadialGradient(
+                -r * 0.1,
+                -r * 0.1,
+                r * 0.1,
+                0,
+                0,
+                r,
+            );
+            const _sk = ROBOT_SKINS[sd.activeSkin||0];
+            bg.addColorStop(0, _sk.c1);
+            bg.addColorStop(0.65, _sk.c2);
+            bg.addColorStop(1, _sk.c3);
+            ctx.fillStyle = bg;
+            ctx.shadowColor = "#ffaa00";
+            ctx.shadowBlur = sc * 8;
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // jet pack
+            ctx.fillStyle = "#1a44bb";
+            ctx.beginPath();
+            ctx.roundRect(
+                -r - sc * 7,
+                -sc * 6,
+                sc * 8,
+                sc * 12,
+                sc * 2,
+            );
+            ctx.fill();
+            // animated flames
+            const t2 = Date.now() * 0.01;
+            const fl = sc * (6 + Math.sin(t2) * 3);
+            ctx.fillStyle = "rgba(255,140,0,.9)";
+            ctx.beginPath();
+            ctx.moveTo(-r - sc * 3, -sc * 4);
+            ctx.lineTo(-r - sc * 3 - fl, 0);
+            ctx.lineTo(-r - sc * 3, sc * 4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = "rgba(255,230,80,.75)";
+            ctx.beginPath();
+            ctx.moveTo(-r - sc * 3, -sc * 2.5);
+            ctx.lineTo(-r - sc * 3 - fl * 0.6, 0);
+            ctx.lineTo(-r - sc * 3, sc * 2.5);
+            ctx.closePath();
+            ctx.fill();
+            // arrow up
+            ctx.restore();
+            ctx.fillStyle = "rgba(100,200,255,.7)";
+            ctx.font = `bold ${sc * 18}px monospace`;
+            ctx.textAlign = "center";
+            ctx.fillText("↑", cx + sc * 28, cy + sc * 6);
+            // fuel bar
+            ctx.fillStyle = "rgba(0,0,0,.5)";
+            ctx.fillRect(
+                cx - sc * 40,
+                cy + sc * 26,
+                sc * 80,
+                sc * 8,
+            );
+            const fuelPct =
+                0.55 + Math.sin(Date.now() * 0.002) * 0.2;
+            const fg = ctx.createLinearGradient(
+                cx - sc * 40,
+                0,
+                cx + sc * 40,
+                0,
+            );
+            fg.addColorStop(0, "#ff8800");
+            fg.addColorStop(1, "#ffe000");
+            ctx.fillStyle = fg;
+            ctx.fillRect(
+                cx - sc * 40,
+                cy + sc * 26,
+                sc * 80 * fuelPct,
+                sc * 8,
+            );
+            ctx.strokeStyle = "#554";
+            ctx.lineWidth = sc;
+            ctx.strokeRect(
+                cx - sc * 40,
+                cy + sc * 26,
+                sc * 80,
+                sc * 8,
+            );
+            ctx.fillStyle = "#ffcc44";
+            ctx.font = `${sc * 6}px monospace`;
+            ctx.fillText("⚡ JETPACK", cx, cy + sc * 42);
+        },
+    },
+    {
+        title: "🎯  LES COLLECTIBLES",
+        steps: [
+            "★ Étoile → +15 pièces (combo = plus)",
+            "💙 Ellipse bleue → vitesse + carburant",
+            "⭕ Anneau doré → +50 pièces (double combo)",
+            "📦 Coffre → bouclier, fuel, pièces aléatoire",
+        ],
+        draw(cx, cy, sc) {
+            // Draw 4 items side by side
+            const items = [
+                () => {
+                    ctx.fillStyle = "#ffe000";
+                    ctx.shadowColor = "#ffcc00";
+                    ctx.shadowBlur = sc * 8;
+                    ctx.font = `${sc * 20}px monospace`;
+                    ctx.textAlign = "center";
+                    ctx.fillText("★", 0, sc * 8);
+                    ctx.shadowBlur = 0;
+                },
+                () => {
+                    const g = ctx.createRadialGradient(
+                        0,
+                        0,
+                        sc * 2,
+                        0,
+                        0,
+                        sc * 12,
+                    );
+                    g.addColorStop(0, "rgba(180,230,255,.95)");
+                    g.addColorStop(0.4, "rgba(50,140,255,.88)");
+                    g.addColorStop(1, "rgba(10,60,180,.7)");
+                    ctx.fillStyle = g;
+                    ctx.shadowColor = "#44aaff";
+                    ctx.shadowBlur = sc * 10;
+                    ctx.beginPath();
+                    ctx.ellipse(
+                        0,
+                        0,
+                        sc * 14,
+                        sc * 8,
+                        0,
+                        0,
+                        Math.PI * 2,
+                    );
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = "rgba(255,255,255,.9)";
+                    ctx.font = `${sc * 10}px monospace`;
+                    ctx.fillText("⚡", 0, sc * 4);
+                },
+                () => {
+                    ctx.strokeStyle = "#ffaa00";
+                    ctx.shadowColor = "#ffdd00";
+                    ctx.shadowBlur = sc * 8;
+                    ctx.lineWidth = sc * 3;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, sc * 12, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = "#ffee44";
+                    ctx.font = `${sc * 14}px monospace`;
+                    ctx.fillText("★", 0, sc * 5);
+                },
+                () => {
+                    const bw = sc * 22,
+                        bh = sc * 18;
+                    ctx.fillStyle = "#a06008";
+                    ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+                    ctx.fillStyle = "#c88010";
+                    ctx.fillRect(-bw / 2, -bh / 2, bw, bh * 0.4);
+                    ctx.strokeStyle = "#5a3000";
+                    ctx.lineWidth = sc;
+                    ctx.strokeRect(-bw / 2, -bh / 2, bw, bh);
+                    ctx.fillStyle = "rgba(255,220,0,.9)";
+                    ctx.font = `${sc * 12}px monospace`;
+                    ctx.textAlign = "center";
+                    ctx.fillText("?", 0, sc * 6);
+                },
+            ];
+            const xs = [
+                cx - sc * 50,
+                cx - sc * 17,
+                cx + sc * 17,
+                cx + sc * 50,
+            ];
+            items.forEach((fn, i) => {
+                ctx.save();
+                ctx.translate(xs[i], cy);
+                fn();
+                ctx.restore();
+            });
+        },
+    },
+    {
+        title: "💀  LES ENNEMIS",
+        steps: [
+            "🦇 Chauve-souris → ondule verticalement",
+            "🟢 Orbe vert → trajectoire sinusoïdale",
+            "🔴 Drone → mouvement rapide et erratique",
+            "☄️ Météore → tombe depuis le ciel. Évite !",
+        ],
+        draw(cx, cy, sc) {
+            ctx.save();
+            // bat
+            ctx.translate(cx - sc * 52, cy - sc * 4);
+            ctx.fillStyle = "#442266";
+            ctx.shadowColor = "#8800cc";
+            ctx.shadowBlur = sc * 8;
+            ctx.beginPath();
+            ctx.arc(0, 0, sc * 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // wings
+            ctx.fillStyle = "rgba(100,40,160,.7)";
+            [[-1, 1]].forEach(([dx]) => {
+                ctx.beginPath();
+                ctx.moveTo(0, -sc * 3);
+                ctx.quadraticCurveTo(
+                    sc * 14 * dx,
+                    -sc * 14,
+                    sc * 20 * dx,
+                    -sc * 3,
+                );
+                ctx.quadraticCurveTo(
+                    sc * 14 * dx,
+                    sc * 4,
+                    0,
+                    sc * 3,
+                );
+                ctx.closePath();
+                ctx.fill();
+            });
+            // orb
+            ctx.restore();
+            ctx.save();
+            ctx.translate(cx - sc * 16, cy + sc * 4);
+            const g2 = ctx.createRadialGradient(
+                0,
+                0,
+                sc * 2,
+                0,
+                0,
+                sc * 10,
+            );
+            g2.addColorStop(0, "#aaffcc");
+            g2.addColorStop(0.5, "#22bb55");
+            g2.addColorStop(1, "#0a5520");
+            ctx.fillStyle = g2;
+            ctx.shadowColor = "#33ff88";
+            ctx.shadowBlur = sc * 10;
+            ctx.beginPath();
+            ctx.arc(0, 0, sc * 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // drone
+            ctx.restore();
+            ctx.save();
+            ctx.translate(cx + sc * 20, cy - sc * 4);
+            ctx.fillStyle = "#cc2200";
+            ctx.shadowColor = "#ff4400";
+            ctx.shadowBlur = sc * 8;
+            ctx.beginPath();
+            ctx.arc(0, 0, sc * 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255,100,40,.5)";
+            ctx.lineWidth = sc * 1.5;
+            [[0.6], [0.3]].forEach(([rs]) => {
+                ctx.beginPath();
+                ctx.arc(0, 0, sc * 8 * rs, 0, Math.PI * 2);
+                ctx.stroke();
+            });
+            ctx.shadowBlur = 0;
+            // meteor
+            ctx.restore();
+            ctx.save();
+            ctx.translate(cx + sc * 52, cy);
+            ctx.fillStyle = "#884400";
+            const mg = ctx.createRadialGradient(
+                0,
+                0,
+                sc * 2,
+                0,
+                0,
+                sc * 11,
+            );
+            mg.addColorStop(0, "#ffcc00");
+            mg.addColorStop(0.5, "#ff6600");
+            mg.addColorStop(1, "#aa1100");
+            ctx.fillStyle = mg;
+            ctx.shadowColor = "#ff4400";
+            ctx.shadowBlur = sc * 8;
+            ctx.beginPath();
+            ctx.arc(0, 0, sc * 11, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // warning line
+            ctx.strokeStyle = "rgba(255,50,0,.5)";
+            ctx.setLineDash([sc * 3, sc * 3]);
+            ctx.lineWidth = sc;
+            ctx.beginPath();
+            ctx.moveTo(0, -sc * 28);
+            ctx.lineTo(0, -sc * 15);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = "#ff2200";
+            ctx.font = `${sc * 10}px monospace`;
+            ctx.textAlign = "center";
+            ctx.fillText("⚠", 0, -sc * 30);
+            ctx.restore();
+        },
+    },
+    {
+        title: "🔥  COMBO & BOUTIQUE",
+        steps: [
+            "Collecte plusieurs items à la suite = COMBO",
+            "Le multiplicateur monte jusqu'à ×5 max",
+            "Dépense tes pièces en boutique (⚙)",
+            "Canon + Batterie + Armure → vole plus loin",
+        ],
+        draw(cx, cy, sc) {
+            // combo multiplier display
+            ctx.save();
+            ctx.translate(cx, cy - sc * 10);
+            ["×1", "×2", "×3", "×4", "×5"].forEach((lbl, i) => {
+                const cols = [
+                    "#888",
+                    "#ffe000",
+                    "#ffaa00",
+                    "#ff6600",
+                    "#ff2200",
+                ];
+                const active = i <= 3;
+                const s = active ? 1.1 + i * 0.08 : 0.7;
+                ctx.save();
+                ctx.translate((i - 2) * sc * 22, 0);
+                ctx.scale(s, s);
+                ctx.fillStyle = active ? cols[i] : "#333";
+                ctx.shadowColor = cols[i];
+                ctx.shadowBlur = active ? sc * 6 : 0;
+                ctx.font = `bold ${sc * 11}px monospace`;
+                ctx.textAlign = "center";
+                ctx.fillText(lbl, 0, 0);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            });
+            ctx.restore();
+            // combo bar animated
+            const barW = sc * 100;
+            const pct = 0.6 + Math.sin(Date.now() * 0.002) * 0.2;
+            ctx.fillStyle = "rgba(0,0,0,.5)";
+            ctx.fillRect(cx - barW / 2, cy + sc * 14, barW, sc * 6);
+            ctx.fillStyle = "#ff6600";
+            ctx.fillRect(
+                cx - barW / 2,
+                cy + sc * 14,
+                barW * pct,
+                sc * 6,
+            );
+            ctx.fillStyle = "#aa3300";
+            ctx.font = `${sc * 6}px monospace`;
+            ctx.textAlign = "center";
+            ctx.fillText("TIMER COMBO", cx, cy + sc * 26);
+            // shop icons
+            const icons = ["🔫", "⚡", "🛡️"];
+            icons.forEach((ic, i) => {
+                ctx.save();
+                ctx.translate(cx + (i - 1) * sc * 28, cy + sc * 44);
+                ctx.fillStyle = "rgba(0,0,0,.4)";
+                ctx.beginPath();
+                ctx.roundRect(
+                    -sc * 10,
+                    -sc * 10,
+                    sc * 20,
+                    sc * 20,
+                    sc * 3,
+                );
+                ctx.fill();
+                ctx.strokeStyle = "#2244aa";
+                ctx.lineWidth = sc;
+                ctx.stroke();
+                ctx.font = `${sc * 14}px monospace`;
+                ctx.textAlign = "center";
+                ctx.fillText(ic, 0, sc * 5);
+                ctx.restore();
+            });
+        },
+    },
+];
+const TUT_PAGES_EN = [
+    {
+        title: "🔫  LAUNCHING",
+        steps: [
+            "The cannon swings automatically",
+            "Tap at the right moment to launch",
+            "Flatter angle = longer distance",
+            "You only get one launch per run",
+        ],
+        draw: TUT_PAGES_FR[0].draw,
+    },
+    {
+        title: "⚡  JETPACK",
+        steps: [
+            "Hold tap/space to activate",
+            "Robot rises and accelerates slightly",
+            "Orange bar at bottom = fuel",
+            "Enemy hit = lose 50% fuel",
+        ],
+        draw: TUT_PAGES_FR[1].draw,
+    },
+    {
+        title: "🎯  COLLECTIBLES",
+        steps: [
+            "★ Star → +15 coins (more with combo)",
+            "💙 Blue orb → speed + fuel boost",
+            "⭕ Gold ring → +50 coins (double combo)",
+            "📦 Chest → random reward",
+        ],
+        draw: TUT_PAGES_FR[2].draw,
+    },
+    {
+        title: "💀  ENEMIES",
+        steps: [
+            "🦇 Bat → wavy vertical movement",
+            "🟢 Green orb → sinusoidal path",
+            "🔴 Drone → fast erratic movement",
+            "☄️ Meteor → falls from sky. Dodge it!",
+        ],
+        draw: TUT_PAGES_FR[3].draw,
+    },
+    {
+        title: "🔥  COMBO & SHOP",
+        steps: [
+            "Collect items in a row = COMBO",
+            "Multiplier goes up to ×5 max",
+            "Spend coins in the shop (⚙)",
+            "Cannon + Battery + Armor → fly farther",
+        ],
+        draw: TUT_PAGES_FR[4].draw,
+    },
 ];
 
-function createPowerUpManager() {
-	return {
-		list: [],
-
-		spawn(x, y) {
-			const t =
-				TYPES[Math.floor(Math.random() * TYPES.length)];
-			this.list.push({
-				...t,
-				x,
-				y,
-				vx: -70,
-				vy: (Math.random() - 0.5) * 60,
-				collected: false,
-				animT: 0,
-			});
-		},
-
-		update(dt, width, height) {
-			for (const p of this.list) {
-				if (p.collected) continue;
-				p.x += p.vx * dt;
-				p.y += p.vy * dt;
-				p.animT += dt;
-				if (p.y < 30) p.vy = Math.abs(p.vy);
-				if (p.y > height - 30) p.vy = -Math.abs(p.vy);
-			}
-		},
-
-		cleanup() {
-			this.list = this.list.filter(
-				(p) => !p.collected && p.x > -60,
-			);
-		},
-
-		reset() {
-			this.list = [];
-		},
-	};
+function getTutPages() {
+    return (sd.lang || "fr") === "en" ? TUT_PAGES_EN : TUT_PAGES_FR;
 }
 
-function createBossManager() {
-	const mgr = {
-		active: false,
-		x: 0,
-		y: 0,
-		w: 0,
-		h: 0,
-		hp: 0,
-		maxHp: 0,
-		type: "",
-		name: "",
-		color: "#cc0000",
-		coreColor: "#ff6600",
-		timer: 0,
-		phase: 0,
-		animT: 0,
-		shootTimer: 0,
-		patternTimer: 0,
-		patternIndex: 0,
-		eyeAngle: 0,
-		_pendingBullets: [],
-
-		reset() {
-			this.active = false;
-			this._pendingBullets = [];
-		},
-
-		spawn(bossData, width, height) {
-			this.active = true;
-			this.x = width - bossData.w / 2 - 20;
-			this.y = height / 2;
-			this.w = bossData.w;
-			this.h = bossData.h;
-			this.hp = bossData.hp;
-			this.maxHp = bossData.hp;
-			this.type = bossData.type;
-			this.name = bossData.name;
-			this.color = bossData.color;
-			this.coreColor = bossData.coreColor;
-			this.timer = 0;
-			this.phase = 0;
-			this.animT = 0;
-			this.shootTimer = 0;
-			this.patternTimer = 0;
-			this.patternIndex = 0;
-			this.eyeAngle = 0;
-			this.entryDone = false;
-			this.targetX = width * 0.72;
-		},
-
-		hitbox() {
-			return {
-				x: this.x - this.w * 0.4,
-				y: this.y - this.h * 0.4,
-				w: this.w * 0.8,
-				h: this.h * 0.8,
-			};
-		},
-
-		takeDamage(dmg) {
-			this.hp = Math.max(0, this.hp - dmg);
-			this.flashTimer = 0.08;
-		},
-
-		isDead() {
-			return this.active && this.hp <= 0;
-		},
-
-		update(dt, width, height, bullets, particles, state) {
-			if (!this.active) return;
-			this.animT += dt;
-			this.timer += dt;
-			this.eyeAngle += dt * 1.5;
-			if (this.flashTimer > 0) this.flashTimer -= dt;
-
-			// Entry slide
-			if (!this.entryDone) {
-				this.x += (this.targetX - this.x) * dt * 3;
-				if (Math.abs(this.x - this.targetX) < 2) {
-					this.x = this.targetX;
-					this.entryDone = true;
-				}
-				return;
-			}
-
-			// Phase transitions based on HP — with visual flash
-			const hpFrac = this.hp / this.maxHp;
-			// Phase transitions — uniquement après que le boss est entré + HP touchés réellement
-			if (this.entryDone && this.hp < this.maxHp) {
-				if (hpFrac < 0.33 && this.phase < 2) {
-					this.phase = 2;
-					this._phaseFlash = 1.5;
-					this.patternTimer = 0;
-					this.shootTimer = 0;
-					this._phaseMsg = "⚠️ PHASE FINALE !";
-					this._phaseMsgTimer = 2.5;
-				} else if (hpFrac < 0.5 && this.phase < 1) {
-					this.phase = 1;
-					this._phaseFlash = 1.0;
-					this.patternTimer = 0;
-					this._phaseMsg = "⚡ ENRAGÉ !";
-					this._phaseMsgTimer = 2.0;
-				}
-			}
-			if (this._phaseMsgTimer > 0) {
-				this._phaseMsgTimer -= dt;
-			}
-			if (this._phaseFlash > 0) this._phaseFlash -= dt;
-
-			const speedMul = 1 + this.phase * 0.5;
-
-			// Phase 2+: boss rushes horizontally toward player
-			if (this.phase >= 1 && state) {
-				const playerX = state.playerX || (width * 0.2);
-				const targetX = Math.max(width * 0.55, Math.min(width * 0.82, playerX + 200));
-				this.x += (targetX - this.x) * dt * (0.4 + this.phase * 0.3);
-			}
-
-			// Move pattern
-			const moveAmp = 80 + this.phase * 30;
-			this.y =
-				height / 2 +
-				Math.sin(this.animT * (0.8 + this.phase * 0.3)) *
-					moveAmp;
-			this.y = Math.max(
-				this.h / 2 + 20,
-				Math.min(height - this.h / 2 - 20, this.y),
-			);
-
-			this.shootTimer -= dt;
-			this.patternTimer -= dt;
-
-			if (this.patternTimer <= 0) {
-				this.patternIndex = (this.patternIndex + 1) % 4;
-				this.patternTimer = 2.5 - this.phase * 0.5;
-			}
-
-			if (this.shootTimer <= 0) {
-				const baseRate = 0.7 - this.phase * 0.15;
-				this.shootTimer = Math.max(0.25, baseRate);
-				this._firePattern(speedMul, width, height);
-			}
-
-			// Drain pending to bullet manager
-			for (const b of this._pendingBullets) {
-				bullets.addEnemy(b);
-			}
-			this._pendingBullets = [];
-		},
-
-		_firePattern(speedMul, width, height) {
-			const cx = this.x - this.w * 0.4;
-			const cy = this.y;
-			const s = 220 * speedMul;
-
-			switch (this.patternIndex) {
-				case 0: // Straight volley
-					for (let i = -2; i <= 2; i++) {
-						this._bullet(
-							cx,
-							cy + i * 16,
-							-s,
-							i * 25,
-							this.coreColor,
-						);
-					}
-					break;
-				case 1: // Ring burst
-					if (
-						this.type !== "colossus" ||
-						this.phase >= 1
-					) {
-						for (let i = 0; i < 8; i++) {
-							const angle =
-								(i / 8) * Math.PI * 2 +
-								this.animT * 0.5;
-							this._bullet(
-								cx,
-								cy,
-								Math.cos(angle) * s * 0.8,
-								Math.sin(angle) * s * 0.8,
-								"#ff6600",
-							);
-						}
-					} else {
-						this._bullet(cx, cy, -s, 0, this.coreColor);
-					}
-					break;
-				case 2: // Spiral
-					for (let i = 0; i < this.phase + 2; i++) {
-						const angle =
-							Math.PI +
-							(i / (this.phase + 2)) * Math.PI;
-						this._bullet(
-							cx,
-							cy,
-							Math.cos(angle) * s,
-							Math.sin(angle) * s,
-							"#ffaa00",
-						);
-					}
-					break;
-				case 3: // Aimed burst
-					if (this.type === "tyrant" || this.phase >= 2) {
-						// 3 aimed bursts
-						for (let i = -1; i <= 1; i++) {
-							const angle = Math.PI + i * 0.2;
-							this._bullet(
-								cx,
-								cy,
-								Math.cos(angle) * s * 1.2,
-								Math.sin(angle) * s * 1.2,
-								"#ffff00",
-							);
-						}
-					} else {
-						this._bullet(
-							cx,
-							cy,
-							-s,
-							-s * 0.3,
-							this.coreColor,
-						);
-						this._bullet(
-							cx,
-							cy,
-							-s,
-							s * 0.3,
-							this.coreColor,
-						);
-					}
-					break;
-			}
-		},
-
-		_bullet(x, y, vx, vy, color) {
-			this._pendingBullets.push({
-				x,
-				y,
-				vx,
-				vy,
-				color,
-				w: 10,
-				h: 10,
-			});
-		},
-	};
-	return mgr;
+function openTutorial() {
+    gs = "tutorial";
+    tutPage = 0;
 }
-
-function createHUD(ui) {
-	let lastHudRender = "";
-
-	// ── Helpers ────────────────────────────────────────────────────────────
-
-	/** Show a translated string by key. */
-	function tr(k) {
-		return t(k);
-	}
-
-	// ── Onboarding ─────────────────────────────────────────────────────────
-
-	/** Step 1 – Language selection (shown only once). */
-	function showLangSelect(onDone) {
-		ui.render(`
-			<div style="
-				position: absolute; inset: 0;
-				display: flex; flex-direction: column;
-				align-items: center; justify-content: center;
-				background: #000; color: #fff; font-family: monospace;
-				gap: 24px;
-			">
-				<div style="font-size: 48px;">🌐</div>
-				<h2 style="
-					font-size: 22px; font-weight: 900;
-					color: #f97316; letter-spacing: 4px; margin: 0;
-				">LANGUAGE / LANGUE</h2>
-				<div style="display: flex; gap: 20px;">
-					<button id="lang-fr" style="
-						display: flex; flex-direction: column;
-						align-items: center; gap: 10px;
-						padding: 20px 40px;
-						background: #111827; border: 2px solid #374151;
-						border-radius: 16px; cursor: pointer; color: #fff;
-						font-family: monospace;
-					">
-						<span style="font-size: 42px;">🇹🇬</span>
-						<span style="font-weight: 900; font-size: 18px;">Français</span>
-					</button>
-					<button id="lang-en" style="
-						display: flex; flex-direction: column;
-						align-items: center; gap: 10px;
-						padding: 20px 40px;
-						background: #111827; border: 2px solid #374151;
-						border-radius: 16px; cursor: pointer; color: #fff;
-						font-family: monospace;
-					">
-						<span style="font-size: 42px;">🇬🇧</span>
-						<span style="font-weight: 900; font-size: 18px;">English</span>
-					</button>
-				</div>
-			</div>
-		`);
-
-		setTimeout(() => {
-			document.getElementById("lang-fr")?.addEventListener("click", () => {
-				settings.lang = "fr";
-				settings.save();
-				audio.sfx.select();
-				onDone();
-			});
-			document.getElementById("lang-en")?.addEventListener("click", () => {
-				settings.lang = "en";
-				settings.save();
-				audio.sfx.select();
-				onDone();
-			});
-		}, 0);
-	}
-
-	/** Step 2 – Player name entry (shown only once). */
-	function showNamePrompt(onDone) {
-		ui.render(`
-			<div style="
-				position: absolute; inset: 0;
-				display: flex; flex-direction: column;
-				align-items: center; justify-content: center;
-				background: #000; color: #fff; font-family: monospace;
-				gap: 16px;
-			">
-				<div style="font-size: 42px;">✈️</div>
-				<h2 style="
-					font-size: 20px; font-weight: 900;
-					color: #f97316; letter-spacing: 3px; margin: 0;
-				">${tr("namePrompt")}</h2>
-				<input
-					id="name-input"
-					maxlength="24"
-					placeholder="${tr("namePlaceholder")}"
-					style="
-						padding: 12px 20px; font-size: 18px;
-						font-family: monospace;
-						background: #111827; border: 2px solid #f97316;
-						border-radius: 10px; color: #fff; outline: none;
-						text-align: center; width: 260px;
-					"
-				/>
-				<button id="name-confirm" style="
-					padding: 12px 40px;
-					background: linear-gradient(to right, #b22200, #ea580c);
-					border: none; border-radius: 10px;
-					color: #fff; font-weight: 900; font-size: 16px;
-					font-family: monospace; cursor: pointer;
-				">
-					${tr("nameConfirm")} →
-				</button>
-			</div>
-		`);
-
-		setTimeout(() => {
-			const inp = document.getElementById("name-input");
-			inp?.focus();
-			inp?.addEventListener("keydown", (e) => {
-				if (e.key === "Enter") {
-					document.getElementById("name-confirm")?.click();
-				}
-			});
-			document.getElementById("name-confirm")?.addEventListener("click", () => {
-				const name = (inp?.value || "").trim().slice(0, 24) || "Pilot";
-				settings.playerName = name;
-				settings.save();
-				audio.sfx.select();
-				onDone();
-			});
-		}, 0);
-	}
-
-	/** Run onboarding steps then call cb(). */
-	/** Step 3 – Tutorial (shown only once, flag iw_tuto_done). */
-	function showTutorial(onDone) {
-		const slides = t("tutoSlides") || [];
-		let idx = 0;
-
-		function render() {
-			const s      = slides[idx];
-			const isLast = idx === slides.length - 1;
-			const dots   = slides.map((_,i) =>
-				`<div style="width:8px;height:8px;border-radius:50%;
-					background:${i===idx ? '#f97316' : '#374151'};
-					transition:background 0.2s;"></div>`
-			).join("");
-
-			ui.render(`
-				<div style="
-					position:absolute;inset:0;
-					display:flex;flex-direction:column;
-					align-items:center;justify-content:center;
-					background:linear-gradient(160deg,#0a0000 0%,#1a0500 100%);
-					color:#fff;font-family:monospace;
-					padding:clamp(10px,2vh,24px) clamp(10px,2vw,24px);
-					overflow-y:auto;
-				">
-					<div style="font-size:clamp(9px,1.6vh,11px);color:#f97316;letter-spacing:4px;
-						text-transform:uppercase;margin-bottom:clamp(8px,1.5vh,20px);">
-						📖 ${tr("tutoTitle")}
-					</div>
-					<div style="
-						background:#111827;border:1px solid #374151;
-						border-radius:16px;padding:clamp(14px,3vh,32px) clamp(14px,3vw,28px);
-						width:min(380px,90vw);
-						display:flex;flex-direction:column;
-						align-items:center;gap:clamp(8px,1.5vh,16px);
-						animation:upgradePopIn 0.35s ease both;
-						box-shadow:0 0 40px rgba(249,115,22,0.08);
-					">
-						<div style="font-size:clamp(32px,8vh,56px);line-height:1;">${s.icon}</div>
-						<div style="font-size:clamp(14px,2.5vh,18px);font-weight:900;color:#f97316;
-							letter-spacing:2px;text-align:center;">${s.title}</div>
-						<div style="font-size:clamp(11px,1.8vh,13px);color:#d1d5db;line-height:1.5;
-							text-align:center;max-width:320px;">${s.body}</div>
-					</div>
-					<div style="display:flex;gap:8px;margin-top:clamp(10px,1.8vh,20px);">${dots}</div>
-					<div style="display:flex;gap:12px;margin-top:clamp(10px,1.8vh,20px);">
-						<button id="tuto-skip" style="
-							padding:clamp(6px,1.2vh,8px) clamp(12px,2vw,18px);
-							background:transparent;
-							border:1px solid #374151;border-radius:8px;
-							color:#6b7280;font-family:monospace;
-							font-size:clamp(10px,1.6vh,12px);cursor:pointer;">
-							${tr("tutoSkip")}
-						</button>
-						<button id="tuto-next" style="
-							padding:clamp(8px,1.4vh,10px) clamp(18px,3vw,28px);
-							background:linear-gradient(to right,#b22200,#ea580c);
-							border:none;border-radius:10px;
-							color:#fff;font-weight:900;font-size:clamp(12px,2vh,14px);
-							font-family:monospace;cursor:pointer;
-							letter-spacing:1px;">
-							${isLast ? tr("tutoDone") : tr("tutoNext")}
-						</button>
-					</div>
-					<div style="font-size:clamp(9px,1.4vh,10px);color:#4b5563;margin-top:clamp(6px,1vh,10px);">
-						${idx+1} / ${slides.length}
-					</div>
-				</div>
-			`);
-
-			setTimeout(() => {
-				document.getElementById("tuto-next")?.addEventListener("click", () => {
-					audio.sfx.click();
-					if (isLast) {
-						idb.setItem("iw_tuto_done", "1");
-						ui.clear();
-						onDone();
-					} else {
-						idx++;
-						render();
-					}
-				});
-				document.getElementById("tuto-skip")?.addEventListener("click", () => {
-					audio.sfx.click();
-					idb.setItem("iw_tuto_done", "1");
-					ui.clear();
-					onDone();
-				});
-			}, 0);
-		}
-		render();
-	}
-
-	function runOnboarding(cb) {
-		if (!settings.lang) {
-			showLangSelect(() => runOnboarding(cb));
-			return;
-		}
-		if (!settings.playerName) {
-			showNamePrompt(() => runOnboarding(cb));
-			return;
-		}
-		if (!idb.hasItem("iw_tuto_done")) {
-			showTutorial(() => runOnboarding(cb));
-			return;
-		}
-		cb();
-	}
-
-	// ── Public HUD object ──────────────────────────────────────────────────
-
-	const self = {
-
-		// ── Main menu ──────────────────────────────────────────────────────
-		renderMenu(state) {
-			runOnboarding(() => this._showMenu(state));
-		},
-
-		_showMenu(state) {
-			const hasSave  = saveGame.has();
-			// Activate menu keyboard/gamepad navigation after render
-			setTimeout(() => menuNav.activate(), 80);
-			const padTip   = gamepad.connected() ? " 🎮" : "";
-			const achDone  = Object.keys(achStats.get().unlocked || {}).length;
-			const achTotal = ACH_DEFS.length;
-
-			ui.render(`
-				<div style="
-					position: absolute; inset: 0;
-					display: flex; flex-direction: column;
-					align-items: center; justify-content: center;
-					color: #fff; font-family: monospace;
-					overflow-y: auto; overflow-x: visible;
-					scrollbar-width: none;
-					padding: clamp(2px,0.6vh,24px) 0 clamp(4px,1vh,12px);
-					box-sizing: border-box;
-				">
-					<!-- Animated background particles -->
-					<div style="position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:0;">
-						${Array.from({length:14},(_,i)=>{
-							const sz = 3+Math.random()*5, left=Math.random()*100,
-								  delay=Math.random()*6, dur=5+Math.random()*6;
-							return `<div style="position:absolute;left:${left}%;width:${sz}px;height:${sz}px;
-								border-radius:50%;background:rgba(255,${80+Math.floor(Math.random()*80)},0,0.5);
-								animation:bgParticle ${dur}s ${delay}s linear infinite;"></div>`;
-						}).join("")}
-					</div>
-
-					<!-- Background gradient overlay -->
-					<div style="position:absolute;inset:0;background:radial-gradient(ellipse at center, rgba(180,30,0,0.18) 0%, rgba(0,0,0,0.92) 70%);pointer-events:none;z-index:1;"></div>
-
-					<!-- Bloc centré : titre + contenu -->
-					<div style="position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;width:100%;overflow:visible;">
-
-					<!-- Titre hors du wrapper scrollable pour que le glow ne soit pas coupé -->
-					<div style="flex-shrink:0;text-align:center;padding:clamp(4px,1vh,10px) 0 0;overflow:visible;">
-						<h1 style="
-							font-size: clamp(16px, min(4vh, 5vw), 48px);
-							font-weight: 900; letter-spacing: clamp(1px,0.5vw,4px);
-							color: #ff6600;
-							animation: popIn 0.6s ease both 0.1s, glowPulseMenu 3s ease-in-out infinite 0.7s;
-							margin: 0; padding: 0 8px clamp(1px,0.3vh,6px);
-						">
-							${tr("title")}
-						</h1>
-						<p style="color: #fb923c; font-size: clamp(8px, 1.5vh, 14px); margin: 0;
-							animation: fadeInUp 0.5s ease both 0.2s;">
-							${tr("subtitle")}
-						</p>
-					</div>
-
-					<!-- Content wrapper -->
-					<div style="display:flex;flex-direction:column;align-items:center;gap:clamp(2px,0.8vh,10px);width:100%;overflow:visible;padding:clamp(2px,0.6vh,8px) 4px 4px;box-sizing:border-box;">
-					<style>#ui-layer ::-webkit-scrollbar{display:none;}</style>
-
-					<!-- Action buttons -->
-					<div style="display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
-						animation: fadeInUp 0.55s ease both 0.35s; z-index: 10;">
-						<button id="btn-start" style="
-							padding: clamp(5px,1vh,12px) clamp(12px,2.5vw,32px);
-							background: linear-gradient(to right, #b22200, #ea580c);
-							border: none; border-radius: 12px;
-							font-weight: 900; font-size: clamp(11px,1.8vh,17px);
-							color: #fff; cursor: pointer;
-							letter-spacing: 2px; font-family: monospace;
-							transition: transform 0.15s, box-shadow 0.15s;
-							animation: floatUp 3s ease-in-out infinite 1s;
-						">
-							🔥 ${tr("ignite")}
-						</button>
-
-						${hasSave ? `
-						<button id="btn-continue" style="
-							padding: clamp(7px,1.5vh,12px) clamp(12px,2vw,24px);
-							background: linear-gradient(to right, #14532d, #16a34a);
-							border: none; border-radius: 12px;
-							font-weight: 900; font-size: clamp(11px,1.8vh,15px);
-							color: #fff; cursor: pointer; font-family: monospace;
-							transition: transform 0.15s;
-						">
-							▶ ${tr("continueBtn")}
-						</button>` : ""}
-
-						<button id="btn-lb" style="
-							padding: clamp(7px,1.5vh,12px) clamp(10px,2vw,16px);
-							background: #111827; border: 2px solid #374151;
-							border-radius: 12px; font-weight: 700;
-							font-size: clamp(11px,1.8vh,13px); color: #d1d5db;
-							cursor: pointer; font-family: monospace;
-							transition: transform 0.15s;
-						">
-							🏆 ${tr("leaderboard")}
-						</button>
-
-						<button id="btn-ach" style="
-							padding: clamp(7px,1.5vh,12px) clamp(10px,2vw,16px);
-							background: #111827; border: 2px solid #374151;
-							border-radius: 12px; font-weight: 700;
-							font-size: clamp(11px,1.8vh,13px); color: #d1d5db;
-							cursor: pointer; font-family: monospace;
-							transition: transform 0.15s;
-						">
-							⭐ ${achDone}/${achTotal}
-						</button>
-
-						<button id="btn-options" style="
-							padding: clamp(7px,1.5vh,12px) clamp(10px,2vw,16px);
-							background: #111827; border: 2px solid #374151;
-							border-radius: 12px; font-weight: 700;
-							font-size: clamp(11px,1.8vh,13px); color: #d1d5db;
-							cursor: pointer; font-family: monospace;
-							transition: transform 0.15s;
-						">
-							⚙️ ${tr("options")}
-						</button>
-					</div>
-
-					<!-- Pilot level bar -->
-					<div style="
-						animation: fadeInUp 0.5s ease both 0.35s;
-						background:#111827;border:1px solid #374151;
-						border-radius:10px;padding:clamp(5px,1vh,8px) 14px;
-						width:min(300px,85vw);
-						z-index: 0;
-					">
-						${(() => {
-							const pl = pilotLevel.get();
-							const xpNext = pilotLevel.getXpForNext();
-							const isMax = xpNext === 0;
-							const pct = isMax ? 100 : Math.min(100, Math.round(pl.xp / xpNext * 100));
-							const title = pilotLevel.getTitle();
-							return `
-							<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-								<span style="font-size:clamp(10px,1.8vh,12px);font-weight:900;color:#f97316;">✈️ ${title} — Lv.${pl.level}</span>
-								<span style="font-size:clamp(9px,1.5vh,10px);color:#9ca3af;">${isMax ? "✨ MAX" : pl.xp + "/" + xpNext + " XP"}</span>
-							</div>
-							<div style="background:#374151;border-radius:4px;height:5px;overflow:hidden;">
-								<div style="height:100%;width:${pct}%;background:linear-gradient(to right,${isMax ? "#facc15,#f97316" : "#f97316,#facc15"});border-radius:4px;transition:width 0.3s;"></div>
-							</div>`;
-						})()}
-					</div>
-
-					<!-- Daily missions detailed display -->
-					<div id="daily-summary" style="
-						animation: fadeInUp 0.5s ease both 0.38s;
-						background:#0a1a0a;border:1px solid #22553a;
-						border-radius:10px;padding:clamp(5px,1vh,10px) 14px;
-						width:min(300px,85vw);font-size:clamp(9px,1.8vh,11px);color:#4ade80;
-					">
-						${(() => {
-							const dd = dailySystem.get();
-							const lang = settings.lang || "en";
-							const done = dd.missions.filter(m=>m.done).length;
-							const total = dd.missions.length;
-							const missionRows = dd.missions.map(m => {
-								const label = lang === "fr" ? m.fr : m.en;
-								const color = m.done ? "#22cc88" : "#9ca3af";
-								const icon  = m.done ? "✅" : "⬜";
-								const prog  = m.type === "progress"
-									? ` (${m.progress||0}/${m.target})`
-									: m.done ? "" : ` (${m.progress||0}/${m.target})`;
-								return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;">
-									<span>${icon}</span>
-									<span style="flex:1;color:${color};">${label}${prog}</span>
-									<span style="color:#facc15;font-size:9px;">+${m.xp}XP</span>
-								</div>`;
-							}).join("");
-							const header = `<div style="display:flex;justify-content:space-between;margin-bottom:4px;border-bottom:1px solid #22553a;padding-bottom:4px;">
-								<span style="color:#22cc88;font-weight:900;letter-spacing:1px;">📅 ${lang==="fr"?"MISSIONS DU JOUR":"DAILY MISSIONS"}</span>
-								<span style="color:${done===total?"#facc15":"#9ca3af"};">${done}/${total}</span>
-							</div>`;
-							return header + missionRows;
-						})()}
-					</div>
-
-					<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;animation:fadeInUp 0.5s ease both 0.4s; z-index: 10;">
-						${(() => {
-							const _survUnlocked = !!idb.getItem("iw_normal_cleared");
-							const _survLabel = (settings.lang === "fr") ? "SURVIE" : "SURVIVAL";
-							return `<button id="btn-survival" style="
-								padding:clamp(6px,1.2vh,9px) clamp(10px,2vw,16px);
-								background:${_survUnlocked ? "linear-gradient(135deg,#7f1d1d,#991b1b)" : "#1f2937"};
-								border:2px solid ${_survUnlocked ? "#ef4444" : "#4b5563"};border-radius:10px;
-								color:${_survUnlocked ? "#fff" : "#6b7280"};font-weight:900;font-size:clamp(11px,1.8vh,13px);
-								font-family:monospace;cursor:pointer;letter-spacing:1px;
-								opacity:${_survUnlocked ? "1" : "0.6"};
-							">${_survUnlocked ? "💀" : "🔒"} ${_survLabel}</button>`;
-						})()}
-
-					</div>
-
-					<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;animation:fadeInUp 0.5s ease both 0.42s;">
-						<button id="btn-history" style="
-							padding:clamp(5px,1vh,7px) clamp(8px,1.5vw,14px);
-							background:#1f2937;border:1px solid #374151;
-							border-radius:8px;color:#9ca3af;
-							font-weight:700;font-size:clamp(9px,1.6vh,11px);cursor:pointer;font-family:monospace;
-						">📊 Historique</button>
-						<button id="btn-badges" style="
-							padding:clamp(5px,1vh,7px) clamp(8px,1.5vw,14px);
-							background:#1f2937;border:1px solid #374151;
-							border-radius:8px;color:#9ca3af;
-							font-weight:700;font-size:clamp(9px,1.6vh,11px);cursor:pointer;font-family:monospace;
-						">🏅 Badges</button>
-						<button id="btn-tuto" style="
-							padding:clamp(5px,1vh,7px) clamp(8px,1.5vw,14px);
-							background:#1f2937;border:1px solid #374151;
-							border-radius:8px;color:#9ca3af;
-							font-weight:700;font-size:clamp(9px,1.6vh,11px);cursor:pointer;font-family:monospace;
-						">📖 ${tr("tutoBtn")}</button>
-					</div>
-
-					<div style="color: #facc15; font-size: clamp(11px,1.8vh,13px);
-						animation: fadeInUp 0.5s ease both 0.45s;">
-						${tr("hiScore")}: <span style="font-weight: 900;">${state.hiScore.toLocaleString()}</span>
-					</div>
-
-					<div data-hide-small style="font-size: 10px; color: #4b5563; margin-top: 2px;
-						animation: fadeInUp 0.5s ease both 0.55s;">
-						👤 ${settings.playerName || "Pilot"}
-					</div>
-
-					<!-- Studio + crédits -->
-					<div data-hide-small style="margin-top:clamp(4px,0.8vh,14px);text-align:center;
-						animation: fadeInUp 0.5s ease both 0.65s;">
-						<div style="font-size:11px;font-weight:900;
-							letter-spacing:2px;color:#ff6600;font-family:monospace;">
-							IS DAOUDA GAMES
-						</div>
-						<div style="font-size:9px;color:#4b5563;
-							margin-top:3px;font-family:monospace;">
-							Music by Serhii Kliets and ElisLane from Pixabay
-						</div>
-					</div>
-
-					</div><!-- end scrollable wrapper -->
-					</div><!-- end centered block -->
-				</div>
-			`);
-
-			setTimeout(() => {
-				document.getElementById("btn-options")?.addEventListener("click", () => {
-					audio.sfx.click();
-					self.renderOptions(state, () => self._showMenu(state));
-				});
-
-				document.getElementById("btn-continue")?.addEventListener("click", () => {
-					audio.sfx.select();
-					ui.clear();
-					_resumeSave?.();
-				});
-
-				document.getElementById("btn-ach")?.addEventListener("click", () => {
-					audio.sfx.click();
-					self.renderAchievements(() => self._showMenu(state));
-				});
-
-				document.getElementById("btn-lb")?.addEventListener("click", () => {
-					audio.sfx.click();
-					self.renderLeaderboard(() => self._showMenu(state));
-				});
-
-				document.getElementById("btn-survival")?.addEventListener("click", () => {
-					const normalCleared = idb.getItem("iw_normal_cleared");
-					if (!normalCleared) {
-						// Mode verrouillé
-						audio.sfx.playerHit?.();
-						const lang = settings.lang || "en";
-						// Overlay plein écran — garantit centrage parfait dès le 1er affichage
-						const msg = document.createElement("div");
-						msg.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);z-index:99999;font-family:monospace;";
-						msg.innerHTML = `
-							<div style="background:rgba(0,0,0,0.97);border:2px solid #f97316;border-radius:14px;padding:24px 32px;color:#fff;text-align:center;max-width:min(300px,85vw);animation:popIn 0.3s ease;box-shadow:0 0 30px rgba(249,115,22,0.4);">
-								<div style="font-size:32px;margin-bottom:10px;">🔒</div>
-								<div style="font-size:13px;color:#f97316;font-weight:900;letter-spacing:2px;margin-bottom:10px;">${lang==="fr"?"MODE VERROUILLÉ":"LOCKED MODE"}</div>
-								<div style="font-size:11px;color:#d1d5db;line-height:1.6;margin-bottom:4px;">${lang==="fr"?"Terminez le mode Normal pour débloquer la Survie !":"Complete Normal mode to unlock Survival!"}</div>
-								<button id="lock-msg-close" style="margin-top:14px;padding:7px 22px;background:#f97316;border:none;border-radius:8px;color:#fff;font-weight:900;font-family:monospace;cursor:pointer;font-size:13px;">OK</button>
-							</div>`;
-						document.body.appendChild(msg);
-						const _closeMsg = () => { msg.style.transition="opacity 0.35s"; msg.style.opacity="0"; setTimeout(()=>msg.remove(),380); };
-						document.getElementById("lock-msg-close")?.addEventListener("click", _closeMsg);
-						msg.addEventListener("click", (e) => { if (e.target === msg) _closeMsg(); });
-						setTimeout(_closeMsg, 3500);
-						return;
-					}
-					audio.sfx.select();
-					ui.clear();
-					_startGame?.(null, "survival");
-				});
-
-
-				document.getElementById("btn-history")?.addEventListener("click", () => {
-					audio.sfx.click();
-					self.renderHistory(() => self._showMenu(state));
-				});
-
-				document.getElementById("btn-badges")?.addEventListener("click", () => {
-					audio.sfx.click();
-					self.renderBadges(() => self._showMenu(state));
-				});
-
-				document.getElementById("btn-tuto")?.addEventListener("click", () => {
-					audio.sfx.click();
-					idb.removeItem("iw_tuto_done");
-					showTutorial(() => self._showMenu(state));
-				});
-			}, 0);
-		},
-
-		// ── Options ────────────────────────────────────────────────────────
-		renderOptions(state, onBack, _keepCursor) {
-			// _keepCursor=true : re-rendu interne (diff/langue/vibration)
-			// → on garde la position du curseur. Sinon on repart à 0.
-			if (_keepCursor) {
-				setTimeout(() => menuNav.activateKeepIdx(), 50);
-			} else {
-				setTimeout(() => menuNav.activate(), 80);
-			}
-			const diffs   = ["easy", "normal", "hard"];
-			const diffCol = { easy: "#4ade80", normal: "#facc15", hard: "#f87171" };
-
-			ui.render(`
-				<div style="
-					position: absolute; inset: 0;
-					display: flex; flex-direction: column;
-					align-items: center; justify-content: center;
-					background: rgba(0,0,0,0.93);
-					color: #fff; font-family: monospace;
-					overflow-y: auto; scrollbar-width: none;
-					padding: clamp(4px,1vh,24px) 12px clamp(6px,1.5vh,32px);
-					box-sizing: border-box;
-				">
-					<h2 style="
-						font-size: clamp(13px,2.2vh,22px); font-weight: 900;
-						color: #f97316; margin: 0 0 clamp(4px,0.8vh,20px);
-						letter-spacing: clamp(1px,0.5vw,3px); flex-shrink: 0;
-					">
-						⚙️ ${tr("options")}
-					</h2>
-
-					<div style="
-						background: #111827; border: 1px solid #374151;
-						border-radius: 14px; padding: clamp(8px,1.5vh,20px) clamp(10px,2vw,20px);
-						width: min(340px, 95vw);
-						display: flex; flex-direction: column; gap: clamp(5px,1vh,18px);
-						box-sizing: border-box;
-					">
-						<!-- Music volume -->
-						<div>
-							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
-								🎵 ${tr("music")}
-							</div>
-							<div style="display: flex; align-items: center; gap: 10px;">
-								<input id="opt-mus" type="range" min="0" max="1" step="0.05"
-									value="${settings.musicVol}"
-									style="flex: 1; accent-color: #f97316; cursor: pointer;"
-								/>
-								<span id="opt-mv" style="color: #facc15; font-weight: 700; min-width: 38px; text-align: right;">
-									${Math.round(settings.musicVol * 100)}%
-								</span>
-							</div>
-						</div>
-
-						<!-- SFX volume -->
-						<div>
-							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
-								🔊 ${tr("sfx")}
-							</div>
-							<div style="display: flex; align-items: center; gap: 10px;">
-								<input id="opt-sfx" type="range" min="0" max="1" step="0.05"
-									value="${settings.sfxVol}"
-									style="flex: 1; accent-color: #f97316; cursor: pointer;"
-								/>
-								<span id="opt-sv" style="color: #facc15; font-weight: 700; min-width: 38px; text-align: right;">
-									${Math.round(settings.sfxVol * 100)}%
-								</span>
-							</div>
-						</div>
-
-						<!-- Difficulty -->
-						<div>
-							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
-								⚔️ ${tr("difficulty")}
-							</div>
-							<div style="display: flex; gap: 6px;">
-								${diffs.map(d => `
-								<button class="opt-diff" data-diff="${d}" style="
-									flex: 1; padding: clamp(4px,0.8vh,8px) 4px;
-									border-radius: 8px; font-weight: 700;
-									font-size: clamp(9px,1.6vh,11px); cursor: pointer;
-									font-family: monospace;
-									border: 2px solid ${settings.difficulty === d ? "#f97316" : "#374151"};
-									background: ${settings.difficulty === d ? "rgba(249,115,22,0.15)" : "#1f2937"};
-									color: ${settings.difficulty === d ? diffCol[d] : "#6b7280"};
-								">
-									${tr(d)}
-								</button>`).join("")}
-							</div>
-						</div>
-
-						<!-- Vibration -->
-						<div style="display: flex; align-items: center; justify-content: space-between;">
-							<span style="font-size: 10px; color: #f97316; text-transform: uppercase; letter-spacing: 2px;">
-								🎮 ${tr("vibration")}
-							</span>
-							<button id="opt-rum" style="
-								padding: clamp(4px,0.8vh,7px) clamp(8px,1.5vw,14px); border-radius: 8px;
-								font-weight: 700; cursor: pointer;
-								font-family: monospace;
-								border: 2px solid ${settings.rumble ? "#f97316" : "#374151"};
-								background: ${settings.rumble ? "rgba(249,115,22,0.15)" : "#1f2937"};
-								color: ${settings.rumble ? "#f97316" : "#6b7280"};
-							">
-								${settings.rumble ? "ON" : "OFF"}
-							</button>
-						</div>
-
-						<!-- Language -->
-						<div style="display: flex; align-items: center; justify-content: space-between;">
-							<span style="font-size: 10px; color: #f97316; text-transform: uppercase; letter-spacing: 2px;">
-								🌐 ${tr("lang")}
-							</span>
-							<div style="display: flex; gap: 6px;">
-								<button class="lang-btn" data-lang="fr" style="
-									padding: clamp(3px,0.6vh,6px) clamp(8px,1.5vw,12px); border-radius: 6px;
-									cursor: pointer; font-weight: 700;
-									font-family: monospace;
-									border: 2px solid ${settings.lang === "fr" ? "#f97316" : "#374151"};
-									background: ${settings.lang === "fr" ? "rgba(249,115,22,0.15)" : "#1f2937"};
-									color: ${settings.lang === "fr" ? "#f97316" : "#6b7280"};
-								">
-									🇫🇷 FR
-								</button>
-								<button class="lang-btn" data-lang="en" style="
-									padding: clamp(3px,0.6vh,6px) clamp(8px,1.5vw,12px); border-radius: 6px;
-									cursor: pointer; font-weight: 700;
-									font-family: monospace;
-									border: 2px solid ${settings.lang === "en" ? "#f97316" : "#374151"};
-									background: ${settings.lang === "en" ? "rgba(249,115,22,0.15)" : "#1f2937"};
-									color: ${settings.lang === "en" ? "#f97316" : "#6b7280"};
-								">
-									🇬🇧 EN
-								</button>
-							</div>
-						</div>
-
-						<!-- Player name -->
-						<div>
-							<div style="font-size: clamp(8px,1.5vh,10px); color: #f97316; text-transform: uppercase; letter-spacing: 1px; margin-bottom: clamp(3px,0.5vh,8px);">
-								👤 ${tr("playerNameLbl")}
-							</div>
-							<div style="display: flex; gap: 8px; align-items: center;">
-								<input
-									id="opt-name"
-									maxlength="24"
-									value="${settings.playerName || ""}"
-									placeholder="Pilot"
-									style="
-										flex: 1; padding: clamp(4px,0.7vh,7px) 10px;
-										background: #1f2937;
-										border: 1px solid #374151;
-										border-radius: 6px; color: #fff;
-										font-family: monospace; font-size: 13px;
-										outline: none;
-									"
-								/>
-								<button id="opt-name-save" style="
-									padding: 7px 12px;
-									background: #f97316; border: none;
-									border-radius: 6px; color: #fff;
-									font-weight: 700; font-size: 12px;
-									cursor: pointer; font-family: monospace;
-								">
-									OK
-								</button>
-							</div>
-						</div>
-					</div>
-
-					<!-- Zone danger : suppression des données -->
-					<div style="margin-top:clamp(3px,0.6vh,10px);border-top:1px solid #374151;padding-top:clamp(4px,0.8vh,14px);width:min(320px,90vw);box-sizing:border-box;">
-						<button id="btn-delete-data" style="
-							width:100%;padding:clamp(6px,1.2vh,9px) 16px;
-							background:transparent;
-							border:1px solid #7f1d1d;border-radius:8px;
-							color:#ef4444;font-weight:700;font-size:11px;
-							font-family:monospace;cursor:pointer;letter-spacing:1px;
-						">🗑 ${tr("deleteData")}</button>
-					</div>
-
-					<button id="btn-back" style="
-						margin-top: clamp(4px,0.8vh,18px); padding: clamp(4px,0.8vh,9px) 24px;
-						background: #1f2937; border: 1px solid #374151;
-						border-radius: 10px; color: #9ca3af;
-						cursor: pointer; font-weight: 700;
-						font-family: monospace; flex-shrink: 0;
-					">
-						← ${tr("back")}
-					</button>
-				</div>
-			`);
-
-			setTimeout(() => {
-				// Music slider
-				const musSlider = document.getElementById("opt-mus");
-				const musVal    = document.getElementById("opt-mv");
-				musSlider?.addEventListener("input", () => {
-					settings.musicVol = +musSlider.value;
-					musVal.textContent = Math.round(settings.musicVol * 100) + "%";
-					audio.setMusicVol(settings.musicVol);
-					settings.save();
-				});
-
-				// SFX slider
-				const sfxSlider = document.getElementById("opt-sfx");
-				const sfxVal    = document.getElementById("opt-sv");
-				sfxSlider?.addEventListener("input", () => {
-					settings.sfxVol = +sfxSlider.value;
-					sfxVal.textContent = Math.round(settings.sfxVol * 100) + "%";
-					audio.setSfxVol(settings.sfxVol);
-					audio.sfx.click();
-					settings.save();
-				});
-
-				// Difficulty buttons
-				document.querySelectorAll(".opt-diff").forEach(btn => {
-					btn.addEventListener("click", () => {
-						settings.difficulty = btn.dataset.diff;
-						settings.save();
-						audio.sfx.click();
-						self.renderOptions(state, onBack, true); // keepCursor
-					});
-				});
-
-				// Vibration toggle
-				document.getElementById("opt-rum")?.addEventListener("click", () => {
-					settings.rumble = !settings.rumble;
-					settings.save();
-					audio.sfx.click();
-					self.renderOptions(state, onBack, true); // keepCursor
-				});
-
-				// Language buttons
-				document.querySelectorAll(".lang-btn").forEach(btn => {
-					btn.addEventListener("click", () => {
-						settings.lang = btn.dataset.lang;
-						settings.save();
-						audio.sfx.click();
-						self.renderOptions(state, onBack, true); // keepCursor
-					});
-				});
-
-				// Player name save
-				document.getElementById("opt-name-save")?.addEventListener("click", () => {
-					const inp  = document.getElementById("opt-name");
-					const name = (inp?.value || "").trim().slice(0, 24) || "Pilot";
-					settings.playerName = name;
-					settings.save();
-					audio.sfx.click();
-					// Show brief confirmation
-					if (inp) inp.style.borderColor = "#22c55e";
-					setTimeout(() => {
-						if (inp) inp.style.borderColor = "#374151";
-					}, 1000);
-				});
-
-				// Delete data button → modal de confirmation
-				document.getElementById("btn-delete-data")?.addEventListener("click", () => {
-					audio.sfx.click();
-					const modal = document.createElement("div");
-					modal.id = "modal-delete";
-					Object.assign(modal.style, {
-						position:"fixed", inset:"0",
-						background:"rgba(0,0,0,0.87)",
-						display:"flex", alignItems:"center", justifyContent:"center",
-						zIndex:"99999", fontFamily:"monospace",
-					});
-					modal.innerHTML = `
-						<div style="
-							background:#111827;border:1px solid #7f1d1d;
-							border-radius:16px;padding:28px 24px;
-							width:min(360px,90vw);
-							display:flex;flex-direction:column;gap:14px;
-							box-shadow:0 0 60px rgba(239,68,68,0.2);
-							animation:upgradePopIn 0.25s ease both;
-						">
-							<div style="text-align:center;font-size:36px;line-height:1;">🗑️</div>
-							<div style="text-align:center;font-size:15px;font-weight:900;
-								color:#ef4444;letter-spacing:2px;">
-								${tr("deleteDataConfirm")}
-							</div>
-							<div style="text-align:center;font-size:12px;color:#9ca3af;line-height:1.5;">
-								${tr("deleteDataWarn")}
-							</div>
-							<div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
-								<button id="modal-del-yes" style="
-									padding:12px;
-									background:linear-gradient(to right,#7f1d1d,#991b1b);
-									border:1px solid #ef4444;border-radius:10px;
-									color:#fca5a5;font-weight:900;font-size:13px;
-									font-family:monospace;cursor:pointer;letter-spacing:1px;">
-									🗑 ${tr("deleteDataYes")}
-								</button>
-								<button id="modal-del-no" style="
-									padding:10px;background:#1f2937;
-									border:1px solid #374151;border-radius:10px;
-									color:#9ca3af;font-weight:700;font-size:13px;
-									font-family:monospace;cursor:pointer;">
-									${tr("deleteDataNo")}
-								</button>
-							</div>
-						</div>
-					`;
-					document.body.appendChild(modal);
-
-					document.getElementById("modal-del-yes")?.addEventListener("click", () => {
-						audio.sfx.select();
-						for (const k of idb.getAllKeys()) idb.removeItem(k);
-						settings.musicVol = 0.4; settings.sfxVol = 0.7;
-						settings.difficulty = "normal"; settings.rumble = true;
-						settings.lang = null; settings.playerName = null;
-						modal.querySelector("div").innerHTML = `
-							<div style="text-align:center;padding:16px 0;">
-								<div style="font-size:36px;margin-bottom:10px;">✅</div>
-								<div style="color:#4ade80;font-weight:900;font-size:14px;
-									font-family:monospace;letter-spacing:1px;">
-									${tr("deleteDataDone")}
-								</div>
-							</div>
-						`;
-						setTimeout(() => location.reload(), 1200);
-					});
-
-					document.getElementById("modal-del-no")?.addEventListener("click", () => {
-						audio.sfx.click();
-						modal.remove();
-					});
-
-					modal.addEventListener("click", e => {
-						if (e.target === modal) { audio.sfx.click(); modal.remove(); }
-					});
-				});
-
-				// Back button
-				document.getElementById("btn-back")?.addEventListener("click", () => {
-					audio.sfx.select();
-					onBack();
-				});
-
-				// Echap pour fermer les Options
-				const _optEsc = (e) => {
-					if (e.code === "Escape") {
-						e.preventDefault();
-						window.removeEventListener("keydown", _optEsc, true);
-						audio.sfx.select();
-						onBack();
-					}
-				};
-				window.addEventListener("keydown", _optEsc, true);
-				// Nettoyer si l'écran est quitté autrement (btn-back)
-				document.getElementById("btn-back")?.addEventListener("click", () => {
-					window.removeEventListener("keydown", _optEsc, true);
-				}, { once: true });
-			}, 0);
-		},
-
-		// ── Game Over ──────────────────────────────────────────────────────
-		renderGameOver(state) {
-			const _replayMode = state.isSurvival ? "survival" : "";
-			ui.render(`
-				<div style="
-					position: absolute; inset: 0;
-					display: flex; flex-direction: column;
-					align-items: center; justify-content: center;
-					background: rgba(0,0,0,0.87);
-					color: #fff; font-family: monospace; gap: 8px;
-				">
-					<h2 style="font-size: 44px; font-weight: 900; color: #ff2200; text-shadow: 0 0 20px #ff0000; margin: 0;">
-						${tr("gameOver")}
-					</h2>
-					<p style="color: #fb923c; font-size: 15px; margin: 0;">
-						${tr("gameOverSub")}
-					</p>
-					<div style="font-size: clamp(18px, 5vw, 36px); font-weight: 900; color: #facc15; font-family: monospace;">
-						${state.score.toLocaleString()}
-					</div>
-					<div style="color: #6b7280; font-size: 13px;">
-						${tr("hiScore")}: <span style="color: #fbbf24; font-weight: 700;">${state.hiScore.toLocaleString()}</span>
-					</div>
-					<div id="lb-status" style="font-size: 11px; color: #4b5563; margin-top: 4px;"></div>
-					<div style="display: flex; gap: 10px; margin-top: 12px;">
-						<button id="btn-start" data-mode="${_replayMode}" style="
-							padding: 12px 36px;
-							background: linear-gradient(to right, #b22200, #ea580c);
-							border: none; border-radius: 12px;
-							font-weight: 900; font-size: 16px;
-							color: #fff; cursor: pointer;
-							font-family: monospace; letter-spacing: 2px;
-						">
-							${tr("tryAgain")}
-						</button>
-						<button id="btn-menu-go" style="padding:12px 30px; font-size:1rem; background:#1a1a1a; color:#aaa; border:2px solid #333; border-radius:12px; cursor:pointer; font-weight:bold; pointer-events:auto;">
-							${t("mainMenu")}
-						</button>
-					</div>
-				</div>
-			`);
-		},
-
-		// ── Victory ────────────────────────────────────────────────────────
-		renderWin(state) {
-			const _replayMode = state.isSurvival ? "survival" : "";
-			ui.render(`
-				<div style="
-					position: absolute; inset: 0;
-					display: flex; flex-direction: column;
-					align-items: center; justify-content: center;
-					background: rgba(0,0,0,0.87);
-					color: #fff; font-family: monospace; gap: 8px;
-				">
-					<div style="font-size: 48px;">🔥</div>
-					<h2 style="font-size: 44px; font-weight: 900; color: #ffdd00; text-shadow: 0 0 20px #ff8800, 0 0 40px #ff4400; margin: 0;">
-						${tr("victory")}
-					</h2>
-					<p style="color: #fb923c; font-size: 15px; margin: 0;">
-						${tr("victorySub")}
-					</p>
-					<div style="font-size: clamp(18px, 5vw, 36px); font-weight: 900; color: #facc15; font-family: monospace;">
-						${state.score.toLocaleString()}
-					</div>
-					<div style="color: #6b7280; font-size: 13px;">
-						${tr("hiScore")}: <span style="color: #fbbf24; font-weight: 700;">${state.hiScore.toLocaleString()}</span>
-					</div>
-					<div id="lb-status" style="font-size: 11px; color: #4b5563; margin-top: 4px;"></div>
-					<div style="display: flex; gap: 10px; margin-top: 12px;">
-						<button id="btn-start" data-mode="${_replayMode}" style="
-							padding: 12px 36px;
-							background: linear-gradient(to right, #92400e, #f59e0b);
-							border: none; border-radius: 12px;
-							font-weight: 900; font-size: 16px;
-							color: #fff; cursor: pointer;
-							font-family: monospace; letter-spacing: 2px;
-						">
-							${tr("playAgain")}
-						</button>
-					</div>
-				</div>
-			`);
-		},
-
-		// ── Achievements ───────────────────────────────────────────────────
-		renderAchievements(onBack) {
-			// Hide pause button so it doesn't overlap this full-screen panel
-			_showPauseBtn(false);
-			const stats = achStats.get();
-			const isFr  = settings.lang === "fr";
-			const done  = Object.keys(stats.unlocked || {}).length;
-			const total = ACH_DEFS.length;
-
-			// Group achievements by category
-			const CATS = ["basics","kills","score","combo","survival","shots","time","powerups","diff","special","runs","secret","meta"];
-
-			let rows = "";
-			CATS.forEach(cat => {
-				const items   = ACH_DEFS.filter(a => a.cat === cat);
-				const catDone = items.filter(a => stats.unlocked?.[a.id]).length;
-				const catLabel = tr("ach_" + cat) || cat;
-
-				rows += `
-					<div style="margin-bottom: 20px;">
-						<div style="
-							font-size: 10px; color: #f97316;
-							text-transform: uppercase; letter-spacing: 2px;
-							font-weight: 700; margin-bottom: 8px;
-							border-bottom: 1px solid #1f2937;
-							padding-bottom: 4px;
-						">
-							${catLabel} (${catDone}/${items.length})
-						</div>
-				`;
-
-				items.forEach(ach => {
-					const isUnlocked = !!stats.unlocked?.[ach.id];
-					const isSecret   = ach.cat === "secret";
-					const name = isUnlocked && isSecret && (isFr ? ach.sfr : ach.sen)
-						? (isFr ? ach.sfr : ach.sen)
-						: (isFr ? ach.fr  : ach.en);
-					const desc = isUnlocked
-						? (isFr ? ach.dfr : ach.den)
-						: (isSecret ? "???" : (isFr ? ach.dfr : ach.den));
-
-					rows += `
-						<div style="
-							display: flex; align-items: center; gap: 10px;
-							padding: 8px 10px; border-radius: 8px;
-							margin-bottom: 4px;
-							background: ${isUnlocked ? "rgba(251,146,60,0.07)" : "rgba(255,255,255,0.02)"};
-							border: 1px solid ${isUnlocked ? "rgba(251,146,60,0.2)" : "rgba(255,255,255,0.04)"};
-						">
-							<span style="font-size: 22px; filter: ${isUnlocked ? "none" : "grayscale(1) opacity(0.25)"};">
-								${ach.icon}
-							</span>
-							<div style="flex: 1; min-width: 0;">
-								<div style="
-									font-weight: 700; font-size: 12px;
-									color: ${isUnlocked ? "#fb923c" : "#4b5563"};
-									white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-								">
-									${isUnlocked ? name : "???"}
-								</div>
-								<div style="
-									font-size: 10px;
-									color: ${isUnlocked ? "#6b7280" : "#1f2937"};
-									white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-								">
-									${desc}
-								</div>
-							</div>
-							${isUnlocked ? '<span style="color: #22c55e; font-size: 14px;">✓</span>' : ""}
-						</div>
-					`;
-				});
-
-				rows += `</div>`;
-			});
-
-			ui.render(`
-				<div style="
-					position: absolute; inset: 0;
-					background: rgba(0,0,0,0.96);
-					display: flex; flex-direction: column;
-					color: #fff; font-family: monospace;
-				">
-					<!-- Header -->
-					<div style="
-						display: flex; align-items: center;
-						justify-content: space-between;
-						padding: 14px 18px;
-						border-bottom: 1px solid #1f2937;
-						flex-shrink: 0;
-					">
-						<h2 style="font-size: 18px; font-weight: 900; color: #f97316; margin: 0;">
-							⭐ ${tr("achTitle")}
-						</h2>
-						<div style="text-align: center;">
-							<div style="font-size: 18px; font-weight: 900; color: #facc15;">
-								${done}/${total}
-							</div>
-							<div style="
-								width: 100px; height: 5px;
-								background: #1f2937; border-radius: 3px;
-								margin-top: 4px;
-							">
-								<div style="
-									height: 100%; border-radius: 3px;
-									background: linear-gradient(to right, #ea580c, #facc15);
-									width: ${Math.round(done / total * 100)}%;
-								"></div>
-							</div>
-						</div>
-						<button id="ach-back-btn" style="
-							padding: 8px 16px;
-							background: #1f2937; border: 1px solid #374151;
-							border-radius: 8px; color: #9ca3af;
-							cursor: pointer; font-weight: 700;
-							font-family: monospace;
-						">
-							← ${tr("back")}
-						</button>
-					</div>
-
-					<!-- Scrollable list -->
-					<div style="flex: 1; overflow-y: auto; padding: 14px 18px;">
-						${rows}
-					</div>
-				</div>
-			`);
-
-			setTimeout(() => {
-				document.getElementById("ach-back-btn")?.addEventListener("click", () => {
-					audio.sfx.select();
-					ui.clear();
-					window.removeEventListener("keydown", _achEsc, true);
-					// Restore pause btn if we came from gameplay
-					const fromGame = (typeof state !== "undefined" &&
-						state.phase !== "menu" && state.phase !== "gameover" && state.phase !== "win");
-					if (fromGame) _showPauseBtn(true);
-					onBack();
-				});
-
-				// Echap pour fermer les Succès
-				const _achEsc = (e) => {
-					if (e.code === "Escape") {
-						e.preventDefault();
-						window.removeEventListener("keydown", _achEsc, true);
-						document.getElementById("ach-back-btn")?.click();
-					}
-				};
-				window.addEventListener("keydown", _achEsc, true);
-			}, 0);
-		},
-
-		// ── Leaderboard ────────────────────────────────────────────────────
-		renderHistory(onBack) {
-			const lang = settings.lang || "en";
-			const history = matchHistory.getAll();
-			const modeLabel = { normal:"Normal", survival:"💀 Survie", daily:"⚡ Daily", win:"🏆 Win" };
-			const rows = history.length === 0
-				? `<div style="color:#6b7280;font-size:14px;text-align:center;padding:20px;">
-					   ${lang==="fr"?"Aucune partie enregistrée":"No games recorded yet"}
-				   </div>`
-				: history.map((h,i)=>`
-					<div style="
-						display:flex;align-items:center;gap:8px;
-						padding:8px 12px;border-radius:8px;
-						background:${i%2===0?"rgba(31,41,55,0.6)":"rgba(17,24,39,0.4)"};
-						border:1px solid #374151;
-					">
-						<div style="color:#6b7280;font-size:11px;min-width:18px;">${i+1}</div>
-						<div style="flex:1;">
-							<div style="font-size:12px;font-weight:900;color:#f97316;">
-								${h.score.toLocaleString()} pts
-							</div>
-							<div style="font-size:10px;color:#9ca3af;">
-								${modeLabel[h.mode]||h.mode} · Niv.${h.level} · ${h.kills||0} kills · ${h.bosses||0} boss
-								${h.wave != null ? " · Vague "+h.wave : ""}
-							</div>
-						</div>
-						<div style="font-size:11px;color:#22cc88;font-weight:700;">+${h.xp||0}XP</div>
-						<div style="font-size:10px;color:#4b5563;">${new Date(h.date||h.ts||0).toLocaleDateString()}</div>
-					</div>
-				`).join("");
-
-			ui.render(`
-				<div style="
-					position:absolute;inset:0;overflow-y:auto;
-					background:rgba(0,0,0,0.96);padding:20px;
-					display:flex;flex-direction:column;gap:10px;
-					color:#fff;font-family:monospace;
-				">
-					<div style="font-size:22px;font-weight:900;color:#f97316;
-						letter-spacing:3px;text-align:center;margin-bottom:4px;">
-						📊 ${lang==="fr"?"HISTORIQUE":"HISTORY"}
-					</div>
-					<div style="display:flex;flex-direction:column;gap:6px;max-width:500px;width:100%;margin:0 auto;">
-						${rows}
-					</div>
-					<div style="text-align:center;margin-top:8px;">
-						<button id="hist-back" style="
-							padding:10px 24px;background:#1f2937;border:2px solid #374151;
-							border-radius:10px;color:#9ca3af;font-weight:900;
-							font-size:14px;cursor:pointer;font-family:monospace;
-						">${lang==="fr"?"← RETOUR":"← BACK"}</button>
-					</div>
-				</div>
-			`);
-			setTimeout(()=>{
-				document.getElementById("hist-back")?.addEventListener("click",()=>{
-					window.removeEventListener("keydown", _histEsc, true);
-					audio.sfx.click?.();
-					onBack();
-				});
-
-				// Echap pour fermer l'Historique
-				const _histEsc = (e) => {
-					if (e.code === "Escape") {
-						e.preventDefault();
-						window.removeEventListener("keydown", _histEsc, true);
-						audio.sfx.click?.();
-						onBack();
-					}
-				};
-				window.addEventListener("keydown", _histEsc, true);
-			},0);
-		},
-
-		renderBadges(onBack) {
-			const lang = settings.lang || "en";
-			const badges = seasonBadges.getAll();
-			const earned = badges.filter(b=>b.earned).length;
-			const rows = badges.map(b=>`
-				<div style="
-					display:flex;align-items:center;gap:10px;
-					padding:10px 14px;border-radius:10px;
-					background:${b.earned?"rgba(20,40,20,0.8)":"rgba(20,20,20,0.5)"};
-					border:1px solid ${b.earned?"#22cc88":"#374151"};
-					opacity:${b.earned?1:0.5};
-				">
-					<div style="font-size:28px;min-width:36px;text-align:center;">${b.icon}</div>
-					<div style="flex:1;">
-						<div style="font-size:13px;font-weight:900;color:${b.earned?"#22cc88":"#9ca3af"};">
-							${lang==="fr"?b.fr:b.en}
-						</div>
-					</div>
-					<div style="font-size:16px;">${b.earned?"✅":"🔒"}</div>
-				</div>
-			`).join("");
-
-			ui.render(`
-				<div style="
-					position:absolute;inset:0;overflow-y:auto;
-					background:rgba(0,0,0,0.96);padding:20px;
-					display:flex;flex-direction:column;gap:10px;
-					color:#fff;font-family:monospace;
-				">
-					<div style="font-size:22px;font-weight:900;color:#f97316;
-						letter-spacing:3px;text-align:center;margin-bottom:4px;">
-						🏅 ${lang==="fr"?"BADGES DE SAISON":"SEASON BADGES"}
-					</div>
-					<div style="text-align:center;font-size:13px;color:#22cc88;margin-bottom:6px;">
-						${earned}/${badges.length} obtenus
-					</div>
-					<div style="display:flex;flex-direction:column;gap:6px;max-width:440px;width:100%;margin:0 auto;">
-						${rows}
-					</div>
-					<div style="text-align:center;margin-top:8px;">
-						<button id="bdg-back" style="
-							padding:10px 24px;background:#1f2937;border:2px solid #374151;
-							border-radius:10px;color:#9ca3af;font-weight:900;
-							font-size:14px;cursor:pointer;font-family:monospace;
-						">${lang==="fr"?"← RETOUR":"← BACK"}</button>
-					</div>
-				</div>
-			`);
-			setTimeout(()=>{
-				document.getElementById("bdg-back")?.addEventListener("click",()=>{
-					window.removeEventListener("keydown", _bdgEsc, true);
-					audio.sfx.click?.();
-					onBack();
-				});
-
-				// Echap pour fermer les Badges
-				const _bdgEsc = (e) => {
-					if (e.code === "Escape") {
-						e.preventDefault();
-						window.removeEventListener("keydown", _bdgEsc, true);
-						audio.sfx.click?.();
-						onBack();
-					}
-				};
-				window.addEventListener("keydown", _bdgEsc, true);
-			},0);
-		},
-
-		renderLeaderboard(onBack) {
-			// Hide pause button so it doesn't overlap this full-screen panel
-			_showPauseBtn(false);
-			ui.render(`
-				<div style="
-					position: absolute; inset: 0;
-					background: rgba(0,0,0,0.96);
-					display: flex; flex-direction: column;
-					color: #fff; font-family: monospace;
-				">
-					<!-- Header -->
-					<div style="
-						display: flex; align-items: center;
-						justify-content: space-between;
-						padding: 14px 18px;
-						border-bottom: 1px solid #1f2937;
-						flex-shrink: 0;
-					">
-						<h2 style="font-size: 18px; font-weight: 900; color: #f97316; margin: 0;">
-							🏆 ${tr("lbTitle")}
-						</h2>
-						<button id="lb-back-btn" style="
-							padding: 8px 16px;
-							background: #1f2937; border: 1px solid #374151;
-							border-radius: 8px; color: #9ca3af;
-							cursor: pointer; font-weight: 700;
-							font-family: monospace;
-						">
-							← ${tr("back")}
-						</button>
-					</div>
-
-					<!-- Content: loading state -->
-					<div id="lb-content" style="
-						flex: 1; display: flex; overflow-y: auto;
-						align-items: center; justify-content: center;
-						color: #6b7280; font-size: 14px;
-						padding: 0 18px 18px;
-					">
-						⏳ ${tr("lbLoading")}
-					</div>
-				</div>
-			`);
-
-			// Bind back button immediately
-			setTimeout(() => {
-				document.getElementById("lb-back-btn")?.addEventListener("click", () => {
-					audio.sfx.select();
-					ui.clear();
-					// Restore pause btn if we came from gameplay
-					const fromGame = (typeof state !== "undefined" &&
-						state.phase !== "menu" && state.phase !== "gameover" && state.phase !== "win");
-					if (fromGame) _showPauseBtn(true);
-					onBack();
-				});
-			}, 0);
-
-			// Load scores asynchronously
-			firebase.getTop100().then(entries => {
-				const lbContent = document.getElementById("lb-content");
-				if (!lbContent) return;
-
-				if (!entries || entries.length === 0) {
-					lbContent.textContent = tr("lbEmpty");
-					return;
-				}
-
-				const myName = (settings.playerName || "").toLowerCase();
-
-				const tableRows = entries.map((entry, i) => {
-					const isMe  = entry.name && myName && entry.name.toLowerCase() === myName;
-					const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "";
-
-					return `
-						<tr style="
-							background: ${isMe ? "rgba(251,146,60,0.1)" : "transparent"};
-							border-bottom: 1px solid #111;
-						">
-							<td style="padding: 8px 12px; color: ${i < 3 ? "#facc15" : "#6b7280"}; font-weight: 700; text-align: center;">
-								${medal || "#" + (i + 1)}
-							</td>
-							<td style="padding: 8px 12px; color: ${isMe ? "#fb923c" : "#e5e7eb"}; font-weight: ${isMe ? 700 : 400};">
-								${entry.name || "?"}
-							</td>
-							<td style="padding: 8px 12px; color: #facc15; font-weight: 900; text-align: right; font-size: 13px;">
-								${(entry.score || 0).toLocaleString()}
-							</td>
-							<td style="padding: 8px 12px; color: #6b7280; font-size: 10px; text-align: center;">
-								${entry.diff || ""}
-							</td>
-						</tr>
-					`;
-				}).join("");
-
-				lbContent.style.display    = "block";
-				lbContent.style.alignItems = "";
-				lbContent.style.justifyContent = "";
-				lbContent.innerHTML = `
-					<table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-						<thead>
-							<tr style="border-bottom: 1px solid #374151;">
-								<th style="padding: 10px 12px; color: #f97316; font-size: 10px; text-transform: uppercase;">${tr("lbRank")}</th>
-								<th style="padding: 10px 12px; color: #f97316; font-size: 10px; text-transform: uppercase; text-align: left;">${tr("lbName")}</th>
-								<th style="padding: 10px 12px; color: #f97316; font-size: 10px; text-transform: uppercase; text-align: right;">${tr("lbScore")}</th>
-								<th style="padding: 10px 12px;"></th>
-							</tr>
-						</thead>
-						<tbody>${tableRows}</tbody>
-					</table>
-				`;
-			}).catch(() => {
-				const lbContent = document.getElementById("lb-content");
-				if (lbContent) {
-					lbContent.innerHTML = `<div style="color: #ef4444;">Erreur de connexion au classement.</div>`;
-				}
-			});
-		},
-
-		// ── In-game HUD ────────────────────────────────────────────────────
-		renderHUD(state, player) {
-			if (
-				!player ||
-				state.paused          ||
-				state.phase === "menu"     ||
-				state.phase === "gameover" ||
-				state.phase === "win"
-			) return;
-
-			const lives = "❤️".repeat(Math.max(0, state.lives)) +
-						  "🖤".repeat(Math.max(0, 5 - state.lives));
-			const fireStars = "★".repeat(player.fireLevel) +
-							  "☆".repeat(5 - player.fireLevel);
-			const comboFrac  = state.comboTimer / state.comboMax;
-			const comboColor = state.combo >= 8 ? "#ff2200"
-							 : state.combo >= 4 ? "#ff8800"
-							 :                    "#ffcc00";
-			const lvlName = (LEVELS[state.level] && LEVELS[state.level].name) || "";
-
-			const powerIcons = [
-				player.hasShield   ? `<span style="color:#60a5fa;">🛡</span>`  : "",
-				player.hasHoming   ? `<span style="color:#f472b6;">🎯</span>`  : "",
-				player.speedBoost  ? `<span style="color:#fde68a;">⚡</span>` : "",
-				player.megaReady   ? `<span style="color:#f87171;">💥</span>`  : "",
-				player.shootRateBoost ? `<span style="color:#ff88ff;">🔫 ${Math.ceil(player.shootRateTimer)}s</span>` : "",
-				state.scoreMulTimer > 0 ? `<span style="color:#facc15;">💫×2 ${Math.ceil(state.scoreMulTimer)}s</span>` : "",
-			].filter(Boolean).join(" ");
-
-			const html = `
-				<div style="position: absolute; inset: 0; pointer-events: none; user-select: none; font-family: monospace;">
-
-					<!-- Top bar: padded left so it clears the pause button -->
-					<div style="
-						position: absolute; top: 0; left: 0; right: 0;
-						display: flex; align-items: center; justify-content: space-between;
-						padding: 6px 12px 6px max(72px, calc(clamp(40px,7vw,52px) + max(8px,1.5vw) + 12px));
-						background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
-					">
-						<div style="display: flex; flex-direction: column;">
-							<span style="color: #fb923c; font-size: 15px; font-weight: 700;">
-								${state.score.toLocaleString()}
-							</span>
-							<span style="color: #6b7280; font-size: 10px;">
-								HI ${state.hiScore.toLocaleString()}
-							</span>
-						</div>
-						<div style="text-align: center;">
-							<div style="color: #fb923c; font-size: 11px; font-weight: 700; letter-spacing: 2px;">
-								${lvlName}
-							</div>
-							${state.phase === "boss" || state.phase === "transition"
-								? `<div style="color: #f87171; font-size: 10px; animation: pulse 1s infinite;">⚠ BOSS</div>`
-								: ""}
-						</div>
-						<div style="text-align: right; font-size: 11px;">
-							${lives}
-						</div>
-					</div>
-
-					<!-- Bottom bar -->
-					<div style="
-						position: absolute; bottom: 0; left: 0; right: 0;
-						display: flex; align-items: flex-end; justify-content: space-between;
-						padding: 6px 12px;
-						background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
-					">
-						<!-- Fire level -->
-						<div style="display: flex; flex-direction: column;">
-							<span style="color: #f97316; font-size: 10px; text-transform: uppercase; letter-spacing: 1px;">
-								Fire
-							</span>
-							<span style="color: #facc15; font-size: 13px;">
-								${fireStars}
-							</span>
-						</div>
-
-						<!-- Combo meter -->
-						<div style="display: flex; flex-direction: column; align-items: center;">
-							${state.combo > 1 ? `
-							<div style="font-weight: 900; font-size: 13px; margin-bottom: 2px; color: ${comboColor};">
-								${state.combo}x COMBO
-							</div>
-							<div style="width: 90px; height: 6px; background: #1f2937; border-radius: 3px; overflow: hidden;">
-								<div style="height: 100%; border-radius: 3px; background: ${comboColor}; width: ${Math.round(comboFrac * 100)}%;"></div>
-							</div>
-							` : `<div style="height: 26px;"></div>`}
-						</div>
-
-						<!-- Active power-ups -->
-						<div style="display: flex; gap: 4px; font-size: 15px;">
-							${powerIcons}
-						</div>
-					</div>
-
-					<!-- Streak / Frenzy badge — sous la topbar à droite -->
-					${(state.killStreak >= 3 || state.frenzyMode) ? `
-						<div style="
-							position:absolute;top:44px;right:10px;z-index:50;
-							font-family:monospace;font-size:12px;
-							color:${state.frenzyMode ? '#ff2200' : '#ff8800'};
-							font-weight:900;
-							${state.frenzyMode ? 'animation:streakPulse 0.4s infinite;' : ''}
-							background:rgba(0,0,0,0.82);padding:3px 8px;border-radius:6px;
-							border:1px solid ${state.frenzyMode ? '#ff2200' : '#ff5500'};
-							pointer-events:none;white-space:nowrap;
-						">
-							${state.frenzyMode ? '🔥 FRENZY x2 ' + Math.ceil(state.frenzyTimer) + 's' : '🔥 STREAK ' + state.killStreak + '/' + (state.streakThreshold||10)}
-						</div>
-					` : ''}
-
-					<!-- Badge mode Survie / Daily — centré sous la topbar -->
-					${state.isSurvival && state.phase !== "boss" ? `
-						<div style="
-							position:absolute;top:44px;left:0;right:0;
-							display:flex;justify-content:center;
-							pointer-events:none;z-index:50;
-						">
-							<div style="
-								font-family:monospace;font-size:11px;color:#ffaa00;
-								font-weight:900;background:rgba(0,0,0,0.75);
-								padding:2px 9px;border-radius:6px;border:1px solid #ffaa00;
-								white-space:nowrap;
-							">💀 VAGUE ${state.survivalWave} — BEST: ${survivalData.getBest()}</div>
-						</div>
-` : ''}
-
-				</div>
-			`;
-
-			const fullHtml = html;
-
-			if (fullHtml !== lastHudRender) {
-				lastHudRender = fullHtml;
-				ui.render(fullHtml, false);
-			}
-		},
-
-	}; // end self
-
-	return self;
+window.openTutorial = openTutorial;
+
+function drawTutorial() {
+    drawBg();
+    const pages = getTutPages();
+    const pg = pages[tutPage];
+    // Panel
+    const pw = p(340),
+        ph = p(270),
+        bx = W / 2 - pw / 2,
+        by = H / 2 - ph / 2;
+    ctx.fillStyle = "rgba(4,8,24,.93)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, pw, ph, p(10));
+    ctx.fill();
+    ctx.strokeStyle = "#1e3888";
+    ctx.lineWidth = p(2);
+    ctx.stroke();
+
+    // ── Title bar ─────────────────────────────────────────────────
+    ctx.fillStyle = "rgba(0,0,20,.6)";
+    ctx.beginPath();
+    ctx.roundRect(bx + p(8), by + p(8), pw - p(16), p(26), p(4));
+    ctx.fill();
+    ctx.fillStyle = "#ffe060";
+    ctx.shadowColor = "#ff8800";
+    ctx.shadowBlur = p(6);
+    ctx.font = `bold ${p(11)}px monospace`;
+    ctx.textAlign = "center";
+    ctx.fillText(pg.title, W / 2, by + p(25));
+    ctx.shadowBlur = 0;
+
+    // ── Illustration zone (top half, clipped) ─────────────────────
+    const illuY = by + p(42),
+        illuH = p(90),
+        illuX = W / 2;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,.25)";
+    ctx.beginPath();
+    ctx.roundRect(bx + p(8), illuY, pw - p(16), illuH, p(4));
+    ctx.fill();
+    // Clip to illustration box so drawings can't escape
+    ctx.beginPath();
+    ctx.roundRect(bx + p(8), illuY, pw - p(16), illuH, p(4));
+    ctx.clip();
+    pg.draw(illuX, illuY + illuH / 2, SC * 0.72);
+    ctx.restore();
+
+    // ── Steps list (bottom half) ───────────────────────────────────
+    const listY = illuY + illuH + p(6),
+        lineH = p(20);
+    pg.steps.forEach((step, i) => {
+        const ry = listY + i * lineH;
+        ctx.fillStyle =
+            i % 2 === 0
+                ? "rgba(255,255,255,.05)"
+                : "rgba(255,255,255,.02)";
+        ctx.fillRect(bx + p(8), ry, pw - p(16), lineH);
+        // Number
+        ctx.fillStyle = "#4488ff";
+        ctx.font = `bold ${p(8)}px monospace`;
+        ctx.textAlign = "left";
+        ctx.fillText(i + 1 + ".", bx + p(13), ry + lineH * 0.68);
+        // Text — wrap if needed
+        ctx.fillStyle = "#ccddf0";
+        ctx.font = `${p(8)}px monospace`;
+        ctx.fillText(step, bx + p(26), ry + lineH * 0.68);
+    });
+
+    // ── Page indicator: "2 / 5" text + dots ──────────────────────
+    const dotsY = by + ph - p(28);
+    // n/total text above dots
+    ctx.fillStyle = "rgba(180,200,255,0.6)";
+    ctx.font = `${p(7)}px monospace`;
+    ctx.textAlign = "center";
+    ctx.fillText(
+        tutPage + 1 + " / " + pages.length,
+        W / 2,
+        dotsY - p(10),
+    );
+    // dots
+    pages.forEach((_, i) => {
+        const active = i === tutPage;
+        ctx.fillStyle = active ? "#4488ff" : "#2a3a5a";
+        ctx.shadowColor = active ? "#4488ff" : "transparent";
+        ctx.shadowBlur = active ? p(4) : 0;
+        ctx.beginPath();
+        ctx.arc(
+            W / 2 + (i - 2) * p(12),
+            dotsY,
+            p(active ? 3.5 : 2),
+            0,
+            Math.PI * 2,
+        );
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    });
+
+    // ── Nav buttons ────────────────────────────────────────────────
+    const isLast = tutPage === pages.length - 1;
+    const btnY = by + ph - p(22),
+        btnH = p(18);
+    if (tutPage > 0) {
+        ctx.fillStyle = "rgba(0,0,0,.5)";
+        ctx.beginPath();
+        ctx.roundRect(bx + p(10), btnY, p(80), btnH, p(3));
+        ctx.fill();
+        ctx.strokeStyle = "#334";
+        ctx.lineWidth = p(1);
+        ctx.stroke();
+        ctx.fillStyle = "#778";
+        ctx.font = `bold ${p(8)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.fillText(
+            "← " + t("back"),
+            bx + p(10) + p(40),
+            btnY + btnH * 0.68,
+        );
+    }
+    const nextBg = isLast
+        ? "rgba(20,80,30,.85)"
+        : "rgba(20,40,100,.85)";
+    const nextBr = isLast ? "#2a7a35" : "#2a4aaa";
+    const nextCol = isLast ? "#88ff88" : "#88ccff";
+    ctx.fillStyle = nextBg;
+    ctx.beginPath();
+    ctx.roundRect(bx + pw - p(10) - p(90), btnY, p(90), btnH, p(3));
+    ctx.fill();
+    ctx.strokeStyle = nextBr;
+    ctx.lineWidth = p(1.5);
+    ctx.stroke();
+    ctx.fillStyle = nextCol;
+    ctx.font = `bold ${p(8)}px monospace`;
+    ctx.textAlign = "center";
+    ctx.fillText(
+        isLast ? t("tutDone") : t("tutNext"),
+        bx + pw - p(10) - p(45),
+        btnY + btnH * 0.68,
+    );
+
+    // Close × top-right
+    ctx.fillStyle = "rgba(255,255,255,.3)";
+    ctx.font = `bold ${p(10)}px monospace`;
+    ctx.fillText("✕", bx + pw - p(12), by + p(20));
 }
-
-			const LEVELS = [
-	{
-		name: "Volcanic Rift",
-		bgSpeed: 80,
-		bgColors: ["#1a0400", "#2d0a00", "#3d1200"],
-		bossTime: 45,
-		enemyGroups: [
-			{ time: 30, type: "shielder", count: 1, formation: "random" },
-			// { time, type, count, formation }
-			{
-				time: 3,
-				type: "drone",
-				count: 3,
-				formation: "line-v",
-			},
-			{
-				time: 8,
-				type: "drone",
-				count: 2,
-				formation: "line-v",
-			},
-			{
-				time: 12,
-				type: "turret",
-				count: 2,
-				formation: "top-bottom",
-			},
-			{
-				time: 16,
-				type: "drone",
-				count: 4,
-				formation: "wave",
-			},
-			{
-				time: 20,
-				type: "kamikaze",
-				count: 3,
-				formation: "random",
-			},
-			{
-				time: 24,
-				type: "turret",
-				count: 3,
-				formation: "spread",
-			},
-			{
-				time: 28,
-				type: "drone",
-				count: 5,
-				formation: "v-shape",
-			},
-			{
-				time: 32,
-				type: "kamikaze",
-				count: 4,
-				formation: "wave",
-			},
-			{
-				time: 36,
-				type: "turret",
-				count: 4,
-				formation: "spread",
-			},
-			{
-				time: 40,
-				type: "drone",
-				count: 6,
-				formation: "v-shape",
-			},
-			{
-				time: 25,
-				type: "interceptor",
-				count: 1,
-				formation: "random",
-			},
-			{
-				time: 35,
-				type: "interceptor",
-				count: 2,
-				formation: "wave",
-			},
-			{
-				time: 42,
-				type: "carrier",
-				count: 1,
-				formation: "random",
-			},
-		],
-		boss: {
-			name: "MOLTEN COLOSSUS",
-			type: "colossus",
-			hp: 280,
-			color: "#cc3300",
-			coreColor: "#ff6600",
-			w: 110,
-			h: 90,
-		},
-	},
-	{
-		name: "Inferno Depths",
-		bgSpeed: 100,
-		bgColors: ["#0a0020", "#160040", "#220060"],
-		bossTime: 55,
-		enemyGroups: [
-			{ time: 25, type: "shielder", count: 1, formation: "random"    },
-			{ time: 45, type: "shielder", count: 2, formation: "top-bottom"},
-			{ time: 15, type: "interceptor", count: 2, formation: "wave" },
-			{ time: 38, type: "carrier",     count: 1, formation: "random" },
-			{
-				time: 2,
-				type: "drone",
-				count: 4,
-				formation: "v-shape",
-			},
-			{
-				time: 6,
-				type: "kamikaze",
-				count: 3,
-				formation: "wave",
-			},
-			{
-				time: 10,
-				type: "turret",
-				count: 3,
-				formation: "spread",
-			},
-			{
-				time: 14,
-				type: "drone",
-				count: 5,
-				formation: "wave",
-			},
-			{
-				time: 18,
-				type: "kamikaze",
-				count: 5,
-				formation: "random",
-			},
-			{
-				time: 22,
-				type: "turret",
-				count: 4,
-				formation: "top-bottom",
-			},
-			{
-				time: 26,
-				type: "drone",
-				count: 6,
-				formation: "v-shape",
-			},
-			{
-				time: 30,
-				type: "kamikaze",
-				count: 5,
-				formation: "wave",
-			},
-			{
-				time: 34,
-				type: "turret",
-				count: 5,
-				formation: "spread",
-			},
-			{
-				time: 38,
-				type: "drone",
-				count: 7,
-				formation: "wave",
-			},
-			{
-				time: 42,
-				type: "kamikaze",
-				count: 6,
-				formation: "v-shape",
-			},
-			{
-				time: 46,
-				type: "turret",
-				count: 5,
-				formation: "random",
-			},
-		],
-		boss: {
-			name: "SHADOW LEVIATHAN",
-			type: "leviathan",
-			hp: 420,
-			color: "#220066",
-			coreColor: "#aa00ff",
-			w: 130,
-			h: 100,
-		},
-	},
-	{
-		name: "Solar Core",
-		bgSpeed: 120,
-		bgColors: ["#200000", "#400010", "#600020"],
-		bossTime: 65,
-		enemyGroups: [
-			{ time: 20, type: "shielder", count: 1, formation: "random"    },
-			{ time: 45, type: "shielder", count: 1, formation: "top-bottom"},
-			{
-				time: 2,
-				type: "drone",
-				count: 5,
-				formation: "v-shape",
-			},
-			{ time: 10, type: "interceptor", count: 2, formation: "line-v" },
-			{ time: 28, type: "interceptor", count: 3, formation: "wave" },
-			{ time: 45, type: "carrier",     count: 1, formation: "random" },
-			{
-				time: 5,
-				type: "kamikaze",
-				count: 4,
-				formation: "wave",
-			},
-			{
-				time: 8,
-				type: "turret",
-				count: 4,
-				formation: "spread",
-			},
-			{
-				time: 12,
-				type: "drone",
-				count: 6,
-				formation: "wave",
-			},
-			{
-				time: 15,
-				type: "kamikaze",
-				count: 5,
-				formation: "random",
-			},
-			{
-				time: 18,
-				type: "turret",
-				count: 5,
-				formation: "top-bottom",
-			},
-			{
-				time: 22,
-				type: "drone",
-				count: 7,
-				formation: "v-shape",
-			},
-			{
-				time: 26,
-				type: "kamikaze",
-				count: 6,
-				formation: "wave",
-			},
-			{
-				time: 30,
-				type: "turret",
-				count: 5,
-				formation: "spread",
-			},
-			{
-				time: 35,
-				type: "drone",
-				count: 8,
-				formation: "wave",
-			},
-			{
-				time: 40,
-				type: "kamikaze",
-				count: 7,
-				formation: "random",
-			},
-			{
-				time: 45,
-				type: "turret",
-				count: 6,
-				formation: "spread",
-			},
-			{
-				time: 50,
-				type: "drone",
-				count: 8,
-				formation: "v-shape",
-			},
-			{
-				time: 55,
-				type: "kamikaze",
-				count: 8,
-				formation: "wave",
-			},
-		],
-		boss: {
-			name: "SOLAR TYRANT",
-			type: "tyrant",
-			hp: 600,
-			color: "#882200",
-			coreColor: "#ffff00",
-			w: 150,
-			h: 120,
-		},
-	},
-	{
-		name: "Toxic Nebula",
-		bgSpeed: 135,
-		bgColors: ["#001a00", "#003300", "#001a0a"],
-		bossTime: 70,
-		enemyGroups: [
-			{ time: 2,  type: "drone",       count: 5,  formation: "v-shape"   },
-			{ time: 15, type: "shielder",    count: 1,  formation: "random"    },
-			{ time: 35, type: "shielder",    count: 2,  formation: "spread"    },
-			{ time: 55, type: "shielder",    count: 1,  formation: "random"    },
-			{ time: 5,  type: "kamikaze",    count: 5,  formation: "wave"      },
-			{ time: 9,  type: "turret",      count: 4,  formation: "spread"    },
-			{ time: 13, type: "drone",       count: 7,  formation: "wave"      },
-			{ time: 17, type: "kamikaze",    count: 6,  formation: "random"    },
-			{ time: 21, type: "turret",      count: 5,  formation: "top-bottom"},
-			{ time: 25, type: "drone",       count: 8,  formation: "v-shape"   },
-			{ time: 29, type: "kamikaze",    count: 7,  formation: "wave"      },
-			{ time: 33, type: "turret",      count: 6,  formation: "spread"    },
-			{ time: 38, type: "drone",       count: 9,  formation: "wave"      },
-			{ time: 43, type: "kamikaze",    count: 8,  formation: "v-shape"   },
-			{ time: 48, type: "turret",      count: 7,  formation: "random"    },
-			{ time: 53, type: "drone",       count: 9,  formation: "v-shape"   },
-			{ time: 58, type: "kamikaze",    count: 9,  formation: "wave"      },
-			{ time: 63, type: "turret",      count: 7,  formation: "spread"    },
-			{ time: 10, type: "interceptor", count: 2,  formation: "wave"      },
-			{ time: 20, type: "interceptor", count: 3,  formation: "v-shape"   },
-			{ time: 32, type: "carrier",     count: 1,  formation: "random"    },
-			{ time: 45, type: "interceptor", count: 4,  formation: "wave"      },
-			{ time: 55, type: "carrier",     count: 2,  formation: "spread"    },
-		],
-		boss: {
-			name: "VENOM HYDRA",
-			type: "hydra",
-			hp: 750,
-			color: "#004400",
-			coreColor: "#00ff88",
-			w: 155,
-			h: 125,
-		},
-	},
-	{
-		name: "Crystal Abyss",
-		bgSpeed: 150,
-		bgColors: ["#000d1a", "#001433", "#000a22"],
-		bossTime: 75,
-		enemyGroups: [
-			{ time: 2,  type: "drone",       count: 6,  formation: "v-shape"   },
-			{ time: 10, type: "shielder",    count: 1,  formation: "random"    },
-			{ time: 28, type: "shielder",    count: 2,  formation: "top-bottom"},
-			{ time: 50, type: "shielder",    count: 2,  formation: "spread"    },
-			{ time: 65, type: "shielder",    count: 1,  formation: "random"    },
-			{ time: 5,  type: "kamikaze",    count: 5,  formation: "wave"      },
-			{ time: 8,  type: "turret",      count: 5,  formation: "spread"    },
-			{ time: 12, type: "drone",       count: 8,  formation: "wave"      },
-			{ time: 16, type: "kamikaze",    count: 7,  formation: "random"    },
-			{ time: 20, type: "turret",      count: 6,  formation: "top-bottom"},
-			{ time: 24, type: "drone",       count: 9,  formation: "v-shape"   },
-			{ time: 28, type: "kamikaze",    count: 8,  formation: "wave"      },
-			{ time: 32, type: "turret",      count: 7,  formation: "spread"    },
-			{ time: 37, type: "drone",       count: 10, formation: "wave"      },
-			{ time: 42, type: "kamikaze",    count: 9,  formation: "v-shape"   },
-			{ time: 47, type: "turret",      count: 8,  formation: "random"    },
-			{ time: 52, type: "drone",       count: 10, formation: "v-shape"   },
-			{ time: 57, type: "kamikaze",    count: 10, formation: "wave"      },
-			{ time: 62, type: "turret",      count: 8,  formation: "spread"    },
-			{ time: 67, type: "drone",       count: 10, formation: "wave"      },
-			{ time: 7,  type: "interceptor", count: 2,  formation: "wave"      },
-			{ time: 18, type: "interceptor", count: 3,  formation: "v-shape"   },
-			{ time: 30, type: "carrier",     count: 1,  formation: "random"    },
-			{ time: 40, type: "interceptor", count: 4,  formation: "wave"      },
-			{ time: 50, type: "carrier",     count: 2,  formation: "spread"    },
-			{ time: 60, type: "interceptor", count: 4,  formation: "v-shape"   },
-		],
-		boss: {
-			name: "ICE WRAITH",
-			type: "wraith",
-			hp: 900,
-			color: "#002244",
-			coreColor: "#00ccff",
-			w: 160,
-			h: 130,
-		},
-	},
-	{
-		name: "Phantom Void",
-		bgSpeed: 165,
-		bgColors: ["#04000d", "#07001a", "#020008"],
-		bossTime: 80,
-		enemyGroups: [
-			{ time: 2,  type: "drone",       count: 6,  formation: "v-shape"   },
-			{ time: 12, type: "shielder",    count: 1,  formation: "random"    },
-			{ time: 30, type: "shielder",    count: 2,  formation: "spread"    },
-			{ time: 55, type: "shielder",    count: 2,  formation: "top-bottom"},
-			{ time: 70, type: "shielder",    count: 1,  formation: "random"    },
-			{ time: 5,  type: "kamikaze",    count: 6,  formation: "wave"      },
-			{ time: 8,  type: "turret",      count: 5,  formation: "spread"    },
-			{ time: 11, type: "drone",       count: 8,  formation: "wave"      },
-			{ time: 15, type: "kamikaze",    count: 8,  formation: "random"    },
-			{ time: 19, type: "turret",      count: 6,  formation: "top-bottom"},
-			{ time: 23, type: "drone",       count: 10, formation: "v-shape"   },
-			{ time: 27, type: "kamikaze",    count: 9,  formation: "wave"      },
-			{ time: 31, type: "turret",      count: 7,  formation: "spread"    },
-			{ time: 35, type: "drone",       count: 10, formation: "wave"      },
-			{ time: 39, type: "kamikaze",    count: 10, formation: "v-shape"   },
-			{ time: 43, type: "turret",      count: 8,  formation: "random"    },
-			{ time: 48, type: "drone",       count: 10, formation: "v-shape"   },
-			{ time: 53, type: "kamikaze",    count: 10, formation: "wave"      },
-			{ time: 58, type: "turret",      count: 9,  formation: "spread"    },
-			{ time: 63, type: "drone",       count: 10, formation: "wave"      },
-			{ time: 68, type: "kamikaze",    count: 10, formation: "v-shape"   },
-			{ time: 10, type: "interceptor", count: 3,  formation: "wave"      },
-			{ time: 22, type: "carrier",     count: 1,  formation: "random"    },
-			{ time: 34, type: "interceptor", count: 4,  formation: "v-shape"   },
-			{ time: 46, type: "carrier",     count: 2,  formation: "spread"    },
-			{ time: 60, type: "interceptor", count: 5,  formation: "wave"      },
-			{ time: 65, type: "carrier",     count: 2,  formation: "random"    },
-		],
-		boss: {
-			name: "VOID HERALD",
-			type: "herald",
-			hp: 1100,
-			color: "#110033",
-			coreColor: "#cc00ff",
-			w: 165,
-			h: 135,
-		},
-	},
-	{
-		name: "Omega Fortress",
-		bgSpeed: 180,
-		bgColors: ["#0d0000", "#1a0000", "#110000"],
-		bossTime: 90,
-		enemyGroups: [
-			{ time: 2,  type: "drone",       count: 7,  formation: "v-shape"   },
-			{ time: 10, type: "shielder",    count: 1,  formation: "random"    },
-			{ time: 25, type: "shielder",    count: 2,  formation: "spread"    },
-			{ time: 45, type: "shielder",    count: 2,  formation: "top-bottom"},
-			{ time: 65, type: "shielder",    count: 3,  formation: "spread"    },
-			{ time: 80, type: "shielder",    count: 2,  formation: "random"    },
-			{ time: 5,  type: "kamikaze",    count: 6,  formation: "wave"      },
-			{ time: 8,  type: "turret",      count: 6,  formation: "spread"    },
-			{ time: 11, type: "drone",       count: 9,  formation: "wave"      },
-			{ time: 14, type: "kamikaze",    count: 8,  formation: "random"    },
-			{ time: 18, type: "turret",      count: 7,  formation: "top-bottom"},
-			{ time: 22, type: "drone",       count: 10, formation: "v-shape"   },
-			{ time: 26, type: "kamikaze",    count: 9,  formation: "wave"      },
-			{ time: 30, type: "turret",      count: 8,  formation: "spread"    },
-			{ time: 34, type: "drone",       count: 10, formation: "wave"      },
-			{ time: 38, type: "kamikaze",    count: 10, formation: "v-shape"   },
-			{ time: 42, type: "turret",      count: 9,  formation: "random"    },
-			{ time: 46, type: "drone",       count: 10, formation: "v-shape"   },
-			{ time: 50, type: "kamikaze",    count: 10, formation: "wave"      },
-			{ time: 54, type: "turret",      count: 10, formation: "spread"    },
-			{ time: 58, type: "drone",       count: 10, formation: "wave"      },
-			{ time: 62, type: "kamikaze",    count: 10, formation: "v-shape"   },
-			{ time: 66, type: "turret",      count: 10, formation: "random"    },
-			{ time: 70, type: "drone",       count: 10, formation: "wave"      },
-			{ time: 74, type: "kamikaze",    count: 10, formation: "wave"      },
-			{ time: 7,  type: "interceptor", count: 3,  formation: "wave"      },
-			{ time: 16, type: "carrier",     count: 1,  formation: "random"    },
-			{ time: 24, type: "interceptor", count: 4,  formation: "v-shape"   },
-			{ time: 36, type: "carrier",     count: 2,  formation: "spread"    },
-			{ time: 48, type: "interceptor", count: 5,  formation: "wave"      },
-			{ time: 60, type: "carrier",     count: 2,  formation: "random"    },
-			{ time: 68, type: "interceptor", count: 5,  formation: "v-shape"   },
-			{ time: 72, type: "carrier",     count: 3,  formation: "wave"      },
-		],
-		boss: {
-			name: "OMEGA DREADNOUGHT",
-			type: "dreadnought",
-			hp: 1400,
-			color: "#330000",
-			coreColor: "#ff2200",
-			w: 180,
-			h: 145,
-		},
-	},
+// ══════════════════════════════════════════
+//  DAILY CHALLENGES
+// ══════════════════════════════════════════
+const DC_POOL = [
+    {
+        id: "dc_dist_200",
+        fr: "Vole 200m en une partie",
+        en: "Fly 200m in one run",
+        type: "dist",
+        val: 200,
+        reward: 30,
+        icon: "🚀",
+    },
+    {
+        id: "dc_dist_500",
+        fr: "Vole 500m en une partie",
+        en: "Fly 500m in one run",
+        type: "dist",
+        val: 500,
+        reward: 60,
+        icon: "✈️",
+    },
+    {
+        id: "dc_dist_1000",
+        fr: "Vole 1000m en une partie",
+        en: "Fly 1000m in one run",
+        type: "dist",
+        val: 1000,
+        reward: 120,
+        icon: "🌆",
+    },
+    {
+        id: "dc_dist_2000",
+        fr: "Atteins 2000m en une partie",
+        en: "Reach 2000m in one run",
+        type: "dist",
+        val: 2000,
+        reward: 200,
+        icon: "🌌",
+    },
+    {
+        id: "dc_dist_3000",
+        fr: "Atteins 3000m en une partie",
+        en: "Reach 3000m in one run",
+        type: "dist",
+        val: 3000,
+        reward: 280,
+        icon: "🌠",
+    },
+    {
+        id: "dc_stars_10",
+        fr: "Collecte 10 étoiles",
+        en: "Collect 10 stars",
+        type: "runStars",
+        val: 10,
+        reward: 25,
+        icon: "⭐",
+    },
+    {
+        id: "dc_stars_25",
+        fr: "Collecte 25 étoiles",
+        en: "Collect 25 stars",
+        type: "runStars",
+        val: 25,
+        reward: 50,
+        icon: "🌟",
+    },
+    {
+        id: "dc_stars_50",
+        fr: "Collecte 50 étoiles en une partie",
+        en: "Collect 50 stars in one run",
+        type: "runStars",
+        val: 50,
+        reward: 90,
+        icon: "✨",
+    },
+    {
+        id: "dc_boost_3",
+        fr: "Ramasse 3 ellipses bleues",
+        en: "Pick up 3 blue orbs",
+        type: "runBoosts",
+        val: 3,
+        reward: 35,
+        icon: "💙",
+    },
+    {
+        id: "dc_boost_6",
+        fr: "Ramasse 6 ellipses bleues",
+        en: "Pick up 6 blue orbs",
+        type: "runBoosts",
+        val: 6,
+        reward: 70,
+        icon: "⚡",
+    },
+    {
+        id: "dc_ring_2",
+        fr: "Passe 2 anneaux dorés",
+        en: "Pass 2 gold rings",
+        type: "runRings",
+        val: 2,
+        reward: 40,
+        icon: "⭕",
+    },
+    {
+        id: "dc_ring_5",
+        fr: "Passe 5 anneaux dorés",
+        en: "Pass 5 gold rings",
+        type: "runRings",
+        val: 5,
+        reward: 90,
+        icon: "🥇",
+    },
+    {
+        id: "dc_chest_1",
+        fr: "Ouvre 1 coffre mystère",
+        en: "Open 1 mystery chest",
+        type: "runChests",
+        val: 1,
+        reward: 30,
+        icon: "📦",
+    },
+    {
+        id: "dc_chest_3",
+        fr: "Ouvre 3 coffres mystères",
+        en: "Open 3 mystery chests",
+        type: "runChests",
+        val: 3,
+        reward: 80,
+        icon: "🎁",
+    },
+    {
+        id: "dc_nohit",
+        fr: "Vole sans toucher d'ennemi",
+        en: "Fly without hitting any enemy",
+        type: "runHits",
+        val: 0,
+        reward: 100,
+        icon: "🥷",
+    },
+    {
+        id: "dc_combo_3",
+        fr: "Atteins un combo ×3",
+        en: "Reach a ×3 combo",
+        type: "bestComboRun",
+        val: 3,
+        reward: 30,
+        icon: "🔥",
+    },
+    {
+        id: "dc_combo_5",
+        fr: "Atteins un combo ×5",
+        en: "Reach a ×5 combo",
+        type: "bestComboRun",
+        val: 5,
+        reward: 60,
+        icon: "💥",
+    },
+    {
+        id: "dc_combo_8",
+        fr: "Atteins un combo ×8",
+        en: "Reach a ×8 combo",
+        type: "bestComboRun",
+        val: 8,
+        reward: 100,
+        icon: "🌀",
+    },
+    {
+        id: "dc_meteor_3",
+        fr: "Évite 3 météores",
+        en: "Dodge 3 meteors",
+        type: "runMeteorsDodged",
+        val: 3,
+        reward: 50,
+        icon: "☄️",
+    },
+    {
+        id: "dc_meteor_8",
+        fr: "Évite 8 météores",
+        en: "Dodge 8 meteors",
+        type: "runMeteorsDodged",
+        val: 8,
+        reward: 100,
+        icon: "🌧️",
+    },
+    {
+        id: "dc_biome2",
+        fr: "Atteins le décor Désert (2000m)",
+        en: "Reach Desert biome (2000m)",
+        type: "dist",
+        val: 2000,
+        reward: 80,
+        icon: "🏜️",
+    },
+    {
+        id: "dc_biome3",
+        fr: "Atteins la Jungle (4000m)",
+        en: "Reach Jungle biome (4000m)",
+        type: "dist",
+        val: 4000,
+        reward: 140,
+        icon: "🌿",
+    },
+    {
+        id: "dc_play_3",
+        fr: "Joue 3 parties aujourd'hui",
+        en: "Play 3 games today",
+        type: "gamesPlayedToday",
+        val: 3,
+        reward: 40,
+        icon: "🎮",
+    },
+    {
+        id: "dc_play_5",
+        fr: "Joue 5 parties aujourd'hui",
+        en: "Play 5 games today",
+        type: "gamesPlayedToday",
+        val: 5,
+        reward: 70,
+        icon: "🕹️",
+    },
+    {
+        id: "dc_no_jetpack",
+        fr: "Vole 300m sans jetpack",
+        en: "Fly 300m without jetpack",
+        type: "distNoJet",
+        val: 300,
+        reward: 120,
+        icon: "🚫",
+    },
+    {
+        id: "dc_coins_run",
+        fr: "Gagne 100 étoiles en une partie",
+        en: "Earn 100 stars in one run",
+        type: "runStars",
+        val: 100,
+        reward: 100,
+        icon: "💎",
+    },
 ];
 
-function createRenderer(ctx, toolsRef) {
-	// ── Eagle sprite (SVG base64) ──────────────────────────────────────
-	const _eagleImg = new Image();
-	_eagleImg.src = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjAgMTEwIiB3aWR0aD0iMTYwIiBoZWlnaHQ9IjExMCI+CiAgPGRlZnM+CiAgICA8cmFkaWFsR3JhZGllbnQgaWQ9ImJvZHlHIiBjeD0iNTAlIiBjeT0iNTUlIiByPSI1MCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiAgIHN0b3AtY29sb3I9IiNmZjk5MDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSI0MCUiICBzdG9wLWNvbG9yPSIjZmY0NDAwIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2NjMTEwMCIvPgogICAgPC9yYWRpYWxHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZ0xHIiB4MT0iMTAwJSIgeTE9IjEwMCUiIHgyPSIwJSIgeTI9IjAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgICBzdG9wLWNvbG9yPSIjY2MxMTAwIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMzUlIiAgc3RvcC1jb2xvcj0iI2ZmNDQwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjY1JSIgIHN0b3AtY29sb3I9IiNmZjg4MDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjZmZkZDQ0Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJ3aW5nUkciIHgxPSIwJSIgeTE9IjEwMCUiIHgyPSIxMDAlIiB5Mj0iMCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiAgIHN0b3AtY29sb3I9IiNjYzExMDAiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIzNSUiICBzdG9wLWNvbG9yPSIjZmY0NDAwIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iNjUlIiAgc3RvcC1jb2xvcj0iI2ZmODgwMCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNmZmRkNDQiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8cmFkaWFsR3JhZGllbnQgaWQ9Imdsb3dHIiBjeD0iNTAlIiBjeT0iNTAlIiByPSI1MCUiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiAgc3RvcC1jb2xvcj0iI2ZmY2MwMCIgc3RvcC1vcGFjaXR5PSIwLjQiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdG9wLWNvbG9yPSIjZmY0NDAwIiBzdG9wLW9wYWNpdHk9IjAiLz4KICAgIDwvcmFkaWFsR3JhZGllbnQ+CiAgPC9kZWZzPgoKICA8IS0tIEhhbG8gY2VudHJhbCAtLT4KICA8ZWxsaXBzZSBjeD0iODAiIGN5PSI2MCIgcng9IjM4IiByeT0iMzIiIGZpbGw9InVybCgjZ2xvd0cpIi8+CgogIDwhLS0gPT09IEFJTEUgR0FVQ0hFIChwb2ludGUgdmVycyBoYXV0LWdhdWNoZSkgPT09IC0tPgogIDwhLS0gUGx1bWVzIHByaW1haXJlcyBsb25ndWVzIC0tPgogIDxwYXRoIGQ9Ik03Miw1MiBRNDgsMjggMTgsOCBRMjgsMTggMzUsMzAgUTIwLDIyIDE0LDM0IFEyNiwyOCAzMiw0MCBRMTYsMzYgMTIsNTAgUTI2LDQyIDM0LDUyIFEyMCw1MiAxOCw2NCBRMzAsNTYgMzgsNTgiIGZpbGw9InVybCgjd2luZ0xHKSIgb3BhY2l0eT0iMC45NSIvPgogIDwhLS0gUGx1bWVzIHNlY29uZGFpcmVzIChjb3V2ZXJ0dXJlcykgLS0+CiAgPHBhdGggZD0iTTcyLDUyIFE1NSwzOCA0MCwzMCBRNTAsMzYgNTUsNDYgUTQ0LDM4IDQwLDUwIFE1MCw0NCA1NSw1NCBRNDYsNTAgNDQsNjAgUTU0LDU0IDYwLDU4IiBmaWxsPSIjZGQzMzAwIiBvcGFjaXR5PSIwLjg1Ii8+CiAgPCEtLSBQb2ludGUgc3Vww6lyaWV1cmUgYWlsZSBnYXVjaGUgLS0+CiAgPHBhdGggZD0iTTcyLDUwIFE1NiwyMiAzNiw0IFE0NCwxNCA0OCwyNiBRMzgsMTYgMzYsMjggUTQ0LDIyIDQ4LDM0IiBmaWxsPSIjZmY5OTAwIiBvcGFjaXR5PSIwLjciLz4KCiAgPCEtLSA9PT0gQUlMRSBEUk9JVEUgKHBvaW50ZSB2ZXJzIGhhdXQtZHJvaXRlKSA9PT0gLS0+CiAgPHBhdGggZD0iTTg4LDUyIFExMTIsMjggMTQyLDggUTEzMiwxOCAxMjUsMzAgUTE0MCwyMiAxNDYsMzQgUTEzNCwyOCAxMjgsNDAgUTE0NCwzNiAxNDgsNTAgUTEzNCw0MiAxMjYsNTIgUTE0MCw1MiAxNDIsNjQgUTEzMCw1NiAxMjIsNTgiIGZpbGw9InVybCgjd2luZ1JHKSIgb3BhY2l0eT0iMC45NSIvPgogIDxwYXRoIGQ9Ik04OCw1MiBRMTA1LDM4IDEyMCwzMCBRMTEwLDM2IDEwNSw0NiBRMTE2LDM4IDEyMCw1MCBRMTEwLDQ0IDEwNSw1NCBRMTE0LDUwIDExNiw2MCBRMTA2LDU0IDEwMCw1OCIgZmlsbD0iI2RkMzMwMCIgb3BhY2l0eT0iMC44NSIvPgogIDxwYXRoIGQ9Ik04OCw1MCBRMTA0LDIyIDEyNCw0IFExMTYsMTQgMTEyLDI2IFExMjIsMTYgMTI0LDI4IFExMTYsMjIgMTEyLDM0IiBmaWxsPSIjZmY5OTAwIiBvcGFjaXR5PSIwLjciLz4KCiAgPCEtLSA9PT0gUVVFVUUgLyBQTFVNRVMgREUgRkVVIHZlcnMgbGUgYmFzID09PSAtLT4KICA8cGF0aCBkPSJNNzQsNzggUTYwLDkwIDUyLDEwOCBRNTgsOTQgNjIsODQiIGZpbGw9IiNmZjU1MDAiIG9wYWNpdHk9IjAuOCIvPgogIDxwYXRoIGQ9Ik03Niw4MCBRNjYsOTYgNjIsMTEyIFE2OCw5NiA3Miw4NiIgZmlsbD0iI2ZmNzcwMCIgb3BhY2l0eT0iMC43NSIvPgogIDxwYXRoIGQ9Ik04MCw4MiBRNzgsMTAwIDc0LDExNCBRODAsMTAwIDgyLDg4IiBmaWxsPSIjZmZhYTAwIiBvcGFjaXR5PSIwLjciLz4KICA8cGF0aCBkPSJNODQsODAgUTkyLDk2IDk2LDExMiBROTAsOTYgODYsODYiIGZpbGw9IiNmZjc3MDAiIG9wYWNpdHk9IjAuNzUiLz4KICA8cGF0aCBkPSJNODYsNzggUTk4LDkwIDEwNiwxMDggUTEwMCw5NCA5Niw4NCIgZmlsbD0iI2ZmNTUwMCIgb3BhY2l0eT0iMC44Ii8+CgogIDwhLS0gPT09IENPUlBTIENFTlRSQUwgPT09IC0tPgogIDxwYXRoIGQ9Ik03Miw0OCBRNzYsNDIgODAsNDAgUTg0LDQyIDg4LDQ4IFE5MCw1OCA4OCw2OCBRODQsNzYgODAsNzggUTc2LDc2IDcyLDY4IFE3MCw1OCA3Miw0OCBaIiBmaWxsPSJ1cmwoI2JvZHlHKSIvPgoKICA8IS0tID09PSBTRVJSRVMgKGRldXggcGF0dGVzIHRlbmR1ZXMgdmVycyBsJ2F2YW50LWJhcykgPT09IC0tPgogIDwhLS0gUGF0dGUgZ2F1Y2hlIC0tPgogIDxwYXRoIGQ9Ik03Niw3MCBRNjgsNzggNjIsODYiIHN0cm9rZT0iI2NjNDQwMCIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNjIsODYgUTU0LDkwIDUwLDk2IiBzdHJva2U9IiNjYzQ0MDAiIHN0cm9rZS13aWR0aD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTYyLDg2IFE1Niw5NCA1NCwxMDIiIHN0cm9rZT0iI2NjNDQwMCIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNjIsODYgUTYyLDk2IDYwLDEwNCIgc3Ryb2tlPSIjY2M0NDAwIiBzdHJva2Utd2lkdGg9IjIiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgogIDwhLS0gUGF0dGUgZHJvaXRlIC0tPgogIDxwYXRoIGQ9Ik04NCw3MCBROTIsNzggOTgsODYiIHN0cm9rZT0iI2NjNDQwMCIgc3Ryb2tlLXdpZHRoPSIzIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNOTgsODYgUTEwNiw5MCAxMTAsOTYiIHN0cm9rZT0iI2NjNDQwMCIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNOTgsODYgUTEwNCw5NCAxMDYsMTAyIiBzdHJva2U9IiNjYzQ0MDAiIHN0cm9rZS13aWR0aD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTk4LDg2IFE5OCw5NiAxMDAsMTA0IiBzdHJva2U9IiNjYzQ0MDAiIHN0cm9rZS13aWR0aD0iMiIgZmlsbD0ibm9uZSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gPT09IFTDilRFID09PSAtLT4KICA8ZWxsaXBzZSBjeD0iODAiIGN5PSI0MCIgcng9IjEwIiByeT0iOSIgZmlsbD0iI2ZmNjYwMCIvPgogIDwhLS0gUGx1bWVzIGRlIHTDqnRlL2Nyw6p0ZSAtLT4KICA8cGF0aCBkPSJNNzYsMzQgUTcyLDI0IDY4LDE2IFE3NCwyNiA3OCwzMiIgZmlsbD0iI2ZmODgwMCIgb3BhY2l0eT0iMC45Ii8+CiAgPHBhdGggZD0iTTgwLDMyIFE4MCwyMCA4MCwxMiBRODEsMjIgODIsMzAiIGZpbGw9IiNmZmFhMDAiIG9wYWNpdHk9IjAuODUiLz4KICA8cGF0aCBkPSJNODQsMzQgUTg4LDI0IDkyLDE2IFE4NiwyNiA4MiwzMiIgZmlsbD0iI2ZmODgwMCIgb3BhY2l0eT0iMC45Ii8+CgogIDwhLS0gQmVjIGNyb2NodSAtLT4KICA8cGF0aCBkPSJNNzUsNDIgUTY4LDQ0IDY2LDQ4IFE3MCw0NiA3NSw0NCBRNzIsNDggNzAsNTIgUTc0LDQ5IDc2LDQ2IiBmaWxsPSIjZmZjYzAwIi8+CgogIDwhLS0gxZJpbCAtLT4KICA8Y2lyY2xlIGN4PSI3NiIgY3k9IjM5IiByPSIzLjUiIGZpbGw9IiNmZmYwY2MiLz4KICA8Y2lyY2xlIGN4PSI3NiIgY3k9IjM5IiByPSIyLjAiIGZpbGw9IiNjYzIyMDAiLz4KICA8Y2lyY2xlIGN4PSI3NyIgY3k9IjM4IiByPSIwLjkiIGZpbGw9IiMxMTAwMDAiLz4KICA8Y2lyY2xlIGN4PSI3NC41IiBjeT0iMzcuNSIgcj0iMC44IiBmaWxsPSJyZ2JhKDI1NSwyNTUsMjU1LDAuOSkiLz4KCiAgPCEtLSBSZWZsZXRzIGx1bWluZXV4IHN1ciBhaWxlcyAtLT4KICA8cGF0aCBkPSJNNTUsMzAgUTQ1LDIwIDMyLDEyIiBzdHJva2U9InJnYmEoMjU1LDIwMCw1MCwwLjM1KSIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+CiAgPHBhdGggZD0iTTYwLDM4IFE1MCwzMCA0MCwyNCIgc3Ryb2tlPSJyZ2JhKDI1NSwyMDAsNTAsMC4zKSIgc3Ryb2tlLXdpZHRoPSIxLjUiIGZpbGw9Im5vbmUiLz4KICA8cGF0aCBkPSJNMTA1LDMwIFExMTUsMjAgMTI4LDEyIiBzdHJva2U9InJnYmEoMjU1LDIwMCw1MCwwLjM1KSIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+CiAgPHBhdGggZD0iTTEwMCwzOCBRMTEwLDMwIDEyMCwyNCIgc3Ryb2tlPSJyZ2JhKDI1NSwyMDAsNTAsMC4zKSIgc3Ryb2tlLXdpZHRoPSIxLjUiIGZpbGw9Im5vbmUiLz4KPC9zdmc+Cg==";
-	let _eagleReady = false;
-	_eagleImg.onload = () => { _eagleReady = true; };
-	// Lit les dimensions en live depuis tools pour supporter le resize
-	const stars = Array.from({ length: 80 }, () => ({
-		x: Math.random() * toolsRef.width,
-		y: Math.random() * toolsRef.height,
-		r: 0.5 + Math.random() * 2,
-		speed: 0.3 + Math.random() * 0.7,
-		bright: Math.random(),
-	}));
-
-	const rockPoints = Array.from({ length: 12 }, (_, i) => ({
-		yTop: Math.random() * 0.15 + 0.02,
-		yBot: Math.random() * 0.15 + 0.02,
-		freq: 0.005 + Math.random() * 0.015,
-		phase: Math.random() * Math.PI * 2,
-	}));
-
-	return {
-		drawBackground(bgOffset, level, phase, transitionTimer) {
-			const lvl = LEVELS[level] || LEVELS[0];
-			const [c0, c1, c2] = lvl.bgColors;
-
-			// Sky gradient
-			const grad = ctx.createLinearGradient(0, 0, 0, toolsRef.height);
-			grad.addColorStop(0, c0);
-			grad.addColorStop(0.5, c1);
-			grad.addColorStop(1, c2);
-			ctx.fillStyle = grad;
-			ctx.fillRect(0, 0, toolsRef.width, toolsRef.height);
-
-			// Stars / particles — sy clamped to current virtual height
-			for (const s of stars) {
-				const sx =
-					(((s.x - bgOffset * s.speed * 0.15) %
-						(toolsRef.width + 10)) +
-						toolsRef.width +
-						10) %
-					(toolsRef.width + 10);
-				const sy = s.y % toolsRef.height;
-				const alpha = 0.4 + s.bright * 0.6;
-				ctx.globalAlpha = alpha;
-				// Couleur des étoiles selon le décor du niveau
-				const starColors = [
-					"#ffddaa", // 0 Volcanic Rift   — orange
-					"#aa88ff", // 1 Inferno Depths  — violet
-					"#ffcc66", // 2 Solar Core      — jaune-or
-					"#88ffcc", // 3 Toxic Nebula    — vert menthe
-					"#88ddff", // 4 Crystal Abyss   — bleu glacier
-					"#cc88ff", // 5 Phantom Void    — violet profond
-					"#ff8888", // 6 Omega Fortress  — rouge acier
-				];
-				ctx.fillStyle = starColors[level] || "#ffddaa";
-				ctx.beginPath();
-				ctx.arc(sx, sy, s.r, 0, Math.PI * 2);
-				ctx.fill();
-			}
-			ctx.globalAlpha = 1;
-
-			// Lava / rock terrain (top and bottom)
-			this._drawTerrain(bgOffset, level, lvl);
-
-			// Transition overlay
-			if (
-				phase === "transition" &&
-				transitionTimer !== undefined
-			) {
-				const alpha = Math.max(0, 1 - transitionTimer);
-				ctx.fillStyle = `rgba(0,0,0,${alpha * 0.7})`;
-				ctx.fillRect(0, 0, toolsRef.width, toolsRef.height);
-			}
-		},
-
-		_drawTerrain(bgOffset, level, lvl) {
-			const topH = 50, botH = 50;
-
-			// Couleurs de terrain et de lueur par niveau
-			const terrainPalette = [
-				// 0 Volcanic Rift   — lave orange
-				{ rock: "#441100", glow: "rgba(255,100,0,0.55)"  },
-				// 1 Inferno Depths  — magma violet
-				{ rock: "#220044", glow: "rgba(160,0,255,0.45)"  },
-				// 2 Solar Core      — rouge solaire
-				{ rock: "#330011", glow: "rgba(255,60,0,0.45)"   },
-				// 3 Toxic Nebula    — vert acide
-				{ rock: "#002200", glow: "rgba(0,220,80,0.45)"   },
-				// 4 Crystal Abyss   — cyan glacial
-				{ rock: "#001133", glow: "rgba(0,180,255,0.4)"   },
-				// 5 Phantom Void    — violet fantôme
-				{ rock: "#0d001a", glow: "rgba(140,0,255,0.4)"   },
-				// 6 Omega Fortress  — rouge acier brûlant
-				{ rock: "#220000", glow: "rgba(255,20,0,0.5)"    },
-			];
-			const pal = terrainPalette[level] || terrainPalette[0];
-
-			// Top rock
-			ctx.beginPath();
-			ctx.moveTo(0, 0);
-			for (let x = 0; x <= toolsRef.width + 10; x += 4) {
-				const t = (x + bgOffset) * 0.012;
-				const y = topH * (0.4 + 0.6 * (
-					Math.sin(t) * 0.5 + Math.sin(t * 2.3) * 0.3 + Math.sin(t * 0.7) * 0.2
-				));
-				ctx.lineTo(x, y);
-			}
-			ctx.lineTo(toolsRef.width, 0);
-			ctx.closePath();
-			const rockGrad = ctx.createLinearGradient(0, 0, 0, topH);
-			rockGrad.addColorStop(0, "#111111");
-			rockGrad.addColorStop(1, pal.rock);
-			ctx.fillStyle = rockGrad;
-			ctx.fill();
-
-			// Lueur sur le bord supérieur
-			for (let x = 0; x <= toolsRef.width; x += 80) {
-				const t = (x + bgOffset) * 0.012;
-				const y = topH * (0.4 + 0.6 * (
-					Math.sin(t) * 0.5 + Math.sin(t * 2.3) * 0.3 + Math.sin(t * 0.7) * 0.2
-				));
-				const g = ctx.createRadialGradient(x, y, 0, x, y, 25);
-				g.addColorStop(0, pal.glow);
-				g.addColorStop(1, "rgba(0,0,0,0)");
-				ctx.fillStyle = g;
-				ctx.fillRect(x - 25, y - 10, 50, 35);
-			}
-
-			// Bottom rock
-			ctx.beginPath();
-			ctx.moveTo(0, toolsRef.height);
-			for (let x = 0; x <= toolsRef.width + 10; x += 4) {
-				const t = (x + bgOffset) * 0.014 + 5;
-				const y = toolsRef.height - botH * (0.4 + 0.6 * (
-					Math.sin(t) * 0.5 + Math.sin(t * 1.7) * 0.3 + Math.sin(t * 0.9) * 0.2
-				));
-				ctx.lineTo(x, y);
-			}
-			ctx.lineTo(toolsRef.width, toolsRef.height);
-			ctx.closePath();
-			const rockGrad2 = ctx.createLinearGradient(0, toolsRef.height - botH, 0, toolsRef.height);
-			rockGrad2.addColorStop(0, pal.rock);
-			rockGrad2.addColorStop(1, "#111111");
-			ctx.fillStyle = rockGrad2;
-			ctx.fill();
-		},
-
-		drawPlayer(player, t, level, combo, rageMode) {
-			if (!player) return;
-			const { x, y } = player;
-			const blinkOff = player.invincible && Math.sin(t * 18) > 0;
-			if (blinkOff) return;
-			// Combo visuel : teinte du vaisseau selon niveau de combo
-			const _rage = rageMode || false;
-			const _combo = combo || 0;
-			// Halo du vaisseau uniquement en mode rage
-			const _comboActive = _rage && _combo >= MAX_COMBO_RAGE;
-			const _comboTintAlpha = _comboActive ? Math.min(0.55, (_combo - 5) * 0.05 + 0.18) : 0;
-			const _comboColor = _combo >= 12 ? [255,50,0]
-							  : _combo >= 8  ? [255,150,0]
-							  : [255,220,0];
-
-			ctx.save();
-			ctx.translate(x, y);
-
-			const fw = player.w;  // 36
-			const fh = player.h;  // 28
-			const S = fw / 36;
-			ctx.scale(S, S);
-
-			// ── RAGE AURA — FLAMMES ───────────────────────────────────────
-			if (_rage) {
-				const rp = t;
-				const flicker = 0.75 + Math.sin(rp * 13) * 0.25;
-
-				// Outer fire glow — large orange halo
-				const fg = ctx.createRadialGradient(0, 0, 0, 0, 0, 38);
-				fg.addColorStop(0,   `rgba(255,200,0,${0.45 * flicker})`);
-				fg.addColorStop(0.3, `rgba(255,100,0,${0.35 * flicker})`);
-				fg.addColorStop(0.6, `rgba(220,40,0,${0.2 * flicker})`);
-				fg.addColorStop(1,   "rgba(180,0,0,0)");
-				ctx.save();
-				ctx.scale(1.5, 1);
-				ctx.fillStyle = fg;
-				ctx.beginPath();
-				ctx.arc(0, 0, 38, 0, Math.PI * 2);
-				ctx.fill();
-				ctx.restore();
-
-				// Flame tongues — 5 spikes radiating outward
-				ctx.save();
-				ctx.rotate(rp * 2.5);
-				for (let fi = 0; fi < 5; fi++) {
-					const fa = (fi / 5) * Math.PI * 2;
-					const fl = 16 + Math.sin(rp * 8 + fi * 1.3) * 6;
-					const fw2 = 5 + Math.sin(rp * 6 + fi) * 2;
-					const fx = Math.cos(fa) * fl;
-					const fy = Math.sin(fa) * fl;
-					const fGrad = ctx.createRadialGradient(0, 0, 4, fx, fy, fl);
-					fGrad.addColorStop(0,   `rgba(255,230,50,${0.9 * flicker})`);
-					fGrad.addColorStop(0.3, `rgba(255,120,0,${0.7 * flicker})`);
-					fGrad.addColorStop(0.7, `rgba(220,30,0,${0.3 * flicker})`);
-					fGrad.addColorStop(1,   "rgba(150,0,0,0)");
-					ctx.fillStyle = fGrad;
-					ctx.beginPath();
-					ctx.ellipse(fx * 0.6, fy * 0.6, fw2, fl * 0.55, fa, 0, Math.PI * 2);
-					ctx.fill();
-				}
-				ctx.restore();
-
-				// Inner hot core — white-yellow center
-				const core = ctx.createRadialGradient(0, 0, 0, 0, 0, 12);
-				core.addColorStop(0,   `rgba(255,255,200,${0.8 * flicker})`);
-				core.addColorStop(0.4, `rgba(255,160,0,${0.6 * flicker})`);
-				core.addColorStop(1,   "rgba(255,50,0,0)");
-				ctx.fillStyle = core;
-				ctx.beginPath();
-				ctx.arc(0, 0, 12, 0, Math.PI * 2);
-				ctx.fill();
-			}
-
-			// Flammes arrière — même famille de couleur que le bg du niveau, mais vives
-			const trailPalettes = [
-				// 0 Volcanic Rift  bg:#1a0400 rouge-brun  → rouge-orange vif
-				{ c0: "#ff8800", c1: "#ff3300", c2: "#cc1100" },
-				// 1 Inferno Depths bg:#0a0020 violet foncé → violet-magenta vif
-				{ c0: "#ee44ff", c1: "#aa00ff", c2: "#6600cc" },
-				// 2 Solar Core     bg:#200000 rouge foncé  → rouge-cramoisi vif
-				{ c0: "#ff2200", c1: "#cc0000", c2: "#880000" },
-				// 3 Toxic Nebula   bg:#001a00 vert foncé   → vert-lime vif
-				{ c0: "#44ff44", c1: "#00cc00", c2: "#008800" },
-				// 4 Crystal Abyss  bg:#000d1a bleu foncé   → bleu-cyan vif
-				{ c0: "#44aaff", c1: "#0066ff", c2: "#0033cc" },
-				// 5 Phantom Void   bg:#04000d violet-noir  → violet vif
-				{ c0: "#cc44ff", c1: "#8800ff", c2: "#5500cc" },
-			];
-			const tp = trailPalettes[level] || trailPalettes[0];
-
-			// Utility: draw a single feather
-			// base (bx,by), tip (tx,ty), half-width hw, color
-			function feather(bx, by, tx, ty, hw, col1, col2) {
-				const dx = tx - bx, dy = ty - by;
-				const len = Math.sqrt(dx*dx + dy*dy) || 1;
-				const px = -dy/len * hw, py = dx/len * hw;
-				ctx.beginPath();
-				ctx.moveTo(bx, by);
-				ctx.quadraticCurveTo(bx+px*0.8, by+py*0.8, tx, ty);
-				ctx.quadraticCurveTo(bx-px*0.8, by-py*0.8, bx, by);
-				ctx.closePath();
-				const g = ctx.createLinearGradient(bx, by, tx, ty);
-				g.addColorStop(0,   col1);
-				g.addColorStop(0.55, col2 || col1);
-				g.addColorStop(1,   "rgba(200,60,0,0.15)");
-				ctx.fillStyle = g;
-				ctx.fill();
-			}
-
-			// ── Wing beat animation ──────────────────────────────────────
-			// wingAngle: 0 = mid, positive = up-stroke, negative = down-stroke
-			const wingCycle = Math.sin(t * 7.0);           // -1 … +1
-			const wingAngle = wingCycle * 0.38;             // radians
-			// secondary oscillation for feather spread
-			const fSpread = 0.08 + Math.abs(wingCycle) * 0.06;
-
-			// ── AURA CIRCULAIRE LUMINEUSE (scale selon fireLevel) ─────────
-			const ap = 0.88 + Math.sin(t * 4.8) * 0.12;
-			// fireLevel 1→5 : aura invisible au niveau 1, visible à partir du niveau 2
-			const fireLvl = player.fireLevel || 1;
-			const fireScale = fireLvl <= 1 ? 0 : 0.5 + (fireLvl - 1) * 0.15;
-			const fireAlpha = fireLvl <= 1 ? 0 : 0.5 + (fireLvl - 1) * 0.18;
-			const crX = 38 * ap * fireScale;
-			const crY = 22 * ap * fireScale;
-
-			// Couche large : rayonnement rouge-orange
-			const aura1 = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-			aura1.addColorStop(0,    `rgba(255,200,80,${Math.min(0.95, 0.55 * fireAlpha)})`);
-			aura1.addColorStop(0.25, `rgba(255,120,0,${Math.min(0.90, 0.45 * fireAlpha)})`);
-			aura1.addColorStop(0.55, `rgba(200,40,0,${Math.min(0.60, 0.25 * fireAlpha)})`);
-			aura1.addColorStop(0.80, `rgba(140,10,0,${Math.min(0.30, 0.10 * fireAlpha)})`);
-			aura1.addColorStop(1,    "rgba(100,0,0,0)");
-			ctx.save();
-			ctx.scale(crX * 1.6, crY * 1.6);
-			ctx.fillStyle = aura1;
-			ctx.beginPath();
-			ctx.arc(0, 0, 1, 0, Math.PI * 2);
-			ctx.fill();
-			ctx.restore();
-
-			// Couche intermédiaire : orange vif
-			const aura2 = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-			aura2.addColorStop(0,    `rgba(255,240,120,${Math.min(0.98, 0.65 * fireAlpha)})`);
-			aura2.addColorStop(0.40, `rgba(255,140,0,${Math.min(0.95, 0.50 * fireAlpha)})`);
-			aura2.addColorStop(0.75, `rgba(220,60,0,${Math.min(0.60, 0.25 * fireAlpha)})`);
-			aura2.addColorStop(1,    "rgba(180,20,0,0)");
-			ctx.save();
-			ctx.scale(crX * 0.9, crY * 0.9);
-			ctx.fillStyle = aura2;
-			ctx.beginPath();
-			ctx.arc(0, 0, 1, 0, Math.PI * 2);
-			ctx.fill();
-			ctx.restore();
-
-			// Cœur : blanc-jaune très lumineux
-			const aura3 = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-			aura3.addColorStop(0,   "rgba(255,255,200,0.80)");
-			aura3.addColorStop(0.5, "rgba(255,200,60,0.55)");
-			aura3.addColorStop(1,   "rgba(255,120,0,0)");
-			ctx.save();
-			ctx.scale(crX * 0.35, crY * 0.35);
-			ctx.fillStyle = aura3;
-			ctx.beginPath();
-			ctx.arc(0, 0, 1, 0, Math.PI * 2);
-			ctx.fill();
-			ctx.restore();
-
-			// ── FIRE TRAIL (behind body) ─────────────────────────────────
-			for (let i = 0; i < 3; i++) {
-				const td = i * 1.1;
-				const tl = 14 + Math.sin(t*9 + td) * 4;
-				const tw = Math.sin(t*7 + td*1.5) * 3;
-				ctx.beginPath();
-				ctx.moveTo(-10, -4 + i*4);
-				ctx.quadraticCurveTo(-10-tl*0.5, -4+i*4+tw, -10-tl, -4+i*4+tw*0.3);
-				ctx.quadraticCurveTo(-10-tl*0.5, -4+i*4+tw, -10, 0+i*4);
-				ctx.closePath();
-				const tg = ctx.createLinearGradient(-10,0,-10-tl,0);
-				tg.addColorStop(0,   i===1 ? tp.c0 : tp.c1);
-				tg.addColorStop(0.5, tp.c2);
-				tg.addColorStop(1,   "rgba(0,0,0,0)");
-				ctx.fillStyle = tg;
-				ctx.fill();
-			}
-
-			// ── WINGS (enflammées) ────────────────────────────────────────
-			// Shoulder joints, wings sweep upward from body center
-			for (const side of [-1, 1]) {
-				ctx.save();
-				ctx.translate(-4, side * 3);
-				ctx.rotate(side * (-Math.PI*0.55 + wingAngle * side));
-
-				// --- Glow at wing base ---
-				const baseGlow = ctx.createRadialGradient(0,0,0, 0,0,10);
-				baseGlow.addColorStop(0,   "rgba(255,180,0,0.45)");
-				baseGlow.addColorStop(0.6, "rgba(255,80,0,0.20)");
-				baseGlow.addColorStop(1,   "rgba(200,20,0,0)");
-				ctx.fillStyle = baseGlow;
-				ctx.beginPath();
-				ctx.arc(0, 0, 10, 0, Math.PI*2);
-				ctx.fill();
-
-				// --- Primary feathers with flames ---
-				const primAngles = [0, 0.18, 0.36, 0.52, 0.66, 0.78];
-				const primLens   = [22, 24, 23, 21, 18, 15];
-				primAngles.forEach((a, i) => {
-					const ang  = a + fSpread * i * 0.3;
-					const len  = primLens[i];
-					const tx   = Math.cos(-ang) * len;
-					const ty   = Math.sin(-ang) * len;
-					// Feather shaft — broader, fire-colored
-					const hw   = 3.2 - i * 0.25;
-					const dx   = tx, dy = ty;
-					const dlen = Math.sqrt(dx*dx+dy*dy)||1;
-					const px   = -dy/dlen * hw, py = dx/dlen * hw;
-					ctx.beginPath();
-					ctx.moveTo(0, 0);
-					ctx.quadraticCurveTo(px*0.9, py*0.9, tx, ty);
-					ctx.quadraticCurveTo(-px*0.9, -py*0.9, 0, 0);
-					ctx.closePath();
-					const fg = ctx.createLinearGradient(0, 0, tx, ty);
-					fg.addColorStop(0,    i < 2 ? "#ffcc00" : "#ff8800");
-					fg.addColorStop(0.3,  i < 3 ? "#ff6600" : "#ff3300");
-					fg.addColorStop(0.7,  "#cc1100");
-					fg.addColorStop(1,    "rgba(160,10,0,0.2)");
-					ctx.fillStyle = fg;
-					ctx.fill();
-
-					// Flame licking off feather tip
-					const flameLen = 5 + Math.sin(t*9 + i*1.3) * 3;
-					const flameW   = Math.sin(t*8 + i*0.9) * 2;
-					const fBase    = 0.72; // start flame at 72% along feather
-					const fbx = tx * fBase, fby = ty * fBase;
-					ctx.beginPath();
-					ctx.moveTo(fbx + px*0.5, fby + py*0.5);
-					ctx.quadraticCurveTo(
-						tx + (dx/dlen)*flameLen*0.5 + flameW,
-						ty + (dy/dlen)*flameLen*0.5,
-						tx + (dx/dlen)*flameLen,
-						ty + (dy/dlen)*flameLen
-					);
-					ctx.quadraticCurveTo(
-						tx + (dx/dlen)*flameLen*0.5 - flameW,
-						ty + (dy/dlen)*flameLen*0.5,
-						fbx - px*0.5, fby - py*0.5
-					);
-					ctx.closePath();
-					const flg = ctx.createLinearGradient(fbx, fby,
-						tx+(dx/dlen)*flameLen, ty+(dy/dlen)*flameLen);
-					flg.addColorStop(0,   "rgba(255,200,0,0.9)");
-					flg.addColorStop(0.4, "rgba(255,100,0,0.7)");
-					flg.addColorStop(1,   "rgba(200,30,0,0)");
-					ctx.fillStyle = flg;
-					ctx.fill();
-				});
-
-				// --- Secondary feathers (shorter, warmer at base) ---
-				const secAngles = [-0.15, -0.30, -0.45, -0.58];
-				const secLens   = [14, 12, 10, 8];
-				secAngles.forEach((a, i) => {
-					const len = secLens[i];
-					const tx = Math.cos(-a) * len;
-					const ty = Math.sin(-a) * len;
-					feather(0, 0, tx, ty, 3.5 - i*0.3,
-						i < 2 ? "#ff6600" : "#dd3300",
-						"#881100"
-					);
-					// Small ember glow at secondary tips
-					const eg = ctx.createRadialGradient(tx, ty, 0, tx, ty, 3);
-					eg.addColorStop(0,   "rgba(255,180,0,0.5)");
-					eg.addColorStop(1,   "rgba(255,60,0,0)");
-					ctx.fillStyle = eg;
-					ctx.beginPath();
-					ctx.arc(tx, ty, 3, 0, Math.PI*2);
-					ctx.fill();
-				});
-
-				// --- Wing covert (hot core at shoulder) ---
-				ctx.beginPath();
-				ctx.ellipse(-1, 0, 7, 3.5, -0.3, 0, Math.PI*2);
-				const covG = ctx.createRadialGradient(-1,0,0,-1,0,7);
-				covG.addColorStop(0,   "#ffcc44");
-				covG.addColorStop(0.5, "#ff5500");
-				covG.addColorStop(1,   "#881100");
-				ctx.fillStyle = covG;
-				ctx.fill();
-
-				ctx.restore();
-			}
-
-			// ── BODY ─────────────────────────────────────────────────────
-			// Teardrop body, wider at back, tapers to chest at right
-			ctx.beginPath();
-			ctx.moveTo(12, 0);                          // chest point
-			ctx.bezierCurveTo( 10,-6,  -6,-8,  -12,-3);// back-top
-			ctx.bezierCurveTo(-14, 0, -14, 0,  -12, 3);// tail base
-			ctx.bezierCurveTo( -6, 8,  10, 6,   12, 0);// back-bottom
-			ctx.closePath();
-			const bodyG = ctx.createLinearGradient(-12, 0, 12, 0);
-			bodyG.addColorStop(0,   "#881100");
-			bodyG.addColorStop(0.35,"#cc2200");
-			bodyG.addColorStop(0.7, "#ff5500");
-			bodyG.addColorStop(1,   "#ff9900");
-			ctx.fillStyle = bodyG;
-			ctx.fill();
-
-			// Body highlight (breast)
-			ctx.beginPath();
-			ctx.ellipse(4, -1, 6, 4, -0.3, 0, Math.PI*2);
-			ctx.fillStyle = "rgba(255,160,40,0.25)";
-			ctx.fill();
-
-			// ── TAIL FEATHERS ────────────────────────────────────────────
-			const tailFan = [
-				{a: 0.25, l: 12}, {a: 0.45, l: 14}, {a: 0.65, l: 12},
-				{a:-0.25, l: 12}, {a:-0.45, l: 14},
-			];
-			tailFan.forEach(({a, l}, i) => {
-				const wave = Math.sin(t*6 + i*0.8) * 0.05;
-				const ang  = Math.PI + a + wave;
-				feather(-12, 0,
-					-12 + Math.cos(ang)*l,
-						 Math.sin(ang)*l,
-					2.5, "#ff6600", "#cc2200"
-				);
-			});
-
-			// ── TALONS (two legs, claws swept backward) ──────────────────
-			[[4, 6], [8, 4]].forEach(([lx, ly], li) => {
-				ctx.strokeStyle = "#cc4400";
-				ctx.lineWidth = 1.8;
-				ctx.lineCap = "round";
-				// Upper leg angled backward
-				ctx.beginPath();
-				ctx.moveTo(lx, ly);
-				ctx.lineTo(lx - 7, ly + 5);
-				ctx.stroke();
-				// 3 claws pointing backward
-				[[-5,2],[-4,5],[-2,6]].forEach(([cx,cy]) => {
-					ctx.beginPath();
-					ctx.moveTo(lx - 7, ly + 5);
-					ctx.lineTo(lx - 7 + cx, ly + 5 + cy);
-					ctx.stroke();
-				});
-			});
-
-			// ── HEAD ─────────────────────────────────────────────────────
-			ctx.beginPath();
-			ctx.ellipse(13, -4, 6, 5, 0.2, 0, Math.PI*2);
-			const headG = ctx.createRadialGradient(13,-5,0, 13,-4,6);
-			headG.addColorStop(0,   "#ffaa22");
-			headG.addColorStop(0.5, "#ff6600");
-			headG.addColorStop(1,   "#cc2200");
-			ctx.fillStyle = headG;
-			ctx.fill();
-
-			// Head crest feathers
-			[[14,-2,16,-10],[13,-2,14,-11],[12,-2,11,-10]].forEach(
-				([bx,by,tx,ty],i) => feather(bx,by,tx,ty, 1.2,
-					i===1?"#ffcc00":"#ff8800","#cc2200")
-			);
-
-			// ── ŒEIL (croissant incliné, fidèle à l'image) ────────────────
-			ctx.save();
-			ctx.translate(13.5, -5.5);
-			ctx.rotate(0.45);
-			ctx.scale(0.75, 0.45);
-
-			// ── HALO RAYONNANT (avant le scale pour ne pas l'écraser) ─────
-			const pulse = 0.85 + Math.sin(t * 6.0) * 0.15;
-
-			// Couche 1 : rayonnement ultra-large (aura)
-			const glow1 = ctx.createRadialGradient(0, 1.5, 0, 0, 1.5, 18 * pulse);
-			glow1.addColorStop(0,    "rgba(255,255,255,0.85)");
-			glow1.addColorStop(0.15, "rgba(255,250,200,0.55)");
-			glow1.addColorStop(0.35, "rgba(255,220,100,0.30)");
-			glow1.addColorStop(0.60, "rgba(255,160,0,0.12)");
-			glow1.addColorStop(1,    "rgba(255,100,0,0)");
-			ctx.fillStyle = glow1;
-			ctx.beginPath();
-			ctx.arc(0, 1.5, 18 * pulse, 0, Math.PI*2);
-			ctx.fill();
-
-			// Couche 2 : halo intermédiaire vif
-			const glow2 = ctx.createRadialGradient(0, 1.5, 0, 0, 1.5, 9);
-			glow2.addColorStop(0,    "rgba(255,255,255,1.0)");
-			glow2.addColorStop(0.30, "rgba(255,245,180,0.75)");
-			glow2.addColorStop(0.65, "rgba(255,200,50,0.35)");
-			glow2.addColorStop(1,    "rgba(255,150,0,0)");
-			ctx.fillStyle = glow2;
-			ctx.beginPath();
-			ctx.arc(0, 1.5, 9, 0, Math.PI*2);
-			ctx.fill();
-
-			// Couche 3 : cœur éblouissant
-			const glow3 = ctx.createRadialGradient(0, 1.5, 0, 0, 1.5, 4);
-			glow3.addColorStop(0,   "rgba(255,255,255,1.0)");
-			glow3.addColorStop(0.5, "rgba(255,255,220,0.90)");
-			glow3.addColorStop(1,   "rgba(255,240,150,0)");
-			ctx.fillStyle = glow3;
-			ctx.beginPath();
-			ctx.arc(0, 1.5, 4, 0, Math.PI*2);
-			ctx.fill();
-
-			// Croissant blanc avec shadowBlur intense
-			ctx.beginPath();
-			ctx.moveTo(-3.2, -1.8);
-			ctx.quadraticCurveTo(1.0, -2.2,  3.2, -0.5);
-			ctx.quadraticCurveTo(3.8,  2.8,  0.5,  3.8);
-			ctx.quadraticCurveTo(-2.5, 4.2, -3.2, -1.8);
-			ctx.closePath();
-			ctx.fillStyle = "#ffffff";
-			ctx.shadowColor = "#ffffff";
-			ctx.shadowBlur = 22;
-			ctx.fill();
-			// Deuxième passe pour intensifier le bloom
-			ctx.shadowBlur = 12;
-			ctx.fill();
-			ctx.shadowBlur = 0;
-			ctx.restore();
-
-			// ── BEAK (sharp pointed) ──────────────────────────────────────
-			ctx.beginPath();
-			ctx.moveTo(18, -5.5);       // base top
-			ctx.lineTo(30, -3.8);        // sharp tip — needle point
-			ctx.lineTo(18, -2.5);        // base bottom
-			ctx.closePath();
-			ctx.fillStyle = "#ffcc00";
-			ctx.fill();
-
-			// ── SHIELD ───────────────────────────────────────────────────
-			if (player.hasShield) {
-				const sa = 0.55 + Math.sin(t*6)*0.25;
-				ctx.beginPath();
-				ctx.arc(4, 0, 22, 0, Math.PI*2);
-				ctx.strokeStyle = `rgba(80,180,255,${sa})`;
-				ctx.lineWidth = 2;
-				ctx.stroke();
-				const sg = ctx.createRadialGradient(4,0,12,4,0,22);
-				sg.addColorStop(0,"rgba(80,160,255,0)");
-				sg.addColorStop(1,`rgba(80,160,255,${sa*0.2})`);
-				ctx.fillStyle = sg;
-				ctx.fill();
-			}
-
-			// Combo tint overlay
-			if (_comboActive && _comboTintAlpha > 0) {
-				ctx.globalCompositeOperation = "screen";
-				ctx.globalAlpha = _comboTintAlpha * (0.8 + Math.sin(t * 8) * 0.2);
-				ctx.fillStyle = `rgb(${_comboColor[0]},${_comboColor[1]},${_comboColor[2]})`;
-				ctx.beginPath();
-				ctx.ellipse(0, 0, 22, 15, 0, 0, Math.PI * 2);
-				ctx.fill();
-				ctx.globalCompositeOperation = "source-over";
-				ctx.globalAlpha = 1;
-			}
-			ctx.restore();
-
-			// MEGA✔ affiché sur le vaisseau (demande explicite)
-			if (player.megaReady) {
-				ctx.save();
-				ctx.translate(x, y);
-				const mp = 0.6 + Math.sin(t*10)*0.4;
-				ctx.globalAlpha = mp;
-				ctx.font = "bold 9px monospace";
-				ctx.textAlign = "center";
-				ctx.fillStyle = "#ff4400";
-				ctx.fillText("MEGA✔", 0, player.h * 0.9);
-				ctx.textAlign = "left";
-				ctx.globalAlpha = 1;
-				ctx.restore();
-			}
-		},
-		drawEnemies(list, t) {
-			for (const e of list) {
-				if (e.dead) continue;
-				ctx.save();
-				ctx.translate(e.x, e.y);
-
-				// Elite visuals: golden aura + crown
-				if (e.isElite) {
-					const ep = 0.85 + Math.sin(t * 6 + e.animT) * 0.15;
-					const eg = ctx.createRadialGradient(0,0,0,0,0,e.w*0.9);
-					eg.addColorStop(0,   `rgba(255,215,0,${0.5*ep})`);
-					eg.addColorStop(0.5, `rgba(255,165,0,${0.3*ep})`);
-					eg.addColorStop(1,   "rgba(255,215,0,0)");
-					ctx.fillStyle = eg;
-					ctx.beginPath();
-					ctx.arc(0, 0, e.w*0.9, 0, Math.PI*2);
-					ctx.fill();
-				}
-
-				// Corruption visuals: tint red-purple + slight pulsing scale
-				if (e.corrupted) {
-					const cp = 0.92 + Math.sin(t * 7 + e.animT) * 0.08;
-					ctx.scale(cp, cp);
-					// Corruption aura
-					const cg = ctx.createRadialGradient(0,0,0,0,0,e.w*0.8);
-					const ci = Math.floor((e.corruptLevel-3)*40);
-					cg.addColorStop(0, `rgba(${180+ci},0,${220-ci},0.45)`);
-					cg.addColorStop(1, `rgba(${100+ci},0,${180-ci},0)`);
-					ctx.fillStyle = cg;
-					ctx.beginPath();
-					ctx.arc(0,0,e.w*0.8,0,Math.PI*2);
-					ctx.fill();
-				}
-
-				switch (e.type) {
-					case "drone":
-						this._drawDrone(e, t);
-						break;
-					case "turret":
-						this._drawTurret(e, t);
-						break;
-					case "kamikaze":
-						this._drawKamikaze(e, t);
-						break;
-					case "interceptor":
-						this._drawInterceptor(e, t);
-						break;
-					case "carrier":
-						this._drawCarrier(e, t);
-						break;
-					case "shielder":
-						this._drawShielder(e, t);
-						break;
-				}
-				// Elite crown drawn on top
-				if (e.isElite) {
-					ctx.save();
-					ctx.font = `bold ${Math.round(e.h * 0.55)}px monospace`;
-					ctx.textAlign = "center";
-					ctx.fillStyle = "#ffd700";
-					ctx.shadowColor = "#ffd700";
-					ctx.shadowBlur = 8;
-					ctx.fillText("👑", 0, -e.h * 0.55);
-					ctx.shadowBlur = 0;
-					ctx.textAlign = "left";
-					ctx.restore();
-				}
-				ctx.restore();
-			}
-		},
-
-		_drawDrone(e, t) {
-			const { w, h } = e;
-			// Body
-			ctx.beginPath();
-			ctx.moveTo(-w / 2, 0);
-			ctx.lineTo(-w * 0.1, -h / 2);
-			ctx.lineTo(w / 2, 0);
-			ctx.lineTo(-w * 0.1, h / 2);
-			ctx.closePath();
-			const dg = ctx.createLinearGradient(
-				-w / 2,
-				0,
-				w / 2,
-				0,
-			);
-			dg.addColorStop(0, "#662200");
-			dg.addColorStop(0.5, "#cc4400");
-			dg.addColorStop(1, "#ff3300");
-			ctx.fillStyle = dg;
-			ctx.fill();
-			ctx.strokeStyle = "#ff6600";
-			ctx.lineWidth = 1.5;
-			ctx.stroke();
-			// Engine glow
-			const eg = ctx.createRadialGradient(
-				w * 0.35,
-				0,
-				0,
-				w * 0.35,
-				0,
-				10,
-			);
-			eg.addColorStop(0, "#ffaa00");
-			eg.addColorStop(1, "rgba(255,100,0,0)");
-			ctx.fillStyle = eg;
-			ctx.fillRect(w * 0.25, -5, 12, 10);
-		},
-
-		_drawTurret(e, t) {
-			const { w, h } = e;
-			// Body
-			ctx.fillStyle = "#334455";
-			ctx.fillRect(-w / 2, -h / 2, w, h);
-			ctx.strokeStyle = "#66aacc";
-			ctx.lineWidth = 2;
-			ctx.strokeRect(-w / 2, -h / 2, w, h);
-			// Barrel
-			ctx.fillStyle = "#88aacc";
-			ctx.fillRect(-w / 2 - 14, -3, 16, 6);
-			// Eye
-			const eyeR = ctx.createRadialGradient(0, 0, 0, 0, 0, 7);
-			eyeR.addColorStop(0, "#ffffff");
-			eyeR.addColorStop(0.5, "#ff6600");
-			eyeR.addColorStop(1, "#cc0000");
-			ctx.fillStyle = eyeR;
-			ctx.beginPath();
-			ctx.arc(0, 0, 7, 0, Math.PI * 2);
-			ctx.fill();
-		},
-
-		_drawKamikaze(e, t) {
-			const { w, h } = e;
-			const pulse = 0.7 + Math.sin(t * 12) * 0.3;
-			ctx.save();
-			ctx.rotate(Math.PI);
-			// Arrow-shaped body
-			ctx.beginPath();
-			ctx.moveTo(w / 2, 0);
-			ctx.lineTo(-w * 0.3, -h / 2);
-			ctx.lineTo(-w / 2, 0);
-			ctx.lineTo(-w * 0.3, h / 2);
-			ctx.closePath();
-			const kg = ctx.createLinearGradient(
-				-w / 2,
-				0,
-				w / 2,
-				0,
-			);
-			kg.addColorStop(0, "#ff2200");
-			kg.addColorStop(0.6, "#ff6600");
-			kg.addColorStop(1, "#ffaa00");
-			ctx.fillStyle = kg;
-			ctx.fill();
-			ctx.strokeStyle = `rgba(255,200,0,${pulse})`;
-			ctx.lineWidth = 2;
-			ctx.stroke();
-			ctx.restore();
-		},
-
-		_drawInterceptor(e, t) {
-			const { w, h } = e;
-			const retreating = e.phase === "retreat";
-			ctx.save();
-			if (retreating) ctx.rotate(Math.PI);
-			// Sleek arrow body
-			ctx.beginPath();
-			ctx.moveTo(w*0.55, 0);
-			ctx.lineTo(-w*0.2, -h*0.45);
-			ctx.lineTo(-w*0.55, 0);
-			ctx.lineTo(-w*0.2, h*0.45);
-			ctx.closePath();
-			const ig = ctx.createLinearGradient(-w/2, 0, w/2, 0);
-			ig.addColorStop(0, "#001133");
-			ig.addColorStop(0.5, "#0055aa");
-			ig.addColorStop(1, "#00aaff");
-			ctx.fillStyle = ig;
-			ctx.fill();
-			ctx.strokeStyle = "#00ccff";
-			ctx.lineWidth = 1.5;
-			ctx.stroke();
-			// Engine glow
-			const thrust = ctx.createRadialGradient(-w*0.45, 0, 0, -w*0.45, 0, 12);
-			thrust.addColorStop(0, "#00ffff");
-			thrust.addColorStop(1, "rgba(0,100,255,0)");
-			ctx.fillStyle = thrust;
-			ctx.fillRect(-w*0.55, -6, 14, 12);
-			// Blinking light
-			if (Math.sin(t*8)>0) {
-				ctx.beginPath();
-				ctx.arc(w*0.4, 0, 3, 0, Math.PI*2);
-				ctx.fillStyle = "#ffffff";
-				ctx.fill();
-			}
-			ctx.restore();
-		},
-
-		_drawCarrier(e, t) {
-			const { w, h } = e;
-			// Large transport ship
-			ctx.beginPath();
-			ctx.moveTo(-w*0.5, -h*0.25);
-			ctx.lineTo(-w*0.3, -h*0.5);
-			ctx.lineTo(w*0.45, -h*0.35);
-			ctx.lineTo(w*0.5, 0);
-			ctx.lineTo(w*0.45, h*0.35);
-			ctx.lineTo(-w*0.3, h*0.5);
-			ctx.lineTo(-w*0.5, h*0.25);
-			ctx.closePath();
-			const cg = ctx.createLinearGradient(-w/2,0,w/2,0);
-			cg.addColorStop(0, "#2a1500");
-			cg.addColorStop(0.5, "#774400");
-			cg.addColorStop(1, "#aa6600");
-			ctx.fillStyle = cg;
-			ctx.fill();
-			ctx.strokeStyle = "#cc8800";
-			ctx.lineWidth = 2;
-			ctx.stroke();
-			// Bay doors
-			ctx.fillStyle = "rgba(0,0,0,0.4)";
-			ctx.fillRect(-w*0.1, -h*0.22, w*0.45, h*0.44);
-			// Pulsing bay light
-			const pulse = 0.5 + Math.sin(t*4)*0.5;
-			ctx.fillStyle = `rgba(255,150,0,${pulse*0.6})`;
-			ctx.fillRect(-w*0.05, -h*0.15, w*0.35, h*0.3);
-			// HP bar above carrier
-			const hpFrac = e.hp / e._maxHp || 1;
-			ctx.fillStyle = "rgba(0,0,0,0.5)";
-			ctx.fillRect(-w*0.4, -h*0.6, w*0.8, 5);
-			ctx.fillStyle = hpFrac > 0.5 ? "#44ff44" : "#ff4400";
-			ctx.fillRect(-w*0.4, -h*0.6, w*0.8*hpFrac, 5);
-		},
-
-		drawBoss(boss) {
-			// Phase transition message overlay
-			if (boss._phaseMsgTimer > 0 && boss._phaseMsg) {
-				const alpha = Math.min(1, boss._phaseMsgTimer);
-				ctx.save();
-				ctx.globalAlpha = alpha;
-				ctx.font = "bold 22px monospace";
-				ctx.textAlign = "center";
-				ctx.fillStyle = boss.phase >= 2 ? "#ff0000" : "#ff8800";
-				ctx.shadowColor = boss.phase >= 2 ? "#ff0000" : "#ff8800";
-				ctx.shadowBlur = 20;
-				ctx.fillText(boss._phaseMsg, boss.x, boss.y - boss.h * 0.6 - 20);
-				ctx.shadowBlur = 0;
-				ctx.textAlign = "left";
-				ctx.globalAlpha = 1;
-				ctx.restore();
-			}
-			if (!boss.active) return;
-			const {
-				x,
-				y,
-				w,
-				h,
-				type,
-				color,
-				coreColor,
-				animT,
-				phase,
-				hp,
-				maxHp,
-				flashTimer,
-			} = boss;
-
-			ctx.save();
-			ctx.translate(x, y);
-
-			if (flashTimer > 0) {
-				ctx.globalAlpha = 0.5 + Math.random() * 0.5;
-			}
-
-			// Phase-based visual aura
-			if (phase >= 1) {
-				const auraAlpha = 0.15 + Math.sin(boss.animT * 5) * 0.1;
-				const auraR = phase >= 2 ? w * 0.75 : w * 0.6;
-				const ag = ctx.createRadialGradient(0,0,0,0,0,auraR);
-				const auraHex = phase >= 2 ? boss.coreColor : boss.color;
-				// Convert #rrggbb to rgba(r,g,b,a)
-				const _hexToRgba = (hex, alpha) => {
-					const h = hex.replace("#","");
-					const r = parseInt(h.substring(0,2),16);
-					const g = parseInt(h.substring(2,4),16);
-					const b = parseInt(h.substring(4,6),16);
-					return `rgba(${r},${g},${b},${alpha})`;
-				};
-				ag.addColorStop(0, _hexToRgba(auraHex, auraAlpha));
-				ag.addColorStop(1, _hexToRgba(auraHex, 0));
-				ctx.save();
-				ctx.beginPath();
-				ctx.arc(0,0, auraR, 0, Math.PI*2);
-				ctx.fillStyle = ag;
-				ctx.fill();
-				ctx.restore();
-			}
-
-			switch (type) {
-				case "colossus":
-					this._drawColossus(w, h, color, coreColor, animT, phase);
-					break;
-				case "leviathan":
-					this._drawLeviathan(w, h, color, coreColor, animT, phase);
-					break;
-				case "tyrant":
-					this._drawTyrant(w, h, color, coreColor, animT, phase);
-					break;
-				case "hydra":
-					this._drawHydra(w, h, color, coreColor, animT, phase);
-					break;
-				case "wraith":
-					this._drawWraith(w, h, color, coreColor, animT, phase);
-					break;
-				case "herald":
-					this._drawHerald(w, h, color, coreColor, animT, phase);
-					break;
-				case "dreadnought":
-					this._drawDreadnought(w, h, color, coreColor, animT, phase);
-					break;
-			}
-
-			ctx.globalAlpha = 1;
-			ctx.restore();
-
-			// HP bar — dessinée sous la topbar HUD (≈42 px CSS ≈ 52 px virtuels à scale 0.8)
-			const barW = 240,
-				barH = 18;
-			const barX = (toolsRef.width - barW) / 2,
-				barY = 52;
-			// Fond sombre
-			ctx.fillStyle = "rgba(0,0,0,0.85)";
-			ctx.fillRect(barX - 3, barY - 3, barW + 6, barH + 6);
-			// Barre de vie
-			const hpFrac = hp / maxHp;
-			const barColor =
-				hpFrac > 0.6
-					? "#ff4400"
-					: hpFrac > 0.3
-					  ? "#ff8800"
-					  : "#ffff00";
-			ctx.fillStyle = barColor;
-			ctx.fillRect(barX, barY, barW * hpFrac, barH);
-			// Contour
-			ctx.strokeStyle = "#ff6600";
-			ctx.lineWidth = 2;
-			ctx.strokeRect(barX, barY, barW, barH);
-			// Nom du boss centré à l'intérieur de la barre
-			ctx.fillStyle = "#ffffff";
-			ctx.font = "bold 11px monospace";
-			ctx.textAlign = "center";
-			ctx.textBaseline = "middle";
-			ctx.shadowColor = "#000";
-			ctx.shadowBlur = 3;
-			ctx.fillText(boss.name, toolsRef.width / 2, barY + barH / 2);
-			ctx.shadowBlur = 0;
-			ctx.textBaseline = "alphabetic";
-			ctx.textAlign = "left";
-		},
-
-		_drawColossus(w, h, color, coreColor, t, phase) {
-			// Main body - large angular mech
-			ctx.beginPath();
-			ctx.moveTo(-w * 0.5, -h * 0.3);
-			ctx.lineTo(-w * 0.3, -h * 0.5);
-			ctx.lineTo(w * 0.35, -h * 0.4);
-			ctx.lineTo(w * 0.5, 0);
-			ctx.lineTo(w * 0.35, h * 0.4);
-			ctx.lineTo(-w * 0.3, h * 0.5);
-			ctx.lineTo(-w * 0.5, h * 0.3);
-			ctx.closePath();
-			const bg = ctx.createLinearGradient(
-				-w / 2,
-				0,
-				w / 2,
-				0,
-			);
-			bg.addColorStop(0, color);
-			bg.addColorStop(0.6, lighten(color, 40));
-			bg.addColorStop(1, "#ff3300");
-			ctx.fillStyle = bg;
-			ctx.fill();
-			ctx.strokeStyle = "#ff6600";
-			ctx.lineWidth = 2;
-			ctx.stroke();
-
-			// Arms / cannons — coordonnées centrées sur ±h*0.19 pour symétrie parfaite
-			for (let s = -1; s <= 1; s += 2) {
-				// Bras : hauteur h*0.12, centré sur s*h*0.19 → y = s*h*0.19 - h*0.06
-				ctx.fillStyle = "#443300";
-				ctx.fillRect(
-					-w * 0.5,
-					s * h * 0.19 - h * 0.06,
-					-w * 0.2,
-					h * 0.12,
-				);
-				// Embout canon : hauteur h*0.08, centré sur s*h*0.19 → y = s*h*0.19 - h*0.04
-				ctx.fillStyle = "#ff4400";
-				ctx.fillRect(
-					-w * 0.72,
-					s * h * 0.19 - h * 0.04,
-					w * 0.08,
-					h * 0.08,
-				);
-			}
-
-			// Core eye
-			const pulse = 0.6 + Math.sin(t * 4) * 0.4;
-			const cg = ctx.createRadialGradient(
-				w * 0.1,
-				0,
-				0,
-				w * 0.1,
-				0,
-				h * 0.25,
-			);
-			cg.addColorStop(0, "#ffffff");
-			cg.addColorStop(0.3, coreColor);
-			cg.addColorStop(1, `rgba(255,100,0,0)`);
-			ctx.fillStyle = cg;
-			ctx.beginPath();
-			ctx.arc(w * 0.1, 0, h * 0.25 * pulse, 0, Math.PI * 2);
-			ctx.fill();
-
-			// Phase 2: Extra energy orbs
-			if (phase >= 1) {
-				for (let i = 0; i < 4; i++) {
-					const angle = t * 2 + i * (Math.PI / 2);
-					const ox = Math.cos(angle) * w * 0.28;
-					const oy = Math.sin(angle) * h * 0.3;
-					ctx.beginPath();
-					ctx.arc(ox, oy, 6, 0, Math.PI * 2);
-					ctx.fillStyle = coreColor;
-					ctx.fill();
-				}
-			}
-		},
-
-		_drawLeviathan(w, h, color, coreColor, t, phase) {
-			// Serpentine space creature
-			ctx.beginPath();
-			ctx.ellipse(0, 0, w * 0.5, h * 0.4, 0, 0, Math.PI * 2);
-			const bg = ctx.createRadialGradient(
-				0,
-				0,
-				0,
-				0,
-				0,
-				w * 0.5,
-			);
-			bg.addColorStop(0, lighten(color, 60));
-			bg.addColorStop(0.5, color);
-			bg.addColorStop(1, "#000011");
-			ctx.fillStyle = bg;
-			ctx.fill();
-			ctx.strokeStyle = coreColor;
-			ctx.lineWidth = 2;
-			ctx.stroke();
-
-			// Tentacles
-			for (let i = 0; i < 6; i++) {
-				const angle = (i / 6) * Math.PI * 2 + t * 0.8;
-				const len = h * 0.5;
-				ctx.beginPath();
-				ctx.moveTo(
-					Math.cos(angle) * w * 0.3,
-					Math.sin(angle) * h * 0.3,
-				);
-				const midX = Math.cos(angle + 0.4) * w * 0.45;
-				const midY = Math.sin(angle + 0.4) * h * 0.45;
-				const endX = Math.cos(angle) * (w * 0.3 + len);
-				const endY =
-					Math.sin(angle) * (h * 0.3 + len * 0.7);
-				ctx.quadraticCurveTo(midX, midY, endX, endY);
-				ctx.strokeStyle = `rgba(160,0,255,0.7)`;
-				ctx.lineWidth = 4;
-				ctx.stroke();
-			}
-
-			// Central eye
-			const pulse = 0.7 + Math.sin(t * 6) * 0.3;
-			ctx.beginPath();
-			ctx.arc(0, 0, h * 0.22 * pulse, 0, Math.PI * 2);
-			const eg = ctx.createRadialGradient(
-				0,
-				0,
-				0,
-				0,
-				0,
-				h * 0.22,
-			);
-			eg.addColorStop(0, "#ffffff");
-			eg.addColorStop(0.4, coreColor);
-			eg.addColorStop(1, "rgba(100,0,200,0)");
-			ctx.fillStyle = eg;
-			ctx.fill();
-
-			if (phase >= 2) {
-				ctx.beginPath();
-				ctx.arc(0, 0, h * 0.45, 0, Math.PI * 2);
-				ctx.strokeStyle = `rgba(180,0,255,${0.3 + Math.sin(t * 8) * 0.2})`;
-				ctx.lineWidth = 3;
-				ctx.stroke();
-			}
-		},
-
-		_drawTyrant(w, h, color, coreColor, t, phase) {
-			// Massive overlord ship
-			ctx.beginPath();
-			ctx.moveTo(-w * 0.5, 0);
-			ctx.lineTo(-w * 0.2, -h * 0.5);
-			ctx.lineTo(w * 0.15, -h * 0.55);
-			ctx.lineTo(w * 0.5, -h * 0.2);
-			ctx.lineTo(w * 0.55, 0);
-			ctx.lineTo(w * 0.5, h * 0.2);
-			ctx.lineTo(w * 0.15, h * 0.55);
-			ctx.lineTo(-w * 0.2, h * 0.5);
-			ctx.closePath();
-			const bg = ctx.createLinearGradient(
-				-w / 2,
-				0,
-				w / 2,
-				0,
-			);
-			bg.addColorStop(0, "#110000");
-			bg.addColorStop(0.4, color);
-			bg.addColorStop(0.8, "#662200");
-			bg.addColorStop(1, "#ff4400");
-			ctx.fillStyle = bg;
-			ctx.fill();
-			ctx.strokeStyle = "#ffaa00";
-			ctx.lineWidth = 2;
-			ctx.stroke();
-
-			// Spine ridges
-			for (let i = -2; i <= 2; i++) {
-				ctx.fillStyle = "#551100";
-				ctx.fillRect(
-					w * 0.05 + i * 18,
-					-h * 0.12,
-					12,
-					h * 0.24,
-				);
-			}
-
-			// Multi-cannon array
-			for (let s = -2; s <= 2; s++) {
-				ctx.fillStyle = "#333333";
-				ctx.fillRect(
-					-w * 0.5,
-					s * h * 0.18 - 3,
-					-w * 0.18,
-					6,
-				);
-			}
-
-			// Core sun
-			const pulse = 0.7 + Math.sin(t * 5) * 0.3;
-			const cg = ctx.createRadialGradient(
-				w * 0.15,
-				0,
-				0,
-				w * 0.15,
-				0,
-				h * 0.3 * pulse,
-			);
-			cg.addColorStop(0, "#ffffff");
-			cg.addColorStop(0.2, "#ffff00");
-			cg.addColorStop(0.5, coreColor);
-			cg.addColorStop(1, "rgba(255,100,0,0)");
-			ctx.fillStyle = cg;
-			ctx.beginPath();
-			ctx.arc(w * 0.15, 0, h * 0.3 * pulse, 0, Math.PI * 2);
-			ctx.fill();
-
-			// Phase 2+ corona rays
-			if (phase >= 1) {
-				for (let i = 0; i < 8; i++) {
-					const angle = t * 1.5 + i * (Math.PI / 4);
-					ctx.beginPath();
-					ctx.moveTo(
-						w * 0.15 + Math.cos(angle) * h * 0.28,
-						Math.sin(angle) * h * 0.28,
-					);
-					ctx.lineTo(
-						w * 0.15 + Math.cos(angle) * h * 0.5,
-						Math.sin(angle) * h * 0.5,
-					);
-					ctx.strokeStyle = `rgba(255,200,0,${0.4 + Math.sin(t * 3 + i) * 0.3})`;
-					ctx.lineWidth = 2;
-					ctx.stroke();
-				}
-			}
-		},
-
-
-		// ── VENOM HYDRA (niveau 3 — Toxic Nebula) ───────────────────────────
-		// Corps multi-têtes organique, vert toxique avec jets d'acide
-		_drawHydra(w, h, color, coreColor, t, phase) {
-			// Corps principal — blob organique
-			ctx.beginPath();
-			ctx.ellipse(0, 0, w * 0.45, h * 0.35, 0, 0, Math.PI * 2);
-			const bg = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.45);
-			bg.addColorStop(0, lighten(color, 50));
-			bg.addColorStop(0.5, color);
-			bg.addColorStop(1, "#000a00");
-			ctx.fillStyle = bg;
-			ctx.fill();
-			ctx.strokeStyle = coreColor;
-			ctx.lineWidth = 2;
-			ctx.stroke();
-
-			// 3 têtes (cols serpentins)
-			const headAngles = [-0.55, 0, 0.55];
-			headAngles.forEach((angle, i) => {
-				const wobble = Math.sin(t * 2.5 + i * 1.2) * 0.25;
-				const a = angle + wobble;
-				const neckLen = w * 0.38;
-				const hx = Math.cos(a) * neckLen * 1.05;
-				const hy = Math.sin(a) * neckLen * 0.7;
-				// Col
-				ctx.beginPath();
-				ctx.moveTo(Math.cos(a) * w * 0.25, Math.sin(a) * h * 0.2);
-				ctx.quadraticCurveTo(hx * 0.6, hy * 0.6 + Math.sin(t * 3 + i) * 15, hx, hy);
-				ctx.strokeStyle = lighten(color, 30);
-				ctx.lineWidth = 10;
-				ctx.stroke();
-				ctx.strokeStyle = coreColor;
-				ctx.lineWidth = 3;
-				ctx.stroke();
-				// Tête
-				ctx.beginPath();
-				ctx.ellipse(hx, hy, w * 0.1, h * 0.09, a, 0, Math.PI * 2);
-				ctx.fillStyle = lighten(color, 60);
-				ctx.fill();
-				ctx.strokeStyle = coreColor;
-				ctx.lineWidth = 1.5;
-				ctx.stroke();
-				// Œil
-				const pulse = 0.7 + Math.sin(t * 5 + i) * 0.3;
-				ctx.beginPath();
-				ctx.arc(hx + Math.cos(a) * 6, hy + Math.sin(a) * 4, 5 * pulse, 0, Math.PI * 2);
-				ctx.fillStyle = coreColor;
-				ctx.fill();
-			});
-
-			// Noyau central pulsant
-			const pulse = 0.6 + Math.sin(t * 6) * 0.4;
-			const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, h * 0.2);
-			cg.addColorStop(0, "#ffffff");
-			cg.addColorStop(0.3, coreColor);
-			cg.addColorStop(1, "rgba(0,200,80,0)");
-			ctx.fillStyle = cg;
-			ctx.beginPath();
-			ctx.arc(0, 0, h * 0.2 * pulse, 0, Math.PI * 2);
-			ctx.fill();
-
-			// Phase 2 : bulles acides orbitales
-			if (phase >= 1) {
-				for (let i = 0; i < 5; i++) {
-					const a = t * 1.8 + i * (Math.PI * 2 / 5);
-					ctx.beginPath();
-					ctx.arc(Math.cos(a) * w * 0.32, Math.sin(a) * h * 0.28, 7, 0, Math.PI * 2);
-					ctx.fillStyle = `rgba(0,255,100,${0.5 + Math.sin(t * 4 + i) * 0.3})`;
-					ctx.fill();
-				}
-			}
-		},
-
-		// ── ICE WRAITH (niveau 4 — Crystal Abyss) ───────────────────────────
-		// Fantôme cristallin semi-transparent, cyan glacial
-		_drawWraith(w, h, color, coreColor, t, phase) {
-			// Manteau fantôme ondulant
-			ctx.save();
-			ctx.globalAlpha = 0.7 + Math.sin(t * 3) * 0.15;
-			ctx.beginPath();
-			ctx.moveTo(-w * 0.5, -h * 0.1);
-			for (let i = 0; i <= 20; i++) {
-				const px = -w * 0.5 + (w * i / 20);
-				const wave = Math.sin(t * 4 + i * 0.7) * h * 0.12;
-				ctx.lineTo(px, (i % 2 === 0 ? -h * 0.45 : -h * 0.25) + wave);
-			}
-			ctx.lineTo(w * 0.5, h * 0.1);
-			for (let i = 20; i >= 0; i--) {
-				const px = -w * 0.5 + (w * i / 20);
-				const wave = Math.sin(t * 4 + i * 0.7 + 2) * h * 0.12;
-				ctx.lineTo(px, (i % 2 === 0 ? h * 0.45 : h * 0.25) + wave);
-			}
-			ctx.closePath();
-			const bg = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-			bg.addColorStop(0, color);
-			bg.addColorStop(0.5, lighten(color, 50));
-			bg.addColorStop(1, coreColor);
-			ctx.fillStyle = bg;
-			ctx.fill();
-			ctx.strokeStyle = coreColor;
-			ctx.lineWidth = 2;
-			ctx.stroke();
-			ctx.restore();
-
-			// Cristaux flottants
-			for (let i = 0; i < 6; i++) {
-				const a = t * 1.2 + i * (Math.PI / 3);
-				const r = w * 0.32 + Math.sin(t * 2 + i) * w * 0.06;
-				const cx2 = Math.cos(a) * r;
-				const cy2 = Math.sin(a) * r * 0.65;
-				ctx.save();
-				ctx.translate(cx2, cy2);
-				ctx.rotate(a + t);
-				ctx.beginPath();
-				ctx.moveTo(0, -9);
-				ctx.lineTo(5, 0);
-				ctx.lineTo(0, 9);
-				ctx.lineTo(-5, 0);
-				ctx.closePath();
-				ctx.fillStyle = `rgba(0,200,255,${0.55 + Math.sin(t * 3 + i) * 0.25})`;
-				ctx.fill();
-				ctx.strokeStyle = "#88eeff";
-				ctx.lineWidth = 1;
-				ctx.stroke();
-				ctx.restore();
-			}
-
-			// Noyau de glace
-			const pulse = 0.65 + Math.sin(t * 7) * 0.35;
-			const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, h * 0.22);
-			cg.addColorStop(0, "#ffffff");
-			cg.addColorStop(0.35, coreColor);
-			cg.addColorStop(1, "rgba(0,100,200,0)");
-			ctx.fillStyle = cg;
-			ctx.beginPath();
-			ctx.arc(0, 0, h * 0.22 * pulse, 0, Math.PI * 2);
-			ctx.fill();
-
-			// Phase 2 : anneau de glace
-			if (phase >= 1) {
-				ctx.beginPath();
-				ctx.arc(0, 0, w * 0.48, 0, Math.PI * 2);
-				ctx.strokeStyle = `rgba(0,220,255,${0.3 + Math.sin(t * 5) * 0.2})`;
-				ctx.lineWidth = 4;
-				ctx.stroke();
-			}
-		},
-
-		// ── VOID HERALD (niveau 5 — Phantom Void) ───────────────────────────
-		// Entité dimensionnelle, spirales violettes, portails
-		_drawHerald(w, h, color, coreColor, t, phase) {
-			// Anneau portail rotatif extérieur
-			ctx.save();
-			ctx.rotate(t * 0.6);
-			ctx.beginPath();
-			ctx.arc(0, 0, w * 0.5, 0, Math.PI * 2);
-			ctx.strokeStyle = `rgba(160,0,255,${0.35 + Math.sin(t * 4) * 0.15})`;
-			ctx.lineWidth = 6;
-			ctx.stroke();
-			for (let i = 0; i < 8; i++) {
-				const a = i * Math.PI / 4;
-				ctx.beginPath();
-				ctx.moveTo(Math.cos(a) * w * 0.42, Math.sin(a) * w * 0.42);
-				ctx.lineTo(Math.cos(a) * w * 0.5, Math.sin(a) * w * 0.5);
-				ctx.strokeStyle = coreColor;
-				ctx.lineWidth = 3;
-				ctx.stroke();
-			}
-			ctx.restore();
-
-			// Corps central — sphère void
-			ctx.beginPath();
-			ctx.arc(0, 0, w * 0.32, 0, Math.PI * 2);
-			const bg = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.32);
-			bg.addColorStop(0, lighten(color, 80));
-			bg.addColorStop(0.4, color);
-			bg.addColorStop(1, "#000000");
-			ctx.fillStyle = bg;
-			ctx.fill();
-			ctx.strokeStyle = coreColor;
-			ctx.lineWidth = 2;
-			ctx.stroke();
-
-			// Spirales énergétiques
-			for (let s = 0; s < 3; s++) {
-				ctx.beginPath();
-				const startA = t * 2.5 + s * (Math.PI * 2 / 3);
-				for (let i = 0; i < 30; i++) {
-					const a = startA + i * 0.22;
-					const r = (i / 30) * w * 0.42;
-					const px = Math.cos(a) * r;
-					const py = Math.sin(a) * r * 0.85;
-					if (i === 0) ctx.moveTo(px, py);
-					else ctx.lineTo(px, py);
-				}
-				ctx.strokeStyle = `rgba(180,0,255,${0.6 - s * 0.15})`;
-				ctx.lineWidth = 2.5 - s * 0.5;
-				ctx.stroke();
-			}
-
-			// Noyau pulsant
-			const pulse = 0.6 + Math.sin(t * 8) * 0.4;
-			const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, h * 0.2);
-			cg.addColorStop(0, "#ffffff");
-			cg.addColorStop(0.25, coreColor);
-			cg.addColorStop(1, "rgba(100,0,200,0)");
-			ctx.fillStyle = cg;
-			ctx.beginPath();
-			ctx.arc(0, 0, h * 0.2 * pulse, 0, Math.PI * 2);
-			ctx.fill();
-
-			// Phase 2 : mini portails orbitaux
-			if (phase >= 1) {
-				for (let i = 0; i < 4; i++) {
-					const a = -t * 1.5 + i * (Math.PI / 2);
-					const ox = Math.cos(a) * w * 0.38;
-					const oy = Math.sin(a) * h * 0.33;
-					ctx.beginPath();
-					ctx.ellipse(ox, oy, 10, 7, a, 0, Math.PI * 2);
-					ctx.strokeStyle = `rgba(200,100,255,0.7)`;
-					ctx.lineWidth = 2;
-					ctx.stroke();
-					ctx.fillStyle = `rgba(100,0,200,0.4)`;
-					ctx.fill();
-				}
-			}
-		},
-
-		// ── OMEGA DREADNOUGHT (niveau 6 — Omega Fortress) ───────────────────
-		// Vaisseau cuirassé massif, rouge-acier, plaques blindées
-		_drawDreadnought(w, h, color, coreColor, t, phase) {
-			// Hull principal — silhouette cuirassée
-			ctx.beginPath();
-			ctx.moveTo(-w * 0.55, 0);
-			ctx.lineTo(-w * 0.35, -h * 0.52);
-			ctx.lineTo(w * 0.1,  -h * 0.58);
-			ctx.lineTo(w * 0.55, -h * 0.25);
-			ctx.lineTo(w * 0.62,  0);
-			ctx.lineTo(w * 0.55,  h * 0.25);
-			ctx.lineTo(w * 0.1,   h * 0.58);
-			ctx.lineTo(-w * 0.35,  h * 0.52);
-			ctx.closePath();
-			const bg = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-			bg.addColorStop(0, "#0a0000");
-			bg.addColorStop(0.3, color);
-			bg.addColorStop(0.7, lighten(color, 30));
-			bg.addColorStop(1, coreColor);
-			ctx.fillStyle = bg;
-			ctx.fill();
-			ctx.strokeStyle = "#ff4400";
-			ctx.lineWidth = 2;
-			ctx.stroke();
-
-			// Plaques blindées
-			const plates = [
-				[-w * 0.15, -h * 0.35, w * 0.45, h * 0.28],
-				[-w * 0.15,  h * 0.07, w * 0.45, h * 0.28],
-			];
-			plates.forEach(([px, py, pw, ph]) => {
-				ctx.fillStyle = "rgba(0,0,0,0.35)";
-				ctx.fillRect(px, py, pw, ph);
-				ctx.strokeStyle = "#662200";
-				ctx.lineWidth = 1;
-				ctx.strokeRect(px, py, pw, ph);
-			});
-
-			// 4 canons latéraux
-			for (let s = -1; s <= 1; s += 2) {
-				// Canon supérieur / inférieur
-				ctx.fillStyle = "#111111";
-				ctx.fillRect(-w * 0.55, s * h * 0.28 - 5, -w * 0.22, 10);
-				// Embout
-				const flash = phase >= 2 ? 0.5 + Math.sin(t * 12) * 0.5 : 0;
-				ctx.fillStyle = `rgba(255,80,0,${flash})`;
-				ctx.fillRect(-w * 0.78, s * h * 0.28 - 4, 6, 8);
-			}
-
-			// Spine centrale
-			ctx.fillStyle = "#1a0000";
-			ctx.fillRect(-w * 0.05, -h * 0.5, w * 0.25, h);
-			for (let i = -3; i <= 3; i++) {
-				ctx.fillStyle = "#330000";
-				ctx.fillRect(w * 0.08 + i * 14, -h * 0.08, 10, h * 0.16);
-			}
-
-			// Réacteur central — double noyau
-			const pulse = 0.65 + Math.sin(t * 5) * 0.35;
-			for (let i = 0; i < 2; i++) {
-				const oy = (i - 0.5) * h * 0.25;
-				const cg = ctx.createRadialGradient(w * 0.2, oy, 0, w * 0.2, oy, h * 0.14 * pulse);
-				cg.addColorStop(0, "#ffffff");
-				cg.addColorStop(0.2, "#ffaa00");
-				cg.addColorStop(0.5, coreColor);
-				cg.addColorStop(1, "rgba(200,0,0,0)");
-				ctx.fillStyle = cg;
-				ctx.beginPath();
-				ctx.arc(w * 0.2, oy, h * 0.14 * pulse, 0, Math.PI * 2);
-				ctx.fill();
-			}
-
-			// Phase 2 : bouclier énergétique rotatif
-			if (phase >= 1) {
-				ctx.save();
-				ctx.rotate(t * 1.2);
-				ctx.beginPath();
-				ctx.arc(0, 0, w * 0.56, 0, Math.PI * 2);
-				ctx.strokeStyle = `rgba(255,60,0,${0.25 + Math.sin(t * 6) * 0.15})`;
-				ctx.lineWidth = 5;
-				ctx.setLineDash([20, 15]);
-				ctx.stroke();
-				ctx.setLineDash([]);
-				ctx.restore();
-			}
-
-			// Phase 3 : segments blindés additionnels
-			if (phase >= 2) {
-				for (let i = 0; i < 6; i++) {
-					const a = t * 2 + i * (Math.PI / 3);
-					const ox = Math.cos(a) * w * 0.45;
-					const oy = Math.sin(a) * h * 0.38;
-					ctx.beginPath();
-					ctx.arc(ox, oy, 7, 0, Math.PI * 2);
-					ctx.fillStyle = `rgba(255,100,0,${0.5 + Math.sin(t * 4 + i) * 0.3})`;
-					ctx.fill();
-				}
-			}
-		},
-
-		_drawShielder(e, t) {
-			const { w, h } = e;
-			// Body — hexagonal blue-steel
-			ctx.beginPath();
-			for (let i = 0; i < 6; i++) {
-				const a = (i / 6) * Math.PI * 2 - Math.PI / 6;
-				const r = w * 0.5;
-				i === 0 ? ctx.moveTo(Math.cos(a)*r, Math.sin(a)*r)
-						: ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
-			}
-			ctx.closePath();
-			const sg = ctx.createLinearGradient(-w/2,0,w/2,0);
-			sg.addColorStop(0, "#003366");
-			sg.addColorStop(0.5, "#0055aa");
-			sg.addColorStop(1, "#0088ff");
-			ctx.fillStyle = sg;
-			ctx.fill();
-			ctx.strokeStyle = "#44aaff";
-			ctx.lineWidth = 2;
-			ctx.stroke();
-			// Shield arc in front
-			if (e.shieldActive) {
-				const sa = 0.6 + Math.sin(t * 5) * 0.25;
-				ctx.beginPath();
-				ctx.arc(-w * 0.1, 0, e.shieldRadius || 55, -Math.PI * 0.55, Math.PI * 0.55);
-				ctx.strokeStyle = `rgba(80,160,255,${sa})`;
-				ctx.lineWidth = 4;
-				ctx.stroke();
-				// Shield glow fill
-				const shg = ctx.createRadialGradient(-w*0.1,0,0,-w*0.1,0,e.shieldRadius||55);
-				shg.addColorStop(0, `rgba(80,160,255,0)`);
-				shg.addColorStop(0.7, `rgba(80,160,255,0)`);
-				shg.addColorStop(1, `rgba(80,160,255,${sa*0.18})`);
-				ctx.fillStyle = shg;
-				ctx.beginPath();
-				ctx.arc(-w*0.1,0,e.shieldRadius||55,-Math.PI*0.55,Math.PI*0.55);
-				ctx.lineTo(-w*0.1,0);
-				ctx.closePath();
-				ctx.fill();
-			}
-			// Core light
-			const cl = ctx.createRadialGradient(0,0,0,0,0,w*0.25);
-			cl.addColorStop(0,"rgba(150,220,255,0.9)");
-			cl.addColorStop(1,"rgba(0,100,255,0)");
-			ctx.fillStyle = cl;
-			ctx.beginPath();
-			ctx.arc(0,0,w*0.25,0,Math.PI*2);
-			ctx.fill();
-		},
-
-		drawBullets(bullets, combo, rageMode) {
-			// Player bullets
-			for (const b of bullets.playerBullets) {
-				if (b.dead) continue;
-				ctx.save();
-				ctx.translate(b.x, b.y);
-
-				if (b.isMega) {
-					const mg = ctx.createRadialGradient(
-						0,
-						0,
-						0,
-						0,
-						0,
-						12,
-					);
-					mg.addColorStop(0, "#ffffff");
-					mg.addColorStop(0.4, "#ff6600");
-					mg.addColorStop(1, "rgba(255,0,0,0)");
-					ctx.fillStyle = mg;
-					ctx.beginPath();
-					ctx.arc(0, 0, 12, 0, Math.PI * 2);
-					ctx.fill();
-				} else {
-					// Glow
-					const gg = ctx.createRadialGradient(
-						0,
-						0,
-						0,
-						0,
-						0,
-						10,
-					);
-					gg.addColorStop(0, b.glowColor || "#ff9900");
-					gg.addColorStop(1, "rgba(255,100,0,0)");
-					ctx.fillStyle = gg;
-					ctx.fillRect(-10, -8, 20, 16);
-
-					// Combo bullet effects
-					const _cb = combo || 0;
-					if (rageMode && _cb >= MAX_COMBO_RAGE && !b.homing) {
-						const _ct = _cb >= 12 ? "#ff3300"
-								  : _cb >= 8  ? "#ff8800"
-								  : "#ffdd00";
-						// Trail
-						const tg = ctx.createLinearGradient(-b.w, 0, 0, 0);
-						tg.addColorStop(0, "rgba(0,0,0,0)");
-						tg.addColorStop(1, _ct + "99");
-						ctx.fillStyle = tg;
-						ctx.fillRect(-b.w * 1.8, -b.h * 0.5, b.w * 1.8, b.h);
-						// Wider glow for high combos
-						if (_cb >= 8) {
-							ctx.globalAlpha = 0.35;
-							ctx.fillStyle = _ct;
-							ctx.beginPath();
-							ctx.arc(0, 0, b.h * 1.4, 0, Math.PI * 2);
-							ctx.fill();
-							ctx.globalAlpha = 1;
-						}
-					}
-					// Bullet
-					const bGrad = ctx.createLinearGradient(
-						-b.w / 2,
-						0,
-						b.w / 2,
-						0,
-					);
-					const _bc = (rageMode && combo >= MAX_COMBO_RAGE && !b.homing)
-						? (combo >= 12 ? "#ff4400" : combo >= 8 ? "#ffbb00" : "#ffee44")
-						: (b.color || "#ff9900");
-					bGrad.addColorStop(0, "rgba(255,100,0,0)");
-					bGrad.addColorStop(0.3, _bc);
-					bGrad.addColorStop(1, "#ffffff");
-					ctx.fillStyle = bGrad;
-					ctx.beginPath();
-					ctx.ellipse(
-						0,
-						0,
-						b.w / 2,
-						b.h / 2,
-						0,
-						0,
-						Math.PI * 2,
-					);
-					ctx.fill();
-				}
-
-				ctx.restore();
-			}
-
-			// Enemy bullets
-			for (const b of bullets.enemyBullets) {
-				if (b.dead) continue;
-				ctx.save();
-				ctx.translate(b.x, b.y);
-				const eg = ctx.createRadialGradient(
-					0,
-					0,
-					0,
-					0,
-					0,
-					b.w,
-				);
-				eg.addColorStop(0, "#ffffff");
-				eg.addColorStop(0.4, b.color || "#ff4400");
-				eg.addColorStop(1, "rgba(255,0,0,0)");
-				ctx.fillStyle = eg;
-				ctx.beginPath();
-				ctx.arc(0, 0, b.w / 2, 0, Math.PI * 2);
-				ctx.fill();
-				ctx.restore();
-			}
-		},
-
-		drawParticles(list) {
-			for (const p of list) {
-				const alpha = Math.max(
-					0,
-					p.life / (p.maxLife || 0.8),
-				);
-				const cidx = Math.floor(
-					(1 - alpha) * (p.colors.length - 1),
-				);
-				const color =
-					p.colors[Math.min(cidx, p.colors.length - 1)];
-				ctx.globalAlpha = alpha;
-				ctx.fillStyle = color;
-				ctx.beginPath();
-				ctx.arc(
-					p.x,
-					p.y,
-					Math.max(0.5, p.r * alpha),
-					0,
-					Math.PI * 2,
-				);
-				ctx.fill();
-			}
-			ctx.globalAlpha = 1;
-		},
-
-		drawMeteors(meteors) {
-			for (const mt of meteors) {
-				ctx.save();
-				ctx.translate(mt.x, mt.y);
-				ctx.rotate(mt.angle);
-				// Rock body
-				ctx.beginPath();
-				const pts = 7;
-				for (let i = 0; i < pts; i++) {
-					const a = (i / pts) * Math.PI * 2;
-					const jitter = 0.75 + Math.sin(a * 3.7 + mt.r) * 0.25;
-					const r = mt.r * jitter;
-					i === 0 ? ctx.moveTo(Math.cos(a)*r, Math.sin(a)*r)
-							: ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
-				}
-				ctx.closePath();
-				const mg = ctx.createRadialGradient(0,0,0, 0,0, mt.r);
-				mg.addColorStop(0,   "#aa8866");
-				mg.addColorStop(0.5, "#776655");
-				mg.addColorStop(1,   "#443322");
-				ctx.fillStyle = mg;
-				ctx.fill();
-				ctx.strokeStyle = "#554433";
-				ctx.lineWidth = 1.5;
-				ctx.stroke();
-				// Fire trail behind
-				const tg = ctx.createLinearGradient(mt.r, 0, mt.r * 3.5, 0);
-				tg.addColorStop(0, "rgba(255,120,0,0.7)");
-				tg.addColorStop(0.4, "rgba(255,60,0,0.3)");
-				tg.addColorStop(1, "rgba(255,0,0,0)");
-				ctx.fillStyle = tg;
-				ctx.beginPath();
-				ctx.ellipse(mt.r * 2, 0, mt.r * 1.5, mt.r * 0.45, 0, 0, Math.PI*2);
-				ctx.fill();
-				ctx.restore();
-			}
-		},
-
-		drawDangerZones(zones, t) {
-			if (!zones || !zones.length) return;
-			for (const z of zones) {
-				const spin  = t * 1.2 + z.phase;
-				const pulse = 0.92 + Math.sin(t * 5 + z.phase) * 0.08;
-				const r = z.r * pulse;
-
-				// ── Debris & particles being sucked in ────────────────
-				// Draw 8 small debris spiraling toward center
-				ctx.save();
-				ctx.translate(z.x, z.y);
-				for (let d = 0; d < 8; d++) {
-					const da = spin * (1 + d * 0.15) + d * (Math.PI * 2 / 8);
-					const distFrac = 0.4 + ((t * 0.3 + d * 0.125) % 1) * 0.6; // 0=center,1=far
-					const dist = r * (1.2 + distFrac * 2.2);
-					const dx = Math.cos(da) * dist;
-					const dy = Math.sin(da) * dist * 0.5; // slightly elliptical
-					const ds = Math.max(1, 4 * (1 - distFrac * 0.6)); // shrinks toward center
-					const da2 = 0.2 + distFrac * 0.7;
-					ctx.fillStyle = `rgba(180,120,255,${da2})`;
-					ctx.beginPath();
-					ctx.arc(dx, dy, ds, 0, Math.PI * 2);
-					ctx.fill();
-				}
-				ctx.restore();
-
-				// ── Suction spiral streams ────────────────────────────
-				ctx.save();
-				ctx.translate(z.x, z.y);
-				for (let s = 0; s < 4; s++) {
-					ctx.beginPath();
-					const baseAngle = spin + s * (Math.PI / 2);
-					for (let step = 0; step <= 40; step++) {
-						const frac = step / 40;
-						const spiralR = r * (0.25 + frac * 2.8);
-						const spiralA = baseAngle + frac * Math.PI * 3;
-						const sx = Math.cos(spiralA) * spiralR;
-						const sy = Math.sin(spiralA) * spiralR * 0.7;
-						step === 0 ? ctx.moveTo(sx, sy) : ctx.lineTo(sx, sy);
-					}
-					const alpha = 0.15 + (s % 2) * 0.15;
-					ctx.strokeStyle = `rgba(140,60,255,${alpha})`;
-					ctx.lineWidth = 1.2;
-					ctx.stroke();
-				}
-				ctx.restore();
-
-				// ── Wide gravitational distortion haze ────────────────
-				const haze = ctx.createRadialGradient(z.x, z.y, r*0.3, z.x, z.y, r*3.8);
-				haze.addColorStop(0,    "rgba(0,0,0,0.85)");
-				haze.addColorStop(0.25, "rgba(30,0,60,0.5)");
-				haze.addColorStop(0.55, "rgba(60,0,100,0.25)");
-				haze.addColorStop(1,    "rgba(0,0,0,0)");
-				ctx.fillStyle = haze;
-				ctx.beginPath();
-				ctx.arc(z.x, z.y, r * 3.8, 0, Math.PI * 2);
-				ctx.fill();
-
-				// ── Accretion disk — hot glowing ring ─────────────────
-				const disk = ctx.createRadialGradient(z.x, z.y, r*0.85, z.x, z.y, r*1.6);
-				disk.addColorStop(0,    "rgba(255,200,255,0.0)");
-				disk.addColorStop(0.3,  "rgba(200,80,255,0.85)");
-				disk.addColorStop(0.6,  "rgba(120,0,200,0.55)");
-				disk.addColorStop(1,    "rgba(0,0,60,0)");
-				ctx.save();
-				ctx.translate(z.x, z.y);
-				ctx.scale(1, 0.38); // flatten into disk shape
-				ctx.fillStyle = disk;
-				ctx.beginPath();
-				ctx.arc(0, 0, r * 1.6, 0, Math.PI * 2);
-				ctx.fill();
-				ctx.restore();
-
-				// ── Absolute black core ────────────────────────────────
-				const coreR = r * 0.78;
-				const cg = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, coreR);
-				cg.addColorStop(0,   "rgba(0,0,0,1)");
-				cg.addColorStop(0.7, "rgba(0,0,0,1)");
-				cg.addColorStop(0.9, "rgba(10,0,20,0.95)");
-				cg.addColorStop(1,   "rgba(0,0,0,0)");
-				ctx.fillStyle = cg;
-				ctx.beginPath();
-				ctx.arc(z.x, z.y, coreR, 0, Math.PI * 2);
-				ctx.fill();
-
-				// ── Event horizon bright rim ───────────────────────────
-				const rimPulse = 0.7 + Math.sin(t * 8 + z.phase) * 0.3;
-				ctx.beginPath();
-				ctx.arc(z.x, z.y, r * 0.82, 0, Math.PI * 2);
-				ctx.strokeStyle = `rgba(220,160,255,${rimPulse * 0.95})`;
-				ctx.lineWidth = 2.5;
-				ctx.stroke();
-				// Second thinner ring
-				ctx.beginPath();
-				ctx.arc(z.x, z.y, r * 1.02, 0, Math.PI * 2);
-				ctx.strokeStyle = `rgba(180,80,255,${rimPulse * 0.5})`;
-				ctx.lineWidth = 1.2;
-				ctx.stroke();
-			}
-		},
-
-		drawPowerUps(list) {
-			for (const pu of list) {
-				if (pu.collected) continue;
-				ctx.save();
-				ctx.translate(pu.x, pu.y);
-				const pulse = 1 + Math.sin(pu.animT * 4) * 0.15;
-				ctx.scale(pulse, pulse);
-
-				// Glow
-				const gg = ctx.createRadialGradient(
-					0,
-					0,
-					0,
-					0,
-					0,
-					22,
-				);
-				gg.addColorStop(0, pu.color + "aa");
-				gg.addColorStop(1, "rgba(0,0,0,0)");
-				ctx.fillStyle = gg;
-				ctx.fillRect(-22, -22, 44, 44);
-
-				// Box
-				ctx.fillStyle = "rgba(0,0,0,0.7)";
-				ctx.strokeStyle = pu.color;
-				ctx.lineWidth = 2;
-				ctx.beginPath();
-				ctx.rect(-11, -11, 22, 22);
-				ctx.fill();
-				ctx.stroke();
-
-				// Icon (letter)
-				ctx.fillStyle = pu.color;
-				ctx.font = "bold 12px monospace";
-				ctx.textAlign = "center";
-				ctx.textBaseline = "middle";
-				const icons = {
-					fire: "F",
-					shield: "S",
-					homing: "H",
-					speed: "V",
-					mega: "M",
-					life: "+",
-				};
-				ctx.fillText(icons[pu.type] || "?", 0, 0);
-				ctx.textAlign = "left";
-				ctx.textBaseline = "alphabetic";
-
-				ctx.restore();
-			}
-		},
-
-		drawMessages(messages, t) {
-			for (const m of messages) {
-				const alpha = Math.min(1, m.life * 2);
-				ctx.globalAlpha = alpha;
-				ctx.font = `bold ${m.size}px monospace`;
-				ctx.textAlign = "center";
-				// Ombre via shadowBlur — évite tout doublon d'emoji
-				ctx.shadowColor = "rgba(0,0,0,0.9)";
-				ctx.shadowBlur  = 4;
-				ctx.shadowOffsetX = 2;
-				ctx.shadowOffsetY = 2;
-				ctx.fillStyle = m.color;
-				ctx.fillText(m.text, m.x, m.y);
-				// Reset shadow
-				ctx.shadowColor = "transparent";
-				ctx.shadowBlur  = 0;
-				ctx.shadowOffsetX = 0;
-				ctx.shadowOffsetY = 0;
-				ctx.textAlign = "left";
-				ctx.globalAlpha = 1;
-			}
-		},
-	};
+// ── Skins robot ────────────────────────────────────────────────
+const ROBOT_SKINS = [
+    { id:0, fr:"Classique",  en:"Classic",     c1:"#ffe060",c2:"#ffaa00",c3:"#cc7700", req:0  },
+    { id:1, fr:"Glace Bleue",en:"Ice Blue",    c1:"#88eeff",c2:"#2299cc",c3:"#115577", req:5  },
+    { id:2, fr:"Robot Feu",  en:"Fire Robot",  c1:"#ff8844",c2:"#ff2200",c3:"#880000", req:15 },
+    { id:3, fr:"Néon Vert",  en:"Neon Green",  c1:"#aaffaa",c2:"#22cc00",c3:"#005500", req:30 },
+    { id:4, fr:"Galaxie",    en:"Galaxy",      c1:"#dd88ff",c2:"#8800cc",c3:"#220044", req:50 },
+];
+const TRAIL_COLORS = [
+    { id:0, fr:"Bleu",       en:"Blue",    col:"#4499ff", req:0  },
+    { id:1, fr:"Feu Orange", en:"Fire",    col:"#ff6600", req:8  },
+    { id:2, fr:"Rose Élec.", en:"Pink",    col:"#ff44cc", req:20 },
+    { id:3, fr:"Or Doré",    en:"Gold",    col:"#ffdd00", req:35 },
+];
+window.selectSkin = function(id) {
+    sd.activeSkin = id; save();
+    window.openDC && window.openDC();
+};
+window.selectTrail = function(id) {
+    sd.activeTrail = id; save();
+    window.openDC && window.openDC();
+};
+function getDailyKey() {
+    const d = new Date();
+    return (
+        d.getFullYear() +
+        "-" +
+        (d.getMonth() + 1).toString().padStart(2, "0") +
+        "-" +
+        d.getDate().toString().padStart(2, "0")
+    );
+}
+function getDailyChallenges() {
+    const key = getDailyKey();
+    if (sd.dcKey === key && sd.dcIds && sd.dcIds.length === 3)
+        return sd.dcIds
+            .map((id) => DC_POOL.find((c) => c.id === id))
+            .filter(Boolean);
+    let seed = 0;
+    for (let i = 0; i < key.length; i++)
+        seed = (seed * 31 + key.charCodeAt(i)) >>> 0;
+    const rng = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        return seed / 0xffffffff;
+    };
+    const sh = [...DC_POOL].sort(() => rng() - 0.5);
+    // Pick 3 from distinct thirds for diversity
+    const picks = [
+        sh[0],
+        sh[Math.floor(sh.length / 3)],
+        sh[Math.floor((sh.length * 2) / 3)],
+    ];
+    sd.dcKey = key;
+    sd.dcIds = picks.map((c) => c.id);
+    if (!sd.dcDone) sd.dcDone = {};
+    save();
+    return picks;
+}
+let gamesPlayedToday = 0;
+let runDistNoJet = 0; // longest stretch without jetpack in current run
+let jetWasOn = false;
+let runMaxDistNoJet = 0,
+    distNoJetStart = 0;
+
+function checkDailyChallenges() {
+    const challenges = getDailyChallenges();
+    const key = getDailyKey();
+    if (!sd.dcDone) sd.dcDone = {};
+    if (!sd.dcDone[key]) sd.dcDone[key] = [];
+    const vals = {
+        dist: distM,
+        runStars,
+        runBoosts,
+        runRings,
+        runChests,
+        runHits,
+        runMeteorsDodged,
+        gamesPlayedToday,
+        bestComboRun: comboMax,
+        distNoJet: runMaxDistNoJet,
+    };
+    challenges.forEach((ch) => {
+        if (sd.dcDone[key].includes(ch.id)) return;
+        const v = vals[ch.type] ?? 0;
+        const done = ch.type === "runHits" ? v === 0 : v >= ch.val;
+        if (done) {
+            sd.dcDone[key].push(ch.id);
+            sd.money += ch.reward;
+            sd.totalCoins = (sd.totalCoins || 0) + ch.reward;
+            sd.dcTotalDone = (sd.dcTotalDone || 0) + 1;
+            const lang = sd.lang || "fr";
+            const _dt = sd.dcTotalDone;
+            const _ns = ROBOT_SKINS.find(s => s.req === _dt);
+            if (_ns) queueToast({0:"🎨",1:"🎨",2:"SKIN DÉBLOQUÉ !",3:"SKIN UNLOCKED!",4:(lang==="fr"?_ns.fr:_ns.en),5:"Sélectionne dans Défis"});
+            const _nt = TRAIL_COLORS.find(t => t.req === _dt);
+            if (_nt) queueToast({0:"✨",1:"✨",2:"TRAÎNÉE DÉBLOQUÉE !",3:"TRAIL UNLOCKED!",4:_nt.fr,5:"Sélectionne dans Défis"});
+            save();
+            queueToast({
+                0: ch.icon,
+                1: ch.icon,
+                2: "DÉFI DU JOUR !",
+                3: "DAILY CHALLENGE!",
+                4: lang === "en" ? ch.en : ch.fr,
+                5: "+" + ch.reward + " $",
+            });
+        }
+    });
 }
 
-function lighten(hex, amount) {
-	const num = parseInt(hex.replace("#", ""), 16);
-	const r = Math.min(255, (num >> 16) + amount);
-	const g = Math.min(255, ((num >> 8) & 0xff) + amount);
-	const b = Math.min(255, (num & 0xff) + amount);
-	return `rgb(${r},${g},${b})`;
+function openDC() {
+    gs = "dc";
+    show("dcDiv");
+    const lang = sd.lang || "fr";
+    const chs = getDailyChallenges();
+    const key = getDailyKey();
+    const done = (sd.dcDone && sd.dcDone[key]) || [];
+    document.getElementById("dcTitle").textContent =
+        "📅 " + (lang === "en" ? "DAILY CHALLENGES" : "DÉFIS DU JOUR");
+    document.getElementById("dcDate").textContent = getDailyKey();
+    const cont = document.getElementById("dcContent");
+    cont.innerHTML = "";
+    chs.forEach((ch) => {
+        const isDone = done.includes(ch.id);
+        const row = document.createElement("div");
+        row.className = "dc-row" + (isDone ? " dc-done" : "");
+        row.innerHTML = `<span class="dc-icon">${ch.icon}</span><div class="dc-info"><div class="dc-name">${lang === "en" ? ch.en : ch.fr}</div><div class="dc-reward">💰 +${ch.reward} $</div></div><div class="dc-check">${isDone ? "✓" : ""}</div>`;
+        cont.appendChild(row);
+    });
+    // ── Sélecteur cosmétiques ──────────────────────────────────
+    const totalDone = sd.dcTotalDone || 0;
+    const cosmEl = document.getElementById("dcCosm");
+    cosmEl.innerHTML = `<div class="dc-section-hdr">🎨 COSMÉTIQUES — ${totalDone} défis complétés</div>`;
+    const skinDiv = document.createElement("div");
+    skinDiv.innerHTML = `<div style="font-size:9px;color:#88aacc;margin:6px 0 3px">${lang==="fr"?"SKINS ROBOT :":"ROBOT SKINS:"}</div>`;
+    ROBOT_SKINS.forEach(sk => {
+        const unlocked = totalDone >= sk.req;
+        const active = (sd.activeSkin||0) === sk.id;
+        const btn = document.createElement("button");
+        btn.className = "cosm-btn";
+        btn.style.cssText = `background:${unlocked?(active?sk.c2+"99":sk.c2+"33"):"#111"};border-color:${unlocked?sk.c2:"#333"};color:${unlocked?sk.c1:"#444"};font-weight:${active?"bold":"normal"}`;
+        btn.textContent = (unlocked?"":"🔒")+(lang==="fr"?sk.fr:sk.en)+(unlocked?"":" ("+sk.req+")");
+        btn.disabled = !unlocked;
+        if (unlocked) btn.onclick = () => selectSkin(sk.id);
+        skinDiv.appendChild(btn);
+    });
+    cosmEl.appendChild(skinDiv);
+    const trailDiv = document.createElement("div");
+    trailDiv.innerHTML = `<div style="font-size:9px;color:#88aacc;margin:8px 0 3px">${lang==="fr"?"TRAÎNÉES :":"TRAILS:"}</div>`;
+    TRAIL_COLORS.forEach(tc => {
+        const unlocked = totalDone >= tc.req;
+        const active = (sd.activeTrail||0) === tc.id;
+        const btn = document.createElement("button");
+        btn.className = "cosm-btn";
+        btn.style.cssText = `background:${unlocked?(active?tc.col+"77":tc.col+"22"):"#111"};border-color:${unlocked?tc.col:"#333"};color:${unlocked?tc.col:"#444"};font-weight:${active?"bold":"normal"}`;
+        btn.textContent = (unlocked?"● ":"🔒")+(lang==="fr"?tc.fr:tc.en)+(unlocked?"":" ("+tc.req+")");
+        btn.disabled = !unlocked;
+        if (unlocked) btn.onclick = () => selectTrail(tc.id);
+        trailDiv.appendChild(btn);
+    });
+    cosmEl.appendChild(trailDiv);
+}
+window.openDC = openDC;
+window.closeDC = function () {
+    hide("dcDiv");
+    gs = "start";
+    cgShowBanner();
+};
+
+// tapContinue → lang? → nameSetup? → start → aim → flying ↔ paused → dead → results
+let gs = "tapContinue";
+let introFrame = 0;
+const BOOST_SND_B64 = "data:audio/mp3;base64,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";
+let hardcoreMode = false;
+let speedStreakFrames = 0, speedStreakMult = 1;
+let introSoundPlayed = false;
+const INTRO_LOGO_B64 = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAHgAoADASIAAhEBAxEB/8QAHQABAQACAwEBAQAAAAAAAAAAAAUGBwMECAIBCf/EADkQAQACAQMDAgUCBAMHBQAAAAABAgMEBREGEiEHMRMiQVFhFDIII3GBFZGhFkJDUnKxwWJ0ktLw/8QAGwEBAAIDAQEAAAAAAAAAAAAAAAQFAQMGBwL/xAAlEQEAAgIBBAIBBQAAAAAAAAAAAQMCBBEFEiExBhNhFTJBUZH/2gAMAwEAAhEDEQA/APGQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQ+qVm94rHvLMNh6Sy67S/EikzPHLRfsYURznK06X0fa6pZNevjzMIQq71tObQ5Z5rPCU+67cbMe7GfCNu6V2ldNN2PEwlA59Dp/1Wrx6fvrTvnjut7Q2IjuxMS/XFlx202tyaeclcnZbjurPiXKCUC10/smfcc0cUnta7LMa8e7KfCXpaV27dFNOPMy4hlO89M5dHp++1Zjxyxe9Zraaz9HxRsYXxzhKT1To+10uyMNjHiZSQG9VqoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAL+10i+rpE/d6K9JtipqNsnNekTExxDzvtForrKTP3erfQXLi1Wzzp4mO6qk6lj3W44z6enfCrfo0L7MPfj/ABhvqT0HM4smbDh7qT5mIj2efuo9kzbfqLfJPby/oFq9mx6nDbHkpExMceWkPVz01tTHl1Wmwd2OfMxEezRVnnqZcx+1cb+vq/Iqfrz4xuj1P9/iXmZxZcUWnlb33acuhz2+SeOUlfVW42492LyTd0rtK6abo4mEoFvpvZM246mvyT28/Yssxrx7sjS0rt26KaY5mVDYtpy63PX5Z45bz9OuhrTjpnzYuKR5iJj3UvSf03vlrj1eqwzXHHmImPdu3SbNj02GuPHSIiI48KC3PPby5nxi9b0NfV+PVfXhxldPuf6/ENFermw48G1RlrjiIiOJeZN5xxj1t4j7vYHr7mxaXZf08zHdZ5B3y0W115j7pHTY7bcohT/NbPv0KLMv3ef8cwC7eYpQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJ2nyTiy1vH0lu/0V64jZ9dita/yTxFo5aMdvbddl0eaL0tMcIe5rffj49x6dH8c63+mXTFkc15eMo/D+lHSm8bbvmgx59PmpabRHMc+YVdw2nS6vTWx5a1tW0ceXhPpb1F3LaZrOm1l8fH0i3hmmX116hvpfgTrIiOOOY90CM7MY7c8PLrstXUtzi3V2YjH8+Jhd9eugtv2/4ur0+TF225mac+YeXt2w1way9Ke0Szvq31C1+7TedRqr5Zn7y17qs1s+aclveW/p9NmGUzMcRP8ACq+X9R1dmquvDPvsx95cLO24q5tVWlvbl6S9CuhdBuVser1OTH219qTPmXmjT5bYcsXrPmGc9Ldda/aZrbTam+KY+0sdQpzzyjKI5iP4Z+IdR1daqyvLPssy9Zcenvbb9p0uk01ceKta1rHHhK6r3jbdj0GTPqM2Os1ieI58y8rYvXzf6aT4H6yJjjjmfdhHVnqZuW7d36jV3yc/SbeGmc7Mo7cMPK0x1dSrObdrZicfx5mWT+sXWn+M6/LeLcUiZisctO5rzkyWtP1ly67WZNXlm97c8uun6et9GPn3LkfkXW/1O6IrjivHxEJQCY5xVABKABVABKABVABKABVABKABVABKABVABKABVABKABVABKAAABVABKABVABKABVABKABVABKABVABKABVABKABVABKABVABKABVcebntcj5vHNQdO2ny101dTWJnFae2bR9J+0uLvt/zSt9H6rBXW22/W1i+l1cdlon6W+kvnqnYM+zajujnJpbz/Lyf+J/IzEzDqZL3tkrjx1m17TEViPMzM/R9ZqajSazLpNXithz4rdt6WjiYllfo/s1d16qpr9TXnS6GYyTzHi1/pH/llHrv07TN8LqXbsVZmkdur7I94+lp/wCww05jpfJkrjx1m17TFa1iPMzP0cms02o0WryaXU4r4c+K3belo4mJbF9Dumq63dp33X4onSaXmMXfHi+T7/2cvrzstKbpj37S1j4ef5M/b/zR7T/cGB2yTWOe5wxGXPGTJXn4eOOb2n2j8f1dnZ9t1W9ayMGnia4485Mk+1Yd7qydNpPg7JoY4x4vmzW+trfkZmZljQAwqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAAAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAA7uorMTF6zMWieYmGyOndbpd+2CMGspXJzHZlrP3j6te3jmrs9O7pbadbebTPwrx5j8x7AzPety0nR/Tt9s2iZrqNTM+bebRE+9pn/seknUEajBqentzt8fHkib44yTzzE/uhrvdtdm3HXZNVmmebT8sc/tj7PnbNZl0Gvw6zDPF8VotH5/ANq+pe8afY+nsew7PWum+P47cfjtp9f80b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J9/rDv8AUfVfUPUO9YN53bc8mbcNPStMOela4rY4rabV47IjiYmZnn3RAGya+s3qfXR101epbxFeY+J+lw98xxHibdnPjj39/M8zPjjB9Rq9y1G5Tumo1+rzbhN4yfqr5rWy98ccW75nnmOI88/R98R9n6DNtN68+rOnwVw4+r8vbWOIm+j097f/ACnHMz/XljuH1C6zx9b4OtZ37UZd/wBPE1w6vPWmWcdZrakxFbxNYji1vHHEc8x58sWAbY0/r/6x4MmoyYusLVvqLxfLP+HaWeZisVj/AIXjxWPb+vvMsO3PrHq7c+sdL1huW96nW75pM2LPp9VqO3J8O2O3fTisx2xWLee3jt9/HmUziPs/eI+wKvqN6idZeoet0ms6x3m255tJjnHgtOnxYopWZ5mOMdax5n6zHLsbN6oddbN0Pqeitt3z9PsGqx5cebSxpMM99csTGSJvNJv5iZj939GGgO3TDPZxLKOi/ULrrovTZdJ011BqdFpss91sFqUy44nz5rXJW0VmefMxEc+OfaEE4gGR9T+rXqJ1LtmXbN46n1GbSZo7cuLHhxYYvH2t8OtZmPxPhP3f1A6u3XpTT9La/d5y7PpqY8eLTRp8VeK444pHdWsWnjiPeZ5+rFwGR9JdUdR9JZ9Rn6e1/wCiyaisUy2+BjyTaInmI+es8f2dvU9edZajZNVsubeLW0Gqvlvnxfp8Ud85LzkvPdFe7za0z7/Xj28IvEfY4j7A7fT/AFl1JsG1Z9r2jcp0uk1F7Xy0jDjtNrTWKzPdaszHiI9pcHTXU++dNzqJ2XXfpZ1HbGX+VS/d288fuiePefZHAWtq3vfNr3DPr9BuGXBqNRMzmtERMXmZ581mOJ8zP0UNZ1t1dq9Nl0+fdrWx5aTS8Rgx1mYmOJ8xXmP7JPEfY4j7Aoz111VMcTuvj/2+L/6uluXU2+7jp7afV7he+K37q1pWkT/XtiEcB38GPthzACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAD/2Q==";
+const INTRO_SND_B64  = "data:audio/mp3;base64,//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uQZEEP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVQSkm5DQoEZ8UMKR17m1M8IfqMLyhDJwxfc+bmSYnAjeQElEDLahdoKOQKvChkVvIz4JrMVxLRrOokMGyociPnwHh2mLA5kcQD0DhDH+ZWOJ0EQzN4JAoQxLP5OysBBSSzcSBWPwzBpCcAuEZgkNBP/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABIZO3hILpbJCI83KvsMtIjQPcvY+C8FvKghI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VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kGRDD/AOAIADAAAIAcAQAGAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
+const introLogoImg = new Image();
+introLogoImg.src = INTRO_LOGO_B64;
+let prevGs = "flying"; // for returning from pause
+let animId,
+    frame = 0;
+
+// ══════════════════════════════════════════
+//  AUDIO SYSTEM
+// ══════════════════════════════════════════
+const SFX_DATA = {
+    click: "data:audio/mp3;base64,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",
+    launch: "data:audio/mp3;base64,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",
+    jet: "data:audio/mp3;base64,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AAmHfWoQDs0uNQpwJDZnYjQK4i1VL271JpaK3Hhd//tSRFOP0RYMUgOaYBIh4XpwbywCRIw/RA4xBwCRiGmFwwjYwmk08OA9VKycjQH0Oz8CFMZWhV///x9J1ap1F4DCmlJhInNEjMlezhAOBrf1Mmf5QAKlEAGONgAGwLpypKamMhAqyylicPhiSKI3oAZFRyOpzaoInV71KdnQ6/TJhJpn/YOD1x+ix1kQGbJnvs4YSJgdFnPuc3IIu/qoNwGYRoiNx9a4LHpAoqAaL5tpHSlRALg1ks3JBsVjZTXzWyqx0FyRla1/iKHj5g02BVP/+1JkYwDxhR7RC4wTMBjhCiBpIhUGOHFVrZhHYGaCaIGtCAiDYbAVqa+5PjJQidgohyyJanp1ETZ9xrG1WMZF8GTDxe1AGqvANG770QYzWIWhSMnySxxZEcbFa6Z/so/GLlzrv3iQ4AlnqAABgCzoDRVLlgIEBOoILNDnykGP//9KMURM6WPzkj8yIbQMU0B8+DUYjgpuItTmBv2/tp0yoQFkTGr0/cxPgxNsbHgCAwLy0bbU0MbuKcdcT5sYjA4PAIKA2v/7v9IFumsulFAyEv/7UmRvDxFcDtEDumAQGmFqAG8mBAXYSUQObSFAaAQq9YMYVNDsoE4siQfw0XIa+NbscM7ENA4cmpxpZCr9K0gJ1xuWSACXELHPaI1PVY9YaPmuPt7mcl4gEBlysm3VIDrL//wqA4Zsl9+9NCBANrdi4p7w6wU2RXMFAKV4VaoeRwcDU5RUzdW3LGiWSAuCwuSYwhEUCoB6nTSTogPAfDAO/ObRhCIwSCQF3/7ThkaD41J/7/Gg8Okx8cb//8YG44SIDcdOGn///mFXLkQBorZd//tSRH4BEQoM0IObSBIloXpQb0wCBHg5cbTBgDCThO22nhAHLHq/p69oBAGAAc1QXuhDWYJCMEh8ZCGyAyKhTGCXs40E8zDcEBc9TFoRLSfu2vfUGhssb8Q0+x7IYYlRYaFbqvmZ/+12PbcfX3dxNeaJIn3oV/////+sfg8sbouOf/qJgQ2EAIoW4XIynNOqGArosJ8+fWy9ehUFXA0HC0Su9vEXWdCmlShAAKwJASHZWSSawZOtLly62rVohKGiwNawV1HhL1HuCtVMQU1FMy7/+1JEjIADPkxTTmzgAmWH+53HrACEKCVGvPCAAI6E6meYEAAxMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ==",
+    coin: "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAPAAANDgAfHx8fHx8vLy8vLy8vPz8/Pz8/T09PT09PT19fX19fX19vb29vb29/f39/f39/j4+Pj4+Pj5+fn5+fn6+vr6+vr6+/v7+/v7+/z8/Pz8/P39/f39/f3+/v7+/v7+////////8AAAAATGF2YzU4LjU0AAAAAAAAAAAAAAAAJAM8AAAAAAAADQ4LKAsOAAAAAAAAAAAAAAAAAAAAAP/7UEQAAAEwAN5tAGAMJCFaW6CMAAVQUWQYmAAArSPqQwrQANHI2ibW4GgAEAgCAIBcHwfgmD4Pn4PwQd1AgD7/4Ph//+IAQDAfIOqIAAMAABKscZjHGMAAEcD4PggCAIAgCYP6QQDH//hj//4IEjdT22ayUukCScO4L8hxwjgN6CCHoiy0WRZtFRlztD/55f8zI3/+3X//YgKiMralz+FvHiBvKYgIkUVJIaG9l///////r/NvpGn1frnH+ukf+v9D/zjXX6wMViBpIAxaRIL/+1JEBgABXzPe7xigDCwlS23knAGFQM9zpJjhcKgkafUgCtC5eGcq3iijloYHZv8xTZ+MH///v///m6P//lFP9yP/H3f/2lDUBIFiVsoniBM0ebRXGMcV9RAj/9zFtm2e//////TKFv/BL/hj/nQW/107EFYwRKAIjoBVKNNQqNSMTK+Esw/+npxMX//9v///t3//5P+vd/wWcbtZBFABAADKMKCKDIGCDpIGpu7VBG3b/V9U/5Ughv//4v//+Yb//+Am3I3sm2aQImrZwDm0OP/7UkQGgAFTSNCBNFOAKifbnRQC04U4+W2igPiwqZ7o4GodwBy2GTKj//nBkO//6////UoOaHf/8WP//6lv//5E2/3/wo1wCKYKKDChQiLlYOGHjhUXDipiVP9rff9Wr9Bv//4j//3wY3/gW/ffQXiABxgJHhqhISIcSOHhho1uHaJpORf+FeULf/+seCM7//N4nb/lF+1Awo62SIpReI4tskfVx+AAfyn+9PXXf//1/f/poGe3/+PBH///FP/ghVLbKwlGKJIgGDM4NpA8u8Qr//tSRAiAAXdI1egmUGQrKRpbUAWWBYEhT6AZoZCsGe38FhwmmXlAAzr39vTi5v/+n///xkLP//6g3P//+L///8XunJEyABeRdyktMryZM01ukdJxNeBhU1mr/f6f+0wwF///OBn+n+nG///41w5JIgxEGEmBcHwiAkzzcdGbxqwR26P9D0+cb//t3///nH///Waf//zv//+cZnhoZgULRG2SGncMWFoVXjZpUqTpiLf/0+3//2///3x49uv/8qEn9Ff/kEglsXJNyZ2KngY18O7/+1JEBo8BOEjNAHQ6oCppGfAOh3AFrPcwA1FOALukbHSAnja/90PeZyhb//vT///lAb//+gp///q///8TFkMQYQx0JhejkAY2Bj7Vu215+np//ym/6Hf6z3EQPb//8Hv//TlX///iAsRJCjrNNnTkMv0FuvAxFGXL/r+ainDiI//2NW///+RBu+3/+gXR6/+ubyp7/kJtbdAxJGikRNi486VcoWMrMF328Bu/9fx/1+cz1/B/6GPE///0AG//68Qp///KMhdtvhRtaEkBnuIuHf/7UkQGAAFYSFfooBcMK4kaGQ6FcAUQ+ywB6O4ApKRnAD0pwEuYIuwqZMKp/q7vbdgWrevrf3+h///0Af//4Nv//4I//QDMESdeDsAoQGrmohuNwAllR//9TSt//N/9v++gb///AX+v/xrf//xg4YgCo95QmSqGv8GCll5S/+tf1LfT/lv/Wv/PAwe///Hgs///4nLf9ZMYggO6uagoqkOp36IwVt5S/X3r/b//t///8Jhf//8oHj///lS3//6kZ9UXfD8YXahtgaWMHgaXFioH//tSRAgAIWw+V2igLwwtaRtNGCWNhSDRV6KA/DCbJGwwUB+GTDcZZmf701Kcijn6upXKvvp+FN//+sV//9mEW/6Lv9/RhaIzEQ+tZuAyXmWt7mv+V1X5Xnqv//svzf/2n//ozoLgrf9OvGt///HILLdWJrbg2QMulyyiqsz+Fzt+q9U2Ui+/9FKUpnslgt///KiKd+rT/y4v1+ogaTK4GBhF1kEVFGFvC9v6+/Un//6flG///hC///46X///j7oJuSMSyRgAAfHTHQ1RrZmTLnn/+1JECQEBWDPR6WMUTDCJGbUbSnAFOPcoAeTsQK6kbDRQF4YFLUqUZY64J+stxFM4bbdKXPk///wX//+GVgAiLiu9nNlEX74Gh/j4EiTxrMx36f23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",
+    hit: "data:audio/mp3;base64,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",
+};
+// Pre-decode all audio buffers once via AudioContext
+let _actx = null;
+const SFX_BUFS = {};
+function getActx() {
+    if (!_actx) {
+        _actx = new (
+            window.AudioContext || window.webkitAudioContext
+        )();
+        // Unlock: play 1-frame silent buffer immediately on creation
+        try {
+            const b = _actx.createBuffer(1, 1, _actx.sampleRate);
+            const s = _actx.createBufferSource();
+            s.buffer = b;
+            s.connect(_actx.destination);
+            s.start(0);
+        } catch (e) {}
+    }
+    return _actx;
+}
+function b64ToArrayBuffer(b64) {
+    // Extract raw base64 from data URI, decode to ArrayBuffer without fetch
+    const raw = b64.split(",")[1];
+    const bin = atob(raw);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    return buf.buffer;
+}
+async function preloadSFX() {
+    const actx = getActx();
+    // Decode MP3 files from base64
+    for (const [k, uri] of Object.entries(SFX_DATA)) {
+        try {
+            const ab = b64ToArrayBuffer(uri);
+            SFX_BUFS[k] = await actx.decodeAudioData(ab);
+        } catch (e) {
+            console.warn("SFX load failed:", k, e);
+        }
+    }
+    // click buffer pre-rendered at page load (see top-level IIFE)
+}
+function playsfx(name, opts = {}) {
+    if (!sd.sound) return;
+    const buf = SFX_BUFS[name];
+    if (!buf) return;
+    const actx = getActx();
+    const play = () => {
+        const src = actx.createBufferSource();
+        src.buffer = buf;
+        src.loop = opts.loop || false;
+        const gain = actx.createGain();
+        gain.gain.value = opts.vol != null ? opts.vol : 1;
+        src.connect(gain);
+        gain.connect(actx.destination);
+        src.start(0);
+        return src;
+    };
+    // If suspended: resume first (async), play in .then()
+    // resume() called within user gesture = .then() still in gesture context
+    if (actx.state === "running") return play();
+    return actx.resume().then(play);
+}
+// Jetpack loop: start/stop a looping node
+let _jetSrc = null,
+    _jetGain = null;
+function startJetSFX() {
+    if (!sd.sound || _jetSrc) return;
+    const buf = SFX_BUFS.jet;
+    if (!buf) return;
+    const actx = getActx();
+    if (actx.state === "suspended") actx.resume();
+    _jetSrc = actx.createBufferSource();
+    _jetSrc.buffer = buf;
+    _jetSrc.loop = true;
+    _jetGain = actx.createGain();
+    _jetGain.gain.value = 0.55;
+    _jetSrc.connect(_jetGain);
+    _jetGain.connect(actx.destination);
+    _jetSrc.start(0);
+}
+function stopJetSFX() {
+    if (!_jetSrc) return;
+    try {
+        _jetSrc.stop();
+    } catch (e) {}
+    _jetSrc = null;
+    _jetGain = null;
+}
+// Call preload after first user interaction to avoid autoplay policy
+let _sfxReady = false;
+
+// ── Synthesized sounds (no file needed) ────────────────────────
+function synthClick() {
+    // Play pre-rendered buffer via playsfx — same path as all other sounds
+    // This is the most reliable approach on iOS Safari
+    playsfx("click", { vol: 1.0 });
+}
+function synthEnemyHit() {
+    if (!sd.sound) return;
+    const actx = getActx();
+    const doPlay = () => {
+        const t = actx.currentTime + 0.001;
+        const o = actx.createOscillator(),
+            g = actx.createGain();
+        o.type = "square";
+        o.frequency.setValueAtTime(220, t);
+        o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+        g.gain.setValueAtTime(0.35, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        o.connect(g);
+        g.connect(actx.destination);
+        o.start(t);
+        o.stop(t + 0.2);
+        const bufLen = actx.sampleRate * 0.08;
+        const nb = actx.createBuffer(1, bufLen, actx.sampleRate);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < bufLen; i++)
+            nd[i] = (Math.random() * 2 - 1) * 0.5;
+        const ns = actx.createBufferSource(),
+            ng = actx.createGain();
+        ns.buffer = nb;
+        ng.gain.setValueAtTime(0.18, t);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        ns.connect(ng);
+        ng.connect(actx.destination);
+        ns.start(t);
+    };
+    if (actx.state === "running") {
+        doPlay();
+    } else {
+        actx.resume().then(doPlay);
+    }
+}
+function synthPowerup() {
+    if (!sd.sound) return;
+    const actx = getActx();
+    const doPlay = () => {
+        const t = actx.currentTime + 0.001;
+        [
+            [330, 0],
+            [550, 0.1],
+            [880, 0.2],
+        ].forEach(([freq, delay]) => {
+            const o = actx.createOscillator(),
+                g = actx.createGain();
+            o.type = "sine";
+            o.frequency.setValueAtTime(freq, t + delay);
+            o.frequency.exponentialRampToValueAtTime(
+                freq * 1.06,
+                t + delay + 0.09,
+            );
+            g.gain.setValueAtTime(0, t + delay);
+            g.gain.linearRampToValueAtTime(0.25, t + delay + 0.01);
+            g.gain.exponentialRampToValueAtTime(
+                0.001,
+                t + delay + 0.1,
+            );
+            o.connect(g);
+            g.connect(actx.destination);
+            o.start(t + delay);
+            o.stop(t + delay + 0.11);
+        });
+    };
+    if (actx.state === "running") {
+        doPlay();
+    } else {
+        actx.resume().then(doPlay);
+    }
+}
+function ensureSFX() {
+    if (_sfxReady) return;
+    _sfxReady = true;
+    preloadSFX();
 }
 
-// ---
-let _resumeSave = null; // set below
-let _startGame  = null; // set below after startGame is defined
-
-// ── Boot screen animé ───────────────────────────────────────────────────
-(() => {
-	const s = document.createElement("div");
-	s.id = "iw-boot";
-	Object.assign(s.style, {
-		position:"fixed", inset:"0", background:"#000",
-		display:"flex", flexDirection:"column",
-		alignItems:"center", justifyContent:"center",
-		zIndex:"99999", fontFamily:"monospace",
-	});
-	s.innerHTML = `
-		<style>
-			@keyframes iwLogoFlame{0%,100%{text-shadow:0 0 20px #ff6600,0 0 40px #ff3300;transform:scale(1);}50%{text-shadow:0 0 40px #ffaa00,0 0 80px #ff6600;transform:scale(1.08);}}
-			@keyframes iwBarPulse{0%,100%{opacity:1;}50%{opacity:0.7;}}
-			@keyframes iwDotBounce{0%,100%{transform:translateY(0);}50%{transform:translateY(-6px);}}
-			#iw-boot-bar-fill{height:100%;border-radius:6px;background:linear-gradient(to right,#cc2200,#ff6600,#ffcc00);transition:width 0.35s cubic-bezier(0.4,0,0.2,1);box-shadow:0 0 12px #ff6600;animation:iwBarPulse 1.2s ease infinite;}
-		</style>
-		<div style="font-size:56px;animation:iwLogoFlame 1.5s ease-in-out infinite;margin-bottom:14px;">🔥</div>
-		<div style="font-size:22px;font-weight:900;letter-spacing:5px;color:#f97316;margin-bottom:4px;">INFERNO WING</div>
-		<div style="font-size:10px;color:#4b5563;letter-spacing:3px;margin-bottom:26px;">IS DAOUDA GAMES</div>
-		<div style="width:240px;height:8px;background:#1f2937;border-radius:6px;overflow:hidden;border:1px solid #374151;">
-			<div id="iw-boot-bar-fill" style="width:0%;"></div>
-		</div>
-		<div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
-			<span id="iw-boot-pct" style="font-size:13px;font-weight:900;color:#ff6600;min-width:42px;text-align:right;">0%</span>
-			<span id="iw-boot-label" style="font-size:10px;color:#6b7280;letter-spacing:1px;">INITIALISATION…</span>
-		</div>
-		<div style="margin-top:22px;display:flex;gap:8px;">
-			<div style="width:6px;height:6px;border-radius:50%;background:#ff6600;animation:iwDotBounce 0.8s ease infinite;animation-delay:0s;opacity:0.7;"></div>
-			<div style="width:6px;height:6px;border-radius:50%;background:#ff6600;animation:iwDotBounce 0.8s ease infinite;animation-delay:0.18s;opacity:0.7;"></div>
-			<div style="width:6px;height:6px;border-radius:50%;background:#ff6600;animation:iwDotBounce 0.8s ease infinite;animation-delay:0.36s;opacity:0.7;"></div>
-		</div>
-	`;
-	document.body.appendChild(s);
-	window._iwBootProgress = function(pct, label) {
-		const fill  = document.getElementById("iw-boot-bar-fill");
-		const pctEl = document.getElementById("iw-boot-pct");
-		const lblEl = document.getElementById("iw-boot-label");
-		if (fill)  fill.style.width = pct + "%";
-		if (pctEl) pctEl.textContent = Math.round(pct) + "%";
-		if (lblEl) lblEl.textContent = label || "";
-	};
-})();
-
-idb.preload().then(() => {
-	document.getElementById("iw-boot")?.remove();
-	// Re-synchroniser settings depuis le cache IDB
-	settings.musicVol   = parseFloat(idb.getItem("iw_musicVol") ?? "0.4");
-	settings.sfxVol     = parseFloat(idb.getItem("iw_sfxVol")   ?? "0.7");
-	settings.difficulty = idb.getItem("iw_difficulty") || "normal";
-	settings.rumble     = idb.getItem("iw_rumble") !== "false";
-	settings.lang       = idb.getItem("iw_lang")       || null;
-	settings.playerName = idb.getItem("iw_playerName") || null;
-	// Re-charger tous les modules depuis le cache IDB (badges, missions, historique, stats)
-	achStats.reload?.();
-	pilotLevel.reload?.();
-	dailySystem.reload?.();
-	seasonBadges.reload?.();
-	matchHistory.reload?.();
-
-	game(
-	(tools) => {
-	const { ctx, loop, ui, on, canvas } = tools;
-	// width/height définis comme propriétés dynamiques — toujours à jour après resize
-	Object.defineProperty(globalThis, '__iw_tools', { value: tools, configurable: true });
-	// Utiliser des getters locaux pour que width/height reflètent le resize
-	const _dims = { get width() { return tools.width; }, get height() { return tools.height; } };
-	let width  = tools.width;
-	let height = tools.height;
-	// Mettre à jour width/height à chaque frame via un resize observer
-	window.addEventListener('resize', () => { width = tools.width; height = tools.height; }, { passive: true });
-		//initInput(canvas);
-		// ────────────────────────────────────────────────
-		//  GESTION DES TOUCHES CLAVIER
-		// ────────────────────────────────────────────────
-		const keys = {};  // { ArrowLeft: true, ArrowRight: true, ... }
-
-		window.addEventListener('keydown', e => {
-			if (e.target.tagName === 'INPUT' || 
-				e.target.tagName === 'TEXTAREA' || 
-				e.target.isContentEditable) {
-				return;
-			}
-			if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','a','d','w','s',' '].includes(e.key)) {
-				e.preventDefault();  // évite le scroll page
-			}
-			keys[e.key] = true;
-		});
-
-		window.addEventListener('keyup', e => {
-			if (e.target.tagName === 'INPUT' || 
-				e.target.tagName === 'TEXTAREA' || 
-				e.target.isContentEditable) {
-				return;
-			}
-			keys[e.key] = false;
-		});
-
-		function isKeyDown(key) {
-			// Support WASD + flèches
-			if (key === 'left')  return keys['ArrowLeft'] || keys['a'] || keys['A'];
-			if (key === 'right') return keys['ArrowRight'] || keys['d'] || keys['D'];
-			if (key === 'up')    return keys['ArrowUp'] || keys['w'] || keys['W'];
-			if (key === 'down')  return keys['ArrowDown'] || keys['s'] || keys['S'];
-			if (key === 'shoot') return keys[' '] || keys['z'] || keys['Z'];
-			if (key === 'mega')  return keys['x'] || keys['X'];
-			return false;
-		}
-
-		_initTouch();
-
-		// Désactiver le menu contextuel (clic droit) dans tout le jeu
-		document.addEventListener("contextmenu", e => e.preventDefault(), true);
-
-		try {
-			audio.init();
-		} catch (e) {}
-		canvas.style.cursor = "none";
-		canvas.addEventListener(
-			"pointerdown",
-			() => {
-				try {
-					audio.resume();
-				} catch (e) {}
-			},
-			{ once: true },
-		);
-
-		const state = {
-			phase: "menu",
-			paused: false,
-			level: 0,
-			score: 0,
-			hiScore: parseInt(
-				idb.getItem("inferno_hi") || "0",
-			),
-			combo: 0,
-			comboTimer: 0,
-			comboMax: 3.5,
-			lives: 3,
-			bgOffset: 0,
-			levelTime: 0,
-			bossSpawned: false,
-			bossDefeated: false,
-			transitionTimer: 0,
-			flashTimer: 0,
-			screenShake: 0,
-			messages: [],
-			// ── Kill streak ──────────────────────────────────────
-			killStreak: 0,
-			streakTimer: 0,
-			streakMax: 4.0,   // seconds window between kills
-			frenzyMode: false,
-			frenzyTimer: 0,
-			// ── Survival mode ─────────────────────────────────────
-			isSurvival: false,
-			survivalWave: 0,
-			survivalWaveTimer: 0,
-			survivalWaveDur: 12,   // seconds per wave
-			survivalTotalTime: 0,
-			// ── Daily run ─────────────────────────────────────────
-			// ── Upgrade pending ───────────────────────────────────
-			pendingUpgrade: false,
-			scoreMul: 1,
-			scoreMulTimer: 0,
-			// ── Run session tracking for daily ────────────────────
-			sessionKills: 0,
-			sessionBosses: 0,
-			sessionPowerups: 0,
-			sessionNoDmgLevels: 0,
-			runLevelDeaths: 0,
-			runTotalTime: 0,
-			// ── Rage mode ─────────────────────────────────────────
-			rageMode: false,
-			ragePulse: 0,
-			lastPowerupType: null,
-			eliteKillCount: 0,
-			eliteWaveCount: 0,
-		};
-
-		// Player Y for interceptor targeting
-		let _playerY = 0;
-
-		const player = createPlayer(width, height);
-		const bullets = createBulletManager();
-		const enemies = createEnemyManager();
-		const particles = createParticleSystem();
-		const powerups = createPowerUpManager();
-		const boss = createBossManager();
-		const renderer = createRenderer(ctx, tools);
-		const hud = createHUD(ui);
-
-		// Wire save-resume button (defined here, hoisted via _resumeSave)
-		_resumeSave = function () {
-			const d = saveGame.load();
-			if (d) {
-				const _as = achStats.get();
-				_as.resumes = (_as.resumes || 0) + 1;
-				achStats.save();
-				startGame(d);
-			}
-		};
-
-		// ── PAUSE ──────────────────────────────────────────────────────────────────
-		function togglePause() {
-			// If an overlay screen (achievements/leaderboard) is open,
-			// pressing pause dismisses it and restores game state
-			const achEl = document.getElementById("ach-back-btn");
-			const lbEl  = document.getElementById("lb-back-btn");
-			if (achEl) { achEl.click(); return; }
-			if (lbEl)  { lbEl.click();  return; }
-
-			// Bloquer si le menu d'amélioration est ouvert
-			if (document.querySelector(".upg-btn")) return;
-
-			if (
-				state.phase !== "playing" &&
-				state.phase !== "boss" &&
-				state.phase !== "transition"
-			)
-				return;
-			state.paused = !state.paused;
-			_setPauseIcon(state.paused);
-			if (state.paused) {
-				audio.pauseMusic();
-				saveGame.save(state, player); // auto-save on pause
-				{
-					const _as = achStats.get();
-					_as.pauses = (_as.pauses || 0) + 1;
-					achStats.save();
-				}
-				// Hide touch controls during pause
-				_showTouchLayer(false);
-				// Show pause overlay
-				let ov = document.getElementById("pause-ov");
-				if (!ov) {
-					ov = document.createElement("div");
-					ov.id = "pause-ov";
-					document.body.appendChild(ov);
-				}
-				ov.style.cssText =
-					"position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:8000;";
-				ov.innerHTML = `
-					<div style="color:#ff9900;font-size:48px;font-weight:900;font-family:monospace;text-shadow:0 0 30px #ff4400;letter-spacing:6px;margin-bottom:28px;">${t("pause")}</div>
-					<div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
-						<button id="ov-resume" style="padding:13px 44px;background:linear-gradient(to right,#b22200,#e05a00);border:none;border-radius:12px;color:#fff;font-size:17px;font-weight:900;font-family:monospace;cursor:pointer;letter-spacing:2px;">${t("resume")}</button>
-						<button id="ov-ach"   style="padding:9px 32px;background:#1a1a1a;border:2px solid #374151;border-radius:10px;color:#9ca3af;font-size:13px;font-weight:bold;font-family:monospace;cursor:pointer;">⭐ ${t("achievements")}</button>
-						<button id="ov-lb"    style="padding:9px 32px;background:#1a1a1a;border:2px solid #374151;border-radius:10px;color:#9ca3af;font-size:13px;font-weight:bold;font-family:monospace;cursor:pointer;">🏆 ${t("leaderboard")}</button>
-						<button id="ov-menu"  style="padding:9px 32px;background:#1a1a1a;border:2px solid #444;border-radius:10px;color:#aaa;font-size:14px;font-weight:bold;font-family:monospace;cursor:pointer;">${t("mainMenu")}</button>
-					</div>
-					<div style="color:#555;font-size:11px;margin-top:18px;font-family:monospace;">${t("pauseHint")}</div>`;
-				ov.querySelector("#ov-resume").addEventListener(
-					"click",
-					() => togglePause(),
-				);
-				ov.querySelector("#ov-ach").addEventListener(
-					"click",
-					() => {
-						document.getElementById('pause-ov')?.remove();
-						hud.renderAchievements(() => {
-							togglePause();
-							togglePause();
-						});
-					},
-				);
-				ov.querySelector("#ov-lb").addEventListener(
-					"click",
-					() => {
-						document.getElementById('pause-ov')?.remove();
-						hud.renderLeaderboard(() => {
-							togglePause();
-							togglePause();
-						});
-					},
-				);
-				ov.querySelector("#ov-menu").addEventListener(
-					"click",
-					() => {
-						saveGame.save(state, player);
-						showAd(); // Quitter vers menu
-						state.paused = false;
-						state.phase = "menu";
-						audio.stopMusic();
-						document
-							.getElementById("pause-ov")
-							?.remove();
-						_showPauseBtn(false);
-						_showTouchLayer(false);
-						_setPauseIcon(false);
-						ui.clear();
-						hud.renderMenu(state);
-						audio.startMusic("menu");
-					},
-				);
-				// Activer la navigation clavier/gamepad dans le menu pause
-				menuNav.activate();
-			} else {
-				document.getElementById("pause-ov")?.remove();
-				// Reprendre la musique là où elle était sans la recommencer
-				audio.resumeMusic();
-				// Restore touch controls when resuming
-				_showTouchLayer(true);
-			}
-		}
-		_pauseToggle = togglePause;
-
-		// Pause button click
-		document
-			.getElementById("pause-btn")
-			?.addEventListener("click", () => togglePause());
-
-		// Auto-pause when window loses focus during gameplay
-		window.addEventListener("blur", () => {
-			if (
-				!state.paused &&
-				(state.phase === "playing" ||
-				 state.phase === "boss"    ||
-				 state.phase === "transition")
-			) {
-				togglePause();
-			}
-		});
-
-		function addMessage(text, color, size) {
-			size = size || 28;
-			state.messages.push({
-				text,
-				color,
-				size,
-				life: 2.0,
-				x: width / 2,
-				y: height / 2 - 40,
-			});
-		}
-
-		function triggerShake(amount) {
-			state.screenShake = Math.max(state.screenShake, amount);
-		}
-
-		// ── Publicité interstitielle ───────────────────────────────────────
-		function showAd() {
-			GamePix.interstitialAd().then(function (res) {
-				if (res.success) {
-				  // Log the success if you want
-				} else {
-				  // Log the error if you want
-				}
-			  });
-		}
-
-		window.addEventListener("load", function() {
-			window.focus();
-			document.body.addEventListener("click", function(e) {
-				window.focus();
-			}, false);
-		});
-
-		function startGame(fromSave, mode) {
-			menuNav.deactivate();
-			saveGame.clear();
-			{
-				const _as = achStats.get();
-				_as.totalRuns = (_as.totalRuns || 0) + 1;
-				achStats.save();
-			}
-			_deathsRun = 0;
-			_puRun = 0;
-			_lvlDeaths = 0;
-			_runStart = Date.now();
-			// Reset new session tracking
-			state.sessionKills = 0; state.sessionBosses = 0;
-			state.sessionPowerups = 0; state.runLevelDeaths = 0;
-			state.killStreak = 0; state.streakTimer = 0; state.rageMode = false;
-			state.frenzyMode = false; state.frenzyTimer = 0;
-			state.isSurvival = (mode === "survival");
-			if (state.isSurvival) {
-				state.survivalWave = 0;
-				// Forcer le déclenchement immédiat de la vague 1 dès le début
-				state.survivalWaveTimer = state.survivalWaveDur;
-				state.survivalTotalTime = 0;
-			}
-			state.score = 0;
-			state.lives =
-				settings.difficulty === "easy"
-					? 5
-					: settings.difficulty === "hard"
-					  ? 2
-					  : 3;
-			state.paused = false;
-			state.combo = 0;
-			state.comboTimer = 0;
-			// Mettre à jour les dimensions du joueur avec les valeurs actuelles
-			player.width  = tools.width;
-			player.height = tools.height;
-			player.reset();
-			_showPauseBtn(true);
-			_showTouchLayer(true);
-			if (fromSave) {
-				const d = fromSave;
-				// Restaurer le mode en priorité (avant startLevel)
-				if (d.isSurvival) {
-					state.isSurvival = true;
-							state.survivalWave      = d.survivalWave      || 0;
-					state.survivalWaveTimer = d.survivalWaveTimer || 0;
-					state.survivalTotalTime = d.survivalTotalTime || 0;
-				}
-
-				state.score = d.score || 0;
-				state.lives = d.lives || 3;
-				state.levelTime = d.levelTime || 0;
-				player.fireLevel = d.fireLevel || 1;
-				player.hasShield = d.hasShield || false;
-				player.hasHoming = d.hasHoming || false;
-				player.speedBoost = d.speedBoost || false;
-				player.megaReady = d.megaReady || false;
-				startLevel(d.level || 0, true);
-				// Restaurer zones de danger et fire powerup depuis la sauvegarde
-				if (d.dangerZones && d.dangerZones.length) {
-					state.dangerZones = d.dangerZones;
-				}
-				if (d.firePowerupPending !== undefined) {
-					state._firePowerupPending = d.firePowerupPending;
-					state._firePowerupKills   = d.firePowerupKills || 0;
-				}
-				// Restaurer bossSpawned APRÈS startLevel (qui le remet à false)
-				if (d.bossSpawned) {
-					state.bossSpawned = true;
-					// Si la sauvegarde était pendant le combat de boss,
-					// re-spawner le boss et restaurer la phase
-					if (d.phase === "boss") {
-						const lvlData = LEVELS[d.level || 0];
-						if (lvlData && lvlData.boss) {
-							state.phase = "boss";
-							enemies.reset();
-							boss.spawn(lvlData.boss, tools.width, tools.height);
-							audio.startMusic("boss");
-						}
-					}
-				}
-			} else {
-				startLevel(0);
-			}
-		}
-		_startGame = startGame; // expose to HUD event handlers
-		const UPGRADES = [
-			{ id:"firepower",  icon:"🔥", fr:"Puissance de feu +1",     en:"Fire Power +1",       apply: ()=> { if(player.fireLevel<5) player.fireLevel++; } },
-			{ id:"speed",      icon:"⚡", fr:"Vitesse +20%",             en:"Speed +20%",          apply: ()=> { player.speed = (player.speed||220)*1.2; } },
-			{ id:"shield",     icon:"🛡", fr:"Bouclier permanent",       en:"Permanent shield",    apply: ()=> { player.hasShield=true; player.shieldTimer=Infinity; player.invincible=true; player.invincibleTimer=Infinity; } },
-			{ id:"homing",     icon:"🎯", fr:"Missiles guidés 45s",      en:"Homing missiles 45s", apply: ()=> { player.hasHoming=true; player.homingTimer=45; } },
-			{ id:"extralife",  icon:"❤️", fr:"Vie supplémentaire",       en:"Extra life",          apply: ()=> { state.lives++; } },
-			{ id:"megaready",  icon:"💥", fr:"Mega Blast chargé",        en:"Mega Blast ready",    apply: ()=> { player.megaReady=true; } },
-			{ id:"rapidfire",  icon:"🔫", fr:"Cadence ×1.5 pendant 30s",  en:"Fire rate ×1.5 for 30s", apply: ()=> { player.shootRateBoost = true; player.shootRateTimer = 30; } },
-			{ id:"doublescore",icon:"💫", fr:"Score ×2 pendant 30s",     en:"Score ×2 for 30s",    apply: ()=> { state.scoreMul = 2; state.scoreMulTimer = 30; } },
-		];
-
-		function showUpgradeMenu(onPick) {
-			const pool = [...UPGRADES].sort(()=>Math.random()-0.5).slice(0,3);
-			audio.stopMusic();
-			_showTouchLayer(false);
-			_showPauseBtn(false); // cacher le bouton pause pendant l'upgrade
-			state.paused = true;
-			const lang = settings.lang || "en";
-
-			// Bloquer uniquement les touches qui pourraient fermer l'écran (Echap, P)
-			const _blockEsc = (e) => {
-				if (e.code === "Escape" || e.code === "KeyP") {
-					e.stopPropagation();
-					e.preventDefault();
-				}
-			};
-			window.addEventListener("keydown", _blockEsc, true);
-
-			ui.render(`
-				<div style="
-					position:absolute;inset:0;
-					display:flex;flex-direction:column;
-					align-items:center;justify-content:center;
-					background:rgba(0,0,0,0.92);
-					color:#fff;font-family:monospace;gap:clamp(8px,1.5vh,16px);
-					padding:clamp(10px,2vh,20px);
-					overflow-y:auto;
-				">
-					<div style="font-size:clamp(18px,4vh,28px);font-weight:900;color:#f97316;letter-spacing:3px;animation:fadeInDown 0.4s ease;">
-						${lang==="fr"?"⬆️ AMÉLIORATION":"⬆️ UPGRADE"}
-					</div>
-					<div style="font-size:clamp(11px,1.8vh,14px);color:#9ca3af;">
-						${lang==="fr"?"Choisissez une amélioration":"Choose an upgrade"}
-					</div>
-					<div style="display:flex;gap:clamp(8px,1.5vw,16px);flex-wrap:wrap;justify-content:center;">
-						${pool.map((u,i)=>`
-							<button class="upg-btn" data-idx="${i}" style="
-								display:flex;flex-direction:column;align-items:center;gap:clamp(4px,1vh,8px);
-								padding:clamp(12px,2.5vh,20px) clamp(14px,2.5vw,24px);border-radius:16px;
-								background:#111827;border:2px solid #374151;
-								color:#fff;font-family:monospace;cursor:pointer;
-								animation:upgradePopIn 0.4s ease both ${i*0.1}s;
-								min-width:clamp(90px,18vw,110px);
-							">
-								<div style="font-size:clamp(24px,5vh,36px);">${u.icon}</div>
-								<div style="font-weight:900;font-size:clamp(10px,1.8vh,13px);color:#f97316;">${lang==="fr"?u.fr:u.en}</div>
-							</button>
-						`).join("")}
-					</div>
-				</div>
-			`);
-			setTimeout(()=>{
-				document.querySelectorAll(".upg-btn").forEach((btn,i)=>{
-					btn.addEventListener("click",()=>{
-						window.removeEventListener("keydown", _blockEsc, true);
-						pool[i].apply();
-						audio.sfx.powerUp();
-						ui.clear();
-						state.paused = false;
-						_showPauseBtn(true);
-						_showTouchLayer(true); // restaurer joystick après upgrade
-						onPick();
-					});
-				});
-			},0);
-		}
-
-		function startLevel(lvl, isResume) {
-			state.level = lvl;
-			state.phase = "playing";
-			if (!isResume) state.levelTime = 0;
-			state.bossSpawned = false;
-			state.bossDefeated = false;
-			enemies.reset();
-			boss.reset();
-			powerups.reset();
-			bullets.reset();
-			particles.reset();
-			state.messages = [];
-
-			// FIX spawn-flood au resume : pré-marquer comme "déjà spawnés"
-			// tous les groupes dont le time < levelTime actuel.
-			// Sans ça, au 1er appel de update(), tous les groupes passés
-			// spawneraient dans la même frame → avalanche d'ennemis.
-			if (isResume) {
-				const lvlData = LEVELS[lvl];
-				if (lvlData && lvlData.enemyGroups) {
-					for (const group of lvlData.enemyGroups) {
-						if (group.time < state.levelTime) {
-							const key = `${group.time}_${group.type}`;
-							enemies.markSpawned(key);
-						}
-					}
-				}
-			}
-
-			player.resetPosition(tools.width, tools.height);
-
-			// Fire powerup au niveau 1 : spawn aléatoire sur kill ennemi
-			// (géré dans la collision enemies, pas par timer)
-			if (lvl === 0 && !isResume) {
-				state._firePowerupPending = true;
-			} else {
-				state._firePowerupPending = false;
-			}
-			// Météorites — actives dès le niveau 1
-			if (!isResume) {
-				state.meteors = [];
-				state._meteorTimer = Math.max(0.8, 2.5 - lvl * 0.2);
-			}
-			// Zones de danger — toujours initialisées (dès niveau 0)
-			if (!isResume) {
-				state.dangerZones = [];
-				const zoneCount = Math.max(1, Math.floor(1 + lvl * 0.7));
-				for (let z = 0; z < zoneCount; z++) {
-					state.dangerZones.push({
-						x: 350 + Math.random() * 350,
-						y: 60 + Math.random() * (300 - 60),
-						r: 24 + Math.random() * 20,
-						phase: Math.random() * Math.PI * 2,
-						speedX: (Math.random() < 0.5 ? 1 : -1) * (35 + Math.random() * 35),
-						speedY: (Math.random() < 0.5 ? 1 : -1) * (25 + Math.random() * 25),
-						color: lvl <= 1 ? "#ff4400" : lvl <= 3 ? "#aa00ff" : lvl <= 5 ? "#ff0088" : "#00ffaa",
-						dmgCooldown: 0,
-					});
-				}
-			}
-			// En mode survie on n'affiche pas "Niveau N" (non pertinent)
-			if (!state.isSurvival) {
-				addMessage(
-					(isResume ? t("resumeLevel") : t("level") + " ") +
-						(lvl + 1),
-					"#ff6600",
-					40,
-				);
-			}
-			audio.startMusic(lvl);
-			hud.renderHUD(state, player);
-		}
-
-		function gainScore(base, x, y, isEnemyKill) {
-			state.combo++;
-			state.comboTimer = state.comboMax;
-			const multiplier = Math.min(state.combo, state.comboCap || 8);
-
-			// Rage mode — vérifié sur TOUT gain de score, pas seulement les kills
-			if (state.combo >= MAX_COMBO_RAGE && !state.rageMode) {
-				state.rageMode = true;
-				state.ragePulse = 0;
-				addMessage(settings.lang === "fr" ? "💢 MODE RAGE !" : "💢 RAGE MODE!", "#ff0000", 26);
-				const _ru = dailySystem.markMissionProgress("rage", 1);
-				for (const _rm of _ru) _notifyMission(_rm);
-			}
-
-			// Kill streak system
-			if (isEnemyKill) {
-				state.killStreak++;
-				state.streakTimer = state.streakMax;
-				// Track max streak in achStats
-				const _as = achStats.get();
-				if (state.killStreak > (_as.maxKillStreak||0)) {
-					_as.maxKillStreak = state.killStreak;
-					achStats.save();
-				}
-				// FRENZY at streak 10
-				if (state.killStreak >= (state.streakThreshold || 10) && !state.frenzyMode) {
-					state.frenzyMode = true;
-					state.frenzyTimer = 8.0;
-					addMessage("🔥 FRENZY x2!", "#ff2200", 30);
-					audio.sfx.powerUp();
-				}
-				// Daily mission: streak
-				const streakUnlocked = dailySystem.setMissionAbsolute("streak", state.killStreak);
-				dailySystem.setMissionAbsolute("streak2", state.killStreak);
-				if (state.combo >= 50) {
-					seasonBadges.unlock("comboMaster");
-					const _c10u = dailySystem.setMissionAbsolute("combo10", state.combo);
-					for (const _cm of _c10u) _notifyMission(_cm);
-				}
-				for(const m of streakUnlocked) _notifyMission(m);
-			}
-
-			const frenzyMul = state.frenzyMode ? 2 : 1;
-			const scoreMul  = state.scoreMul || 1;
-			const gained = Math.round(base * multiplier * frenzyMul * scoreMul);
-			state.score += gained;
-			if (state.score > state.hiScore) {
-				state.hiScore = state.score;
-				idb.setItem("inferno_hi", String(state.hiScore));
-			}
-
-			// Daily mission: score
-			const scoreUnlocked = dailySystem.setMissionAbsolute("score", state.score);
-			dailySystem.setMissionAbsolute("score2", state.score);
-			for(const m of scoreUnlocked) _notifyMission(m);
-
-			state.messages.push({
-				text: "+" + gained,
-				color: multiplier >= 4 ? "#ffdd00" : (state.frenzyMode ? "#ff8800" : "#ff8844"),
-				size: 16 + Math.min(multiplier * 2, 14),
-				life: 1.0,
-				x: x,
-				y: y,
-			});
-			if (multiplier >= 4) {
-				state.messages.push({
-					text: multiplier + "x COMBO!",
-					color: "#ff2200",
-					size: 22,
-					life: 1.2,
-					x: x,
-					y: y - 28,
-				});
-			}
-			// Show streak milestone
-			if (isEnemyKill && state.killStreak > 0 && state.killStreak % 5 === 0) {
-				state.messages.push({
-					text: state.killStreak + " STREAK! 🔥",
-					color: "#ff8800",
-					size: 22,
-					life: 1.5,
-					x: x,
-					y: y - 50,
-				});
-			}
-		}
-
-		function loseLife() {
-			if (player.invincible) return;
-			state.lives--;
-			triggerShake(12);
-			state.combo = 0;
-			state.comboTimer = 0;
-			state.rageMode = false; // Rage s'éteint si on perd une vie
-			// Break streak
-			state.killStreak = 0;
-			state.streakTimer = 0;
-			state.frenzyMode = false;
-			state.runLevelDeaths++;
-			audio.sfx.playerHit();
-			gamepad.rumble(350, 0.7, 1.0);
-			_deathsRun++;
-			_lvlDeaths++;
-			particles.burst(
-				player.x,
-				player.y,
-				"#ff4400",
-				40,
-				"explosion",
-			);
-			if (state.lives <= 0) {
-				state.phase = "gameover";
-				// Submit score to leaderboard
-				if (state.score > 0 && settings.playerName) {
-					firebase
-						.submitScore(
-							settings.playerName,
-							state.score,
-							settings.difficulty,
-						)
-						.then((ok) => {
-							if (ok) {
-								const _as = achStats.get();
-								_as.scoreSubmitted =
-									(_as.scoreSubmitted || 0) + 1;
-								achStats.save();
-								achStats.check(_notifyAch);
-							}
-							const el =
-								document.getElementById(
-									"lb-status",
-								);
-							if (el)
-								el.textContent = ok
-									? t("scoreSent")
-									: "";
-						});
-				}
-				{
-					const _as = achStats.get();
-					_as.hiScore = Math.max(
-						_as.hiScore || 0,
-						state.score,
-					);
-					achStats.save();
-					achStats.check(_notifyAch);
-				}
-				// ── End-of-run accounting ────────────────────────────────
-				{
-					const xpGained = Math.round(state.score / 100) + state.sessionKills * 2 + state.sessionBosses * 50;
-					pilotLevel.addXP(xpGained);
-					pilotLevel.get().gamesPlayed++;
-					pilotLevel.save();
-					matchHistory.push({
-						score: state.score,
-						level: state.level + 1,
-						kills: state.sessionKills,
-						bosses: state.sessionBosses,
-						wave: state.isSurvival ? state.survivalWave : null,
-						mode: state.isSurvival ? "survival" : "normal",
-						xp: xpGained,
-						diff: settings.difficulty,
-					});
-					// Daily time mission
-					dailySystem.setMissionAbsolute("time", state.runTotalTime || state.levelTime);
-					dailySystem.setMissionAbsolute("time2", state.runTotalTime || state.levelTime);
-					dailySystem.completeDailyRun(state.score); // Bonus XP quotidien une fois/jour
-				}
-				saveGame.clear();
-				audio.stopMusic();
-				audio.sfx.playerHit();
-				gamepad.rumble(350, 0.7, 1.0);
-				_showPauseBtn(false);
-				_showTouchLayer(false);
-				setTimeout(function () {
-					showAd(); // 1. Interstitiel Game Over
-					audio.sfx.gameOver();
-					hud.renderGameOver(state);
-				}, 800);
-			} else {
-				player.respawn();
-			}
-		}
-
-		// NOTE: We intentionally do NOT start the game on canvas tap
-		// during menus on mobile — buttons in ui-layer handle that.
-		// On desktop, the btn-start click handler below works fine.
-		// Keeping this only for gameover/win where the whole screen
-		// acts as a "tap to retry" zone but only if no button was hit.
-		canvas.addEventListener("pointerdown", function (e) {
-			// Only act if the tap was NOT on a ui-layer button
-			if (e.target.closest && e.target.closest("#ui-layer")) return;
-			if (
-				state.phase === "gameover" ||
-				state.phase === "win"
-			) {
-				const _mode = state.isSurvival ? "survival" : undefined;
-				showAd(); // 4. Interstitiel Rejouer
-				startGame(null, _mode);
-			}
-		});
-
-		on("click", "#btn-start", function (e) {
-			e.stopPropagation();
-			audio.sfx.select();
-			const btn  = e.target.closest("#btn-start");
-			const mode = btn?.dataset?.mode || "";
-			ui.clear();
-			startGame(null, mode || undefined);
-		});
-
-		on("click", "#btn-menu-go", function (e) {
-			showAd(); // Retour menu
-			state.paused = false;
-			state.phase = "menu";
-			audio.stopMusic();
-			_showPauseBtn(false);
-			_showTouchLayer(false);
-			_setPauseIcon(false);
-			ui.clear();
-			hud.renderMenu(state);
-			audio.startMusic("menu");
-		});
-
-		// ── STARTUP SEQUENCE ────────────────────────────────────────────────────
-		// 1. IS Daouda Games splash  (3 s, flash at 1.2 s)
-		// 2. "Tap to continue" screen
-		// 3. Onboarding (lang / name)
-		// 4. Main menu
-
-		const LOGO_SRC  = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAHgAoADASIAAhEBAxEB/8QAHQABAQACAwEBAQAAAAAAAAAAAAUGBwMECAIBCf/EADkQAQACAQMDAgUCBAMHBQAAAAABAgMEBREGEiEHMRMiQVFhFDIII3GBFZGhFkJDUnKxwWJ0ktLw/8QAGwEBAAIDAQEAAAAAAAAAAAAAAAQFAQMGBwL/xAAlEQEAAgIBBAIBBQAAAAAAAAAAAQMCBBEFEiExBhNhFTJBUZH/2gAMAwEAAhEDEQA/APGQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQ+qVm94rHvLMNh6Sy67S/EikzPHLRfsYURznK06X0fa6pZNevjzMIQq71tObQ5Z5rPCU+67cbMe7GfCNu6V2ldNN2PEwlA59Dp/1Wrx6fvrTvnjut7Q2IjuxMS/XFlx202tyaeclcnZbjurPiXKCUC10/smfcc0cUnta7LMa8e7KfCXpaV27dFNOPMy4hlO89M5dHp++1Zjxyxe9Zraaz9HxRsYXxzhKT1To+10uyMNjHiZSQG9VqoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAAAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAL+10i+rpE/d6K9JtipqNsnNekTExxDzvtForrKTP3erfQXLi1Wzzp4mO6qk6lj3W44z6enfCrfo0L7MPfj/ABhvqT0HM4smbDh7qT5mIj2efuo9kzbfqLfJPby/oFq9mx6nDbHkpExMceWkPVz01tTHl1Wmwd2OfMxEezRVnnqZcx+1cb+vq/Iqfrz4xuj1P9/iXmZxZcUWnlb33acuhz2+SeOUlfVW42492LyTd0rtK6abo4mEoFvpvZM246mvyT28/Yssxrx7sjS0rt26KaY5mVDYtpy63PX5Z45bz9OuhrTjpnzYuKR5iJj3UvSf03vlrj1eqwzXHHmImPdu3SbNj02GuPHSIiI48KC3PPby5nxi9b0NfV+PVfXhxldPuf6/ENFermw48G1RlrjiIiOJeZN5xxj1t4j7vYHr7mxaXZf08zHdZ5B3y0W115j7pHTY7bcohT/NbPv0KLMv3ef8cwC7eYpQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAAAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJQAKoAJ2nyTiy1vH0lu/0V64jZ9dita/yTxFo5aMdvbddl0eaL0tMcIe5rffj49x6dH8c63+mXTFkc15eMo/D+lHSm8bbvmgx59PmpabRHMc+YVdw2nS6vTWx5a1tW0ceXhPpb1F3LaZrOm1l8fH0i3hmmX116hvpfgTrIiOOOY90CM7MY7c8PLrstXUtzi3V2YjH8+Jhd9eugtv2/4ur0+TF225mac+YeXt2w1way9Ke0Szvq31C1+7TedRqr5Zn7y17qs1s+aclveW/p9NmGUzMcRP8ACq+X9R1dmquvDPvsx95cLO24q5tVWlvbl6S9CuhdBuVser1OTH219qTPmXmjT5bYcsXrPmGc9Ldda/aZrbTam+KY+0sdQpzzyjKI5iP4Z+IdR1daqyvLPssy9Zcenvbb9p0uk01ceKta1rHHhK6r3jbdj0GTPqM2Os1ieI58y8rYvXzf6aT4H6yJjjjmfdhHVnqZuW7d36jV3yc/SbeGmc7Mo7cMPK0x1dSrObdrZicfx5mWT+sXWn+M6/LeLcUiZisctO5rzkyWtP1ly67WZNXlm97c8uun6et9GPn3LkfkXW/1O6IrjivHxEJQCY5xVABKABVABKABVABKABVABKABVABKABVABKABVABKABVABKAAABVABKABVABKABVABKABVABKABVABKABVABKABVABKABVABKABVcebntcj5vHNQdO2ny101dTWJnFae2bR9J+0uLvt/zSt9H6rBXW22/W1i+l1cdlon6W+kvnqnYM+zajujnJpbz/Lyf+J/IzEzDqZL3tkrjx1m17TEViPMzM/R9ZqajSazLpNXithz4rdt6WjiYllfo/s1d16qpr9TXnS6GYyTzHi1/pH/llHrv07TN8LqXbsVZmkdur7I94+lp/wCww05jpfJkrjx1m17TFa1iPMzP0cms02o0WryaXU4r4c+K3belo4mJbF9Dumq63dp33X4onSaXmMXfHi+T7/2cvrzstKbpj37S1j4ef5M/b/zR7T/cGB2yTWOe5wxGXPGTJXn4eOOb2n2j8f1dnZ9t1W9ayMGnia4485Mk+1Yd7qydNpPg7JoY4x4vmzW+trfkZmZljQAwqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAAAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAAqgAlAA7uorMTF6zMWieYmGyOndbpd+2CMGspXJzHZlrP3j6te3jmrs9O7pbadbebTPwrx5j8x7AzPety0nR/Tt9s2iZrqNTM+bebRE+9pn/seknUEajBqentzt8fHkib44yTzzE/uhrvdtdm3HXZNVmmebT8sc/tj7PnbNZl0Gvw6zDPF8VotH5/ANq+pe8afY+nsew7PWum+P47cfjtp9f80b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J9/rDv8AUfVfUPUO9YN53bc8mbcNPStMOela4rY4rabV47IjiYmZnn3RAGya+s3qfXR101epbxFeY+J+lw98xxHibdnPjj39/M8zPjjB9Rq9y1G5Tumo1+rzbhN4yfqr5rWy98ccW75nnmOI88/R98R9n6DNtN68+rOnwVw4+r8vbWOIm+j097f/ACnHMz/XljuH1C6zx9b4OtZ37UZd/wBPE1w6vPWmWcdZrakxFbxNYji1vHHEc8x58sWAbY0/r/6x4MmoyYusLVvqLxfLP+HaWeZisVj/AIXjxWPb+vvMsO3PrHq7c+sdL1huW96nW75pM2LPp9VqO3J8O2O3fTisx2xWLee3jt9/HmUziPs/eI+wKvqN6idZeoet0ms6x3m255tJjnHgtOnxYopWZ5mOMdax5n6zHLsbN6oddbN0Pqeitt3z9PsGqx5cebSxpMM99csTGSJvNJv5iZj939GGgO3TDPZxLKOi/ULrrovTZdJ011BqdFpss91sFqUy44nz5rXJW0VmefMxEc+OfaEE4gGR9T+rXqJ1LtmXbN46n1GbSZo7cuLHhxYYvH2t8OtZmPxPhP3f1A6u3XpTT9La/d5y7PpqY8eLTRp8VeK444pHdWsWnjiPeZ5+rFwGR9JdUdR9JZ9Rn6e1/wCiyaisUy2+BjyTaInmI+es8f2dvU9edZajZNVsubeLW0Gqvlvnxfp8Ud85LzkvPdFe7za0z7/Xj28IvEfY4j7A7fT/AFl1JsG1Z9r2jcp0uk1F7Xy0jDjtNrTWKzPdaszHiI9pcHTXU++dNzqJ2XXfpZ1HbGX+VS/d288fuiePefZHAWtq3vfNr3DPr9BuGXBqNRMzmtERMXmZ581mOJ8zP0UNZ1t1dq9Nl0+fdrWx5aTS8Rgx1mYmOJ8xXmP7JPEfY4j7Aoz111VMcTuvj/2+L/6uluXU2+7jp7afV7he+K37q1pWkT/XtiEcB38GPthzACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAAACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqAAACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUACqACUAD/2Q==";
-		const SOUND_SRC = "data:audio/mpeg;base64,//uQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uQZEEP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVQSkm5DQoEZ8UMKR17m1M8IfqMLyhDJwxfc+bmSYnAjeQElEDLahdoKOQKvChkVvIz4JrMVxLRrOokMGyociPnwHh2mLA5kcQD0DhDH+ZWOJ0EQzN4JAoQxLP5OysBBSSzcSBWPwzBpCcAuEZgkNBP/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABIZO3hILpbJCI83KvsMtIjQPcvY+C8FvKghI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VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kGRDD/AOAIADAAAIAcAQAGAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVTEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//uSZECP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7kmRAj/AAAGkAAAAIAAANIAAAAQAAAaQAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVX/+5JkQI/wAABpAAAACAAADSAAAAEAAAGkAAAAIAAANIAAAARVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
-
-		let _fullscreenDone = false;
-
-		function _requestFullscreen() {
-			if (_fullscreenDone) return;
-			try {
-				const el = document.documentElement;
-				const req = el.requestFullscreen
-					|| el.webkitRequestFullscreen
-					|| el.mozRequestFullScreen
-					|| el.msRequestFullscreen;
-				if (req && !document.fullscreenElement
-						&& !document.webkitFullscreenElement) {
-					req.call(el);
-					_fullscreenDone = true;
-				}
-			} catch(e) {}
-		}
-
-		// Re-attempt fullscreen on first user gesture (browser may block first try)
-		function _fsOnGesture() {
-			if (_fullscreenDone) return;
-			_requestFullscreen();
-		}
-		document.addEventListener("pointerdown", _fsOnGesture, { once: true, capture: true });
-		document.addEventListener("keydown",     _fsOnGesture, { once: true, capture: true });
-
-		function _showSplash(onDone) {
-			// Request fullscreen on first user gesture
-			_requestFullscreen();
-
-			// Play the logo sound
-			const snd = new Audio(SOUND_SRC);
-			snd.volume = 1.0;
-			snd.play().catch(() => {});
-
-			// Render the splash screen
-			ui.render(`
-				<div id="splash-screen" style="
-					position: absolute; inset: 0;
-					display: flex; align-items: center; justify-content: center;
-					background: #000;
-					overflow: hidden;
-				">
-					<img
-						id="splash-logo"
-						src="${LOGO_SRC}"
-						alt="IS Daouda Games"
-						style="
-							width: 100%;
-							height: 100%;
-							object-fit: cover;
-							opacity: 0;
-							transform: scale(0.88);
-							transition: opacity 0.6s ease, transform 0.6s ease;
-						"
-					/>
-				</div>
-			`);
-
-			// Fade + scale in
-			const logo = document.getElementById("splash-logo");
-			requestAnimationFrame(() => {
-				requestAnimationFrame(() => {
-					if (logo) {
-						logo.style.opacity  = "1";
-						logo.style.transform = "scale(1)";
-					}
-				});
-			});
-
-			// Single flash (brightness spike) at 1.2 s
-			setTimeout(() => {
-				if (logo) {
-					logo.style.transition = "filter 0.08s ease";
-					logo.style.filter = "brightness(3)";
-					setTimeout(() => {
-						if (logo) logo.style.filter = "brightness(1)";
-					}, 80);
-				}
-			}, 1200);
-
-			// Done after 3 s
-			setTimeout(() => {
-				ui.clear();
-				onDone();
-			}, 3000);
-		}
-
-		function _showTapToContinue(onDone) {
-			ui.render(`
-				<div id="tap-screen" style="
-					position: absolute; inset: 0;
-					display: flex; flex-direction: column;
-					align-items: center; justify-content: center;
-					background: #000; color: #fff;
-					font-family: monospace; gap: 28px;
-					cursor: pointer; overflow: hidden;
-				">
-					<!-- Animated fire particles background -->
-					<div style="position:absolute;inset:0;pointer-events:none;overflow:hidden;">
-						${Array.from({length:18},(_,i)=>{
-							const sz=4+Math.random()*7, left=Math.random()*100,
-								  delay=Math.random()*5, dur=4+Math.random()*5;
-							return `<div style="position:absolute;left:${left}%;width:${sz}px;height:${sz}px;
-								border-radius:50%;background:rgba(255,${60+Math.floor(Math.random()*100)},0,0.55);
-								animation:bgParticle ${dur}s ${delay}s linear infinite;"></div>`;
-						}).join("")}
-					</div>
-
-					<!-- Radial glow -->
-					<div style="position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(200,40,0,0.2) 0%,rgba(0,0,0,0.95) 65%);pointer-events:none;"></div>
-
-					<!-- Game title with animated entrance -->
-					<h1 style="
-						position: relative;
-						font-size: clamp(40px, 8vw, 68px);
-						font-weight: 900; letter-spacing: 5px;
-						color: #ff6600; margin: 0;
-						animation: popIn 0.7s ease both, glowPulse 2.5s ease-in-out infinite 0.7s;
-					">
-						INFERNO WING
-					</h1>
-
-					<!-- Fire emoji floating -->
-					<div style="position:relative;font-size:48px;animation:floatUp 2s ease-in-out infinite;line-height:1;">🔥</div>
-
-					<div style="
-						position: relative;
-						font-size: 15px; color: #9ca3af;
-						letter-spacing: 3px; text-transform: uppercase;
-						animation: tapPulse 1.4s ease-in-out infinite 0.3s;
-					">
-						${settings.lang === 'fr'
-							? '✦ APPUYEZ POUR CONTINUER ✦'
-							: '✦ TAP TO CONTINUE ✦'}
-					</div>
-				</div>
-			`);
-
-			// Any click / tap / key press continues
-			function proceed(e) {
-				e.stopPropagation();
-				document.removeEventListener("pointerdown", proceed, true);
-				document.removeEventListener("keydown",     proceed, true);
-				try { audio.resume(); } catch(_) {}
-				ui.clear();
-				onDone();
-			}
-			document.addEventListener("pointerdown", proceed, true);
-			document.addEventListener("keydown",     proceed, true);
-		}
-
-		// Chain: splash → tap → menu+music
-		_showTapToContinue(() => {
-			_showSplash(() => {
-				hud.renderMenu(state);
-				audio.startMusic("menu");
-			});
-		});
-
-		let _saveTimer = 0;
-		let _achTimer = 0;
-		let _hudTimer = 0;
-		let _runStart = Date.now();
-		let _deathsRun = 0;
-		let _puRun = 0;
-		let _lvlDeaths = 0;
-
-		function _notifyMission(m) {
-			if (!m) return;
-			const n = document.createElement("div");
-			const nm = settings.lang === "fr" ? m.fr : m.en;
-			n.style.cssText =
-				"position:fixed;bottom:120px;right:14px;background:rgba(0,40,20,0.95);border:2px solid #22cc88;border-radius:10px;padding:10px 14px;color:#fff;font-family:monospace;z-index:9999;max-width:240px;opacity:1;transition:opacity 0.5s;";
-			n.innerHTML =
-				'<div style="font-size:9px;color:#22cc88;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px;">' +
-				(settings.lang==="fr"?"✓ MISSION ACCOMPLIE":"✓ MISSION COMPLETE") + "</div>" +
-				'<div style="font-size:13px;font-weight:900;color:#fff;margin-bottom:2px;">' + nm + "</div>" +
-				'<div style="font-size:10px;color:#22cc88;">+' + (m.xp||0) + " XP</div>";
-			document.body.appendChild(n);
-			// Award XP
-			pilotLevel.addXP(m.xp || 200);
-			pilotLevel.save();
-			// Badge tracking
-			const bd = JSON.parse(idb.getItem("iw_bdg") || "{}");
-			bd.dailyDone = (bd.dailyDone||0)+1;
-			idb.setItem("iw_bdg", JSON.stringify(bd));
-			setTimeout(()=>{ n.style.opacity="0"; setTimeout(()=>n.remove(),600); },3500);
-		}
-
-		function _notifyAch(ach) {
-			const n = document.createElement("div");
-			const nm = settings.lang === "fr" ? ach.fr : ach.en;
-			n.style.cssText =
-				"position:fixed;bottom:72px;right:14px;background:rgba(0,0,0,0.92);border:2px solid #f97316;border-radius:10px;padding:10px 14px;color:#fff;font-family:monospace;z-index:9999;max-width:230px;opacity:1;transition:opacity 0.5s;";
-			n.innerHTML =
-				'<div style="font-size:9px;color:#f97316;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px;">' +
-				t("unlocked") +
-				'</div><div style="display:flex;align-items:center;gap:8px;"><span style="font-size:22px;">' +
-				ach.icon +
-				'</span><span style="font-weight:700;font-size:12px;">' +
-				nm +
-				"</span></div>";
-			document.body.appendChild(n);
-			setTimeout(() => {
-				n.style.opacity = "0";
-				setTimeout(() => n.remove(), 600);
-			}, 3000);
-		}
-
-		loop(function (dt) {
-			// Poll gamepad for menu navigation when ui screens are active
-			try {
-				const gps = navigator.getGamepads?.() || [];
-				for (const gp of gps) {
-					if (gp && gp.connected) {
-						menuNav.injectGamepadNav(gp);
-						break;
-					}
-				}
-			} catch(e) {}
-			gamepad.inject(keys);
-
-			// ── Gestion pause avec P ou Escape ──
-			if (keys['p'] || keys['Escape']) {
-				if (!keys.pauseJustPressed) {
-					togglePause();
-					keys.pauseJustPressed = true;
-				}
-			} else {
-				keys.pauseJustPressed = false;
-			}
-		
-			if (
-				state.phase === "menu" ||
-				state.phase === "gameover" ||
-				state.phase === "win"
-			) {
-				ctx.clearRect(0, 0, tools.width, tools.height);
-				return;
-			}
-			if (state.paused) return;
-			// Auto-save every 15 seconds
-			_saveTimer += dt;
-			if (_saveTimer > 15) {
-				_saveTimer = 0;
-				saveGame.save(state, player);
-			}
-			// Achievement tracking every 5s
-			_achTimer += dt;
-			if (_achTimer > 5) {
-				_achTimer = 0;
-				const _as = achStats.get();
-				_as.totalTime = (_as.totalTime || 0) + 5;
-				_as.hiScore = Math.max(
-					_as.hiScore || 0,
-					state.hiScore,
-				);
-				_as.maxCombo = Math.max(
-					_as.maxCombo || 0,
-					state.combo,
-				);
-				_as.maxLives = Math.max(
-					_as.maxLives || 0,
-					state.lives,
-				);
-				if (state.lives === 1)
-					_as.closeCalls = (_as.closeCalls || 0) + 1;
-				achStats.save();
-				achStats.check(_notifyAch);
-				// ── Badges survie / pilote ──
-				if (state.isSurvival && state.survivalTotalTime >= 300) seasonBadges.unlock("survive5");
-				if (state.score >= 1000000) seasonBadges.unlock("score10k");
-				if (pilotLevel.get().level >= 5) seasonBadges.unlock("pilot5");
-			}
-			if (
-				state.phase === "menu" ||
-				state.phase === "gameover" ||
-				state.phase === "win"
-			)
-				return;
-
-			// dt is already capped by the loop wrapper
-
-			// Background scroll
-			state.bgOffset += LEVELS[state.level].bgSpeed * dt;
-
-			// Screen shake decay
-			state.screenShake *= 0.85;
-			if (state.screenShake < 0.3) state.screenShake = 0;
-
-			// Flash
-			if (state.flashTimer > 0) state.flashTimer -= dt;
-
-			// Combo decay
-			if (state.comboTimer > 0) {
-				state.comboTimer -= dt;
-				if (state.comboTimer <= 0) {
-					state.combo = 0;
-					state.rageMode = false; // Rage s'éteint quand le combo expire
-				}
-			}
-
-			// Message lifetime
-			for (var i = state.messages.length - 1; i >= 0; i--) {
-				state.messages[i].life -= dt;
-				if (state.messages[i].life <= 0)
-					state.messages.splice(i, 1);
-			}
-
-			// Level time
-			state.levelTime += dt;
-			state.runTotalTime = (state.runTotalTime || 0) + dt;
-			if (state.rageMode) state.ragePulse = (state.ragePulse || 0) + dt;
-
-			// (Fire powerup niveau 1 géré sur kill d'ennemi — voir collision)
-			state.runTotalTime = (state.runTotalTime || 0) + dt;
-
-			// ── Météorites ──────────────────────────────────────────────
-			if (state.level >= 1 && state.meteors !== undefined) {
-				state._meteorTimer -= dt;
-				if (state._meteorTimer <= 0) {
-					const spd = 160 + Math.random() * 120 + state.level * 15;
-					state.meteors.push({
-						x: width + 30,
-						y: 30 + Math.random() * (height - 60),
-						r: 10 + Math.random() * 14,
-						vx: -spd,
-						vy: (Math.random() - 0.5) * 60,
-						hp: 3,
-						angle: Math.random() * Math.PI * 2,
-						spin: (Math.random() - 0.5) * 4,
-					});
-					const interval = Math.max(0.8, 2.8 - state.level * 0.25);
-					state._meteorTimer = interval + Math.random() * interval * 0.5;
-				}
-				for (let mi = state.meteors.length - 1; mi >= 0; mi--) {
-					const mt = state.meteors[mi];
-					mt.x += mt.vx * dt;
-					mt.y += mt.vy * dt;
-					mt.angle += mt.spin * dt;
-					if (mt.y < mt.r) { mt.y = mt.r; mt.vy = Math.abs(mt.vy); }
-					if (mt.y > height - mt.r) { mt.y = height - mt.r; mt.vy = -Math.abs(mt.vy); }
-					// Off screen → remove
-					if (mt.x < -50) { state.meteors.splice(mi, 1); continue; }
-					// Player collision
-					if (!player.invincible) {
-						const mdx = player.x - mt.x, mdy = player.y - mt.y;
-						if (Math.sqrt(mdx*mdx + mdy*mdy) < mt.r + 12) {
-							state.meteors.splice(mi, 1);
-							loseLife();
-							continue;
-						}
-					}
-					// Bullet collision — check player bullets
-					for (const pb of bullets.playerBullets) {
-						if (pb.dead) continue;
-						const bmdx = pb.x - mt.x, bmdy = pb.y - mt.y;
-						if (Math.sqrt(bmdx*bmdx + bmdy*bmdy) < mt.r + 5) {
-							pb.dead = true;
-							mt.hp--;
-							particles.burst(pb.x, pb.y, "#aa8866", 5, "spark");
-							if (mt.hp <= 0) {
-								particles.burst(mt.x, mt.y, "#886644", 10, "explosion");
-								gainScore(50, mt.x, mt.y, false);
-								state.meteors.splice(mi, 1);
-							}
-							break;
-						}
-					}
-				}
-			}
-
-			// Mise à jour des zones de danger (une seule fois)
-			if (state.dangerZones && state.dangerZones.length) {
-				for (const z of state.dangerZones) {
-					z.x += z.speedX * dt;
-					z.y += z.speedY * dt;
-					if (z.x < z.r + 10 || z.x > width - z.r - 10) z.speedX *= -1;
-					if (z.y < 50 || z.y > height - 50) z.speedY *= -1;
-					z.dmgCooldown = (z.dmgCooldown || 0) - dt;
-					if (!player.invincible && z.dmgCooldown <= 0) {
-						const dx = player.x - z.x, dy = player.y - z.y;
-						if (Math.sqrt(dx*dx+dy*dy) < z.r + 14) {
-							loseLife();
-							z.dmgCooldown = 2.0; // 2s cooldown to avoid instant death
-						}
-					}
-				}
-			}
-			var lvlData = LEVELS[state.level];
-
-			// Playing phase: spawn enemies, check boss trigger
-			if (state.phase === "playing") {
-				// En mode survie on passe un lvlData sans enemyGroups pour que
-				// enemies.update() continue de faire bouger/animer les ennemis,
-				// mais ne spawne PAS les groupes du niveau normal.
-				const _lvlDataForUpdate = state.isSurvival
-					? { ...lvlData, enemyGroups: [] }
-					: lvlData;
-				enemies.update(
-					dt,
-					_lvlDataForUpdate,
-					state.levelTime,
-					width,
-					height,
-					state.level,
-				);
-
-				// Drain pending enemy bullets
-				var pending = enemies.drainPendingBullets();
-				for (var j = 0; j < pending.length; j++) {
-					bullets.addEnemy(pending[j]);
-				}
-
-				// Boss spawn trigger (uniquement en mode normal/daily, pas survie)
-				if (
-					!state.isSurvival &&
-					!state.bossSpawned &&
-					state.levelTime >= lvlData.bossTime
-				) {
-					state.bossSpawned = true;
-					state.phase = "boss";
-					enemies.reset();
-					boss.spawn(lvlData.boss, width, height);
-					addMessage(t("bossIncoming"), "#ff0000", 36);
-					state.flashTimer = 0.5;
-					triggerShake(8);
-					audio.sfx.bossWarn();
-					audio.startMusic("boss");
-					hud.renderHUD(state, player);
-				}
-			}
-
-			// ── Kill streak decay ─────────────────────────────────────────
-			if (state.killStreak > 0 && !state.frenzyMode) {
-				state.streakTimer -= dt;
-				if (state.streakTimer <= 0) {
-					state.killStreak = 0;
-				}
-			}
-			if (state.frenzyMode) {
-				state.frenzyTimer -= dt;
-				if (state.frenzyTimer <= 0) {
-					state.frenzyMode = false;
-					state.killStreak = 0;
-					addMessage("Frenzy terminé", "#888888", 18);
-				}
-			}
-			if (state.scoreMulTimer > 0) {
-				state.scoreMulTimer -= dt;
-				if (state.scoreMulTimer <= 0) {
-					state.scoreMulTimer = 0;
-					state.scoreMul = 1;
-					addMessage(settings.lang === "fr" ? "Score ×2 terminé" : "Score ×2 ended", "#888888", 18);
-				}
-			}
-
-			// ── Survival wave logic ───────────────────────────────────────────
-			if (state.isSurvival && (state.phase === "playing" || state.phase === "survival")) {
-				state.survivalTotalTime += dt;
-				state.survivalWaveTimer += dt;
-				if (state.survivalWaveTimer >= state.survivalWaveDur) {
-					state.survivalWaveTimer = 0;
-					state.survivalWave++;
-					// Spawn harder wave each time
-					const types = ["drone","kamikaze","turret","interceptor","carrier"];
-					const waveSize = 3 + Math.floor(state.survivalWave * 1.5);
-					const typeIdx = Math.min(Math.floor(state.survivalWave/3), types.length-1);
-					for (let i=0; i<waveSize; i++) {
-						const t_type = types[Math.min(typeIdx + (i%2), types.length-1)];
-						enemies.list.push(enemies._createEnemy(t_type,
-							width + 60 + i*35,
-							height*(0.15 + Math.random()*0.7), i));
-					}
-					addMessage(t("survivalWave")+" "+state.survivalWave, "#ffaa00", 26);
-					survivalData.setBest(state.survivalWave);
-					// Ajouter un trou noir tous les 4 waves (max 6)
-					if (state.isSurvival && state.survivalWave % 4 === 0) {
-						const maxZones = 6;
-						if (!state.dangerZones) state.dangerZones = [];
-						if (state.dangerZones.length < maxZones) {
-							state.dangerZones.push({
-								x: width * 0.4 + Math.random() * width * 0.5,
-								y: 50 + Math.random() * (height - 100),
-								r: 26 + Math.random() * 16,
-								phase: Math.random() * Math.PI * 2,
-								speedX: (Math.random() < 0.5 ? 1 : -1) * (30 + Math.random() * 30),
-								speedY: (Math.random() < 0.5 ? 1 : -1) * (20 + Math.random() * 25),
-								color: "#aa00ff",
-								dmgCooldown: 0,
-							});
-							// Message décalé pour ne pas se superposer au message de vague
-							setTimeout(() => {
-								addMessage(settings.lang === "fr" ? "🕳 TROU NOIR !" : "🕳 BLACK HOLE!", "#aa00ff", 22);
-							}, 1800);
-						}
-					}
-					// Spawn mini-boss every 5 waves
-					if (state.survivalWave % 5 === 0 && !state.bossSpawned) {
-						state.bossSpawned = true;
-						state.phase = "boss";
-						// Détruire tous les ennemis à l'écran et effacer les messages
-						enemies.reset();
-						state.messages = [];
-						const bossVariants = [
-							{name:"VAGUE BOSS",type:"colossus",hp:Math.round(150+state.survivalWave*20),color:"#cc3300",coreColor:"#ff6600",w:100,h:80},
-							{name:"HYDRA SURVIE",type:"hydra",hp:Math.round(200+state.survivalWave*25),color:"#004400",coreColor:"#00ff88",w:120,h:95},
-						];
-						boss.spawn(bossVariants[state.survivalWave/5 % 2 | 0], width, height);
-						addMessage(t("bossIncoming"), "#ff0000", 36);
-						state.flashTimer = 0.5; triggerShake(8); audio.sfx.bossWarn();
-						audio.startMusic("boss");
-					}
-				}
-			}
-
-			// Boss phase
-			if (state.phase === "boss") {
-				state.playerX = player.x;
-				boss.update(
-					dt,
-					width,
-					height,
-					bullets,
-					particles,
-					state,
-				);
-
-				if (boss.isDead()) {
-					gainScore(5000, width / 2, height / 2);
-					particles.burst(
-						boss.x,
-						boss.y,
-						"#ffaa00",
-						80,
-						"explosion",
-					);
-					triggerShake(20);
-					addMessage(t("bossDefeated"), "#ffdd00", 42);
-					audio.sfx.bossDead();
-					gamepad.rumble(500, 1.0, 1.0);
-					{
-						const _as = achStats.get();
-						_as.bossesKilled =
-							(_as.bossesKilled || 0) + 1;
-						state.sessionBosses++;
-						// Daily boss mission
-						const bu = dailySystem.markMissionProgress("bosses", 1);
-						dailySystem.markMissionProgress("boss1", 1);
-						for(const mb of bu) _notifyMission(mb);
-						// ── Badge boss1 ──
-						if (_as.bossesKilled >= 1) seasonBadges.unlock("boss1");
-						if (player.hasShield)
-							_as.bossKilledWithShield =
-								(_as.bossKilledWithShield || 0) + 1;
-						if (state.combo >= 5)
-							_as.bossKilledWithCombo5 =
-								(_as.bossKilledWithCombo5 || 0) + 1;
-						if (player.fireLevel >= 5)
-							_as.bossKilledAtMaxFire =
-								(_as.bossKilledAtMaxFire || 0) + 1;
-						if (_lvlDeaths === 0)
-							_as.bossNoDmg =
-								(_as.bossNoDmg || 0) + 1;
-						_lvlDeaths = 0;
-						achStats.save();
-						achStats.check(_notifyAch);
-					}
-					state.flashTimer = 0.8;
-					state.phase = "transition";
-					state.transitionTimer = 3.5;
-					boss.active = false;
-					// Le bouclier permanent expire à la fin du niveau
-					if (player.invincibleTimer === Infinity) {
-						player.invincible = false;
-						player.invincibleTimer = 0;
-						player.hasShield = false;
-						player.shieldTimer = 0;
-					}
-					// Reprendre la musique de niveau après le boss
-					audio.startMusic(state.isSurvival ? 0 : state.level);
-					hud.renderHUD(state, player);
-				}
-			}
-
-			// Transition phase
-			if (state.phase === "transition") {
-				state.transitionTimer -= dt;
-				if (state.transitionTimer <= 0) {
-					// En mode survie : après le boss, on reprend les vagues survie
-					if (state.isSurvival) {
-						state.bossSpawned = false;
-						state.bossDefeated = false;
-						enemies.reset();
-						boss.reset();
-						state.phase = "playing";
-						// Prochaine vague immédiatement
-						state.survivalWaveTimer = state.survivalWaveDur;
-						addMessage(t("survivalWave") + " " + (state.survivalWave + 1), "#ffaa00", 26);
-						hud.renderHUD(state, player);
-						return;
-					}
-					if (state.level + 1 < LEVELS.length) {
-						{
-							const _as = achStats.get();
-							_as.levelsCleared =
-								(_as.levelsCleared || 0) + 1;
-							if (state.level === 0) {
-								_as.l1Time = state.levelTime;
-								if (_deathsRun === 0)
-									_as.l1NoDeath = true;
-								if (_puRun === 0)
-									_as.l1NoPowerup = true;
-							}
-							if (state.level === 1) {
-								_as.l2Time = state.levelTime;
-								if (_deathsRun === 0)
-									_as.l2NoDeath = true;
-							}
-							_deathsRun = 0;
-							_puRun = 0;
-							achStats.save();
-						}
-						// Daily no-hit mission check
-						if (state.runLevelDeaths === 0) {
-							const nd = dailySystem.markMissionProgress("nodmg", 1);
-							for(const m of nd) _notifyMission(m);
-						}
-						state.runLevelDeaths = 0;
-						// Show upgrade screen before next level
-						showAd(); // 3. Interstitiel entre les niveaux
-						showUpgradeMenu(() => startLevel(state.level + 1));
-					} else {
-						state.phase = "win";
-						// Débloquer le mode Survie
-						if (!state.isSurvival) {
-							const alreadyUnlocked = idb.getItem("iw_normal_cleared");
-							if (!alreadyUnlocked) {
-								idb.setItem("iw_normal_cleared", "1");
-								// Message de déblocage affiché après un délai
-								setTimeout(() => {
-									const lang = settings.lang || "en";
-									const n = document.createElement("div");
-									n.style.cssText = [
-										"position:fixed",
-										"top:0","left:0","right:0","bottom:0",
-										"display:flex","align-items:center","justify-content:center",
-										"z-index:999999",
-										"background:rgba(0,0,0,0.75)",
-										"font-family:monospace",
-									].join(";");
-									n.innerHTML = `
-										<div style="
-											background:rgba(0,0,0,0.97);
-											border:2px solid #ef4444;
-											border-radius:16px;
-											padding:28px 36px;
-											color:#fff;
-											text-align:center;
-											max-width:min(340px,85vw);
-											animation:popIn 0.4s ease;
-											box-shadow:0 0 40px rgba(239,68,68,0.5);
-										">
-											<div style="font-size:44px;margin-bottom:10px;">💀</div>
-											<div style="font-size:15px;color:#ef4444;font-weight:900;letter-spacing:2px;margin-bottom:10px;">
-												${lang==="fr"?"MODE SURVIE DÉBLOQUÉ !":"SURVIVAL MODE UNLOCKED!"}
-											</div>
-											<div style="font-size:12px;color:#9ca3af;line-height:1.6;margin-bottom:16px;">
-												${lang==="fr"?"Défiez des vagues infinies d'ennemis !":"Challenge endless waves of enemies!"}
-											</div>
-											<button id="_surv-unlock-ok" style="
-												padding:8px 24px;background:#ef4444;border:none;
-												border-radius:8px;color:#fff;font-weight:900;
-												font-family:monospace;cursor:pointer;font-size:13px;
-											">OK !</button>
-										</div>`;
-									document.body.appendChild(n);
-									const close = () => {
-										n.style.transition = "opacity 0.4s";
-										n.style.opacity = "0";
-										setTimeout(() => n.remove(), 450);
-									};
-									document.getElementById("_surv-unlock-ok")?.addEventListener("click", close);
-									setTimeout(close, 6000);
-								}, 1500);
-							}
-						}
-						{
-							const _as = achStats.get();
-							_as.totalRunTime =
-								(Date.now() - _runStart) / 1000;
-							_as.levelsCleared =
-								(_as.levelsCleared || 0) + 1;
-							if (settings.difficulty === "easy")
-								_as.beatEasy = true;
-							if (settings.difficulty === "normal")
-								_as.beatNormal = true;
-							if (settings.difficulty === "hard") {
-								_as.beatHard = true;
-								if (_deathsRun === 0)
-									_as.hardNoDeath = true;
-							}
-							if (_deathsRun === 0)
-								_as.fullRunNoDeath = true;
-							if (
-								state.level === 2 &&
-								_deathsRun === 0
-							)
-								_as.l3NoDeath = true;
-							_as.hiScore = Math.max(
-								_as.hiScore || 0,
-								state.score,
-							);
-							achStats.save();
-							achStats.check(_notifyAch);
-						}
-						if (
-							state.score > 0 &&
-							settings.playerName
-						) {
-							firebase
-								.submitScore(
-									settings.playerName,
-									state.score,
-									settings.difficulty,
-								)
-								.then((ok) => {
-									if (ok) {
-										const _as = achStats.get();
-										_as.scoreSubmitted =
-											(_as.scoreSubmitted ||
-												0) + 1;
-										achStats.save();
-									}
-									const el =
-										document.getElementById(
-											"lb-status",
-										);
-									if (el)
-										el.textContent = ok
-											? t("scoreSent")
-											: "";
-								});
-						}
-						// ── Win accounting ────────────────────────────────────
-						{
-							const xpGained = Math.round(state.score / 80) + state.sessionKills * 2 + state.sessionBosses * 80 + 500;
-							pilotLevel.addXP(xpGained);
-							pilotLevel.get().gamesPlayed++;
-							pilotLevel.save();
-							matchHistory.push({
-								score: state.score,
-								level: state.level + 1,
-								kills: state.sessionKills,
-								bosses: state.sessionBosses,
-								mode: "win",
-								xp: xpGained,
-								diff: settings.difficulty,
-							});
-							dailySystem.setMissionAbsolute("time", state.runTotalTime || state.levelTime);
-					dailySystem.setMissionAbsolute("time2", state.runTotalTime || state.levelTime);
-							dailySystem.completeDailyRun(state.score); // Bonus XP quotidien une fois/jour
-						}
-						saveGame.clear();
-						audio.stopMusic();
-						audio.sfx.victory();
-						showAd(); // 2. Interstitiel Victoire
-						_showPauseBtn(false);
-						_showTouchLayer(false);
-						hud.renderWin(state);
-					}
-				}
-			}
-
-			// Player update
-			player.update(
-				dt,
-				width,
-				height,
-				isKeyDown,
-				bullets,
-				particles,
-				state.level,
-			);
-			_playerY = player.y; // track for interceptor targeting
-
-			// Bullets update — enemyList et bossRef passés pour le guidage homing
-			bullets.update(dt, width, height, enemies.list, boss);
-
-			// Powerups update
-			powerups.update(dt, width, height);
-
-			// Particles update
-			particles.update(dt);
-
-			// --- COLLISIONS ---
-
-			// Player bullets vs enemies
-			if (state.phase === "playing") {
-				for (
-					var bi = 0;
-					bi < bullets.playerBullets.length;
-					bi++
-				) {
-					var bullet = bullets.playerBullets[bi];
-					if (bullet.dead) continue;
-					for (
-						var ei = 0;
-						ei < enemies.list.length;
-						ei++
-					) {
-						var enemy = enemies.list[ei];
-						if (enemy.dead) continue;
-						if (
-							rectsOverlap(
-								bullet,
-								bullet.w,
-								bullet.h,
-								enemy,
-								enemy.w,
-								enemy.h,
-							)
-						) {
-							// Check if protected by a shielder (non-mega bullets)
-							if (!bullet.isMega && enemy.type !== "shielder") {
-								const shielder = enemies.list.find(s =>
-									!s.dead && s.type === "shielder" && s.shieldActive &&
-									s.x > enemy.x && // shielder must be in front (to the right)
-									Math.abs(s.y - enemy.y) < s.shieldRadius &&
-									Math.abs(s.x - enemy.x) < s.shieldRadius
-								);
-								if (shielder) {
-									// Bullet blocked by shield — deflect
-									bullet.dead = true;
-									particles.burst(bullet.x, bullet.y, "#4488ff", 5, "spark");
-									continue;
-								}
-							}
-							bullet.dead = true;
-							enemy.hp -= bullet.dmg;
-							particles.burst(
-								bullet.x,
-								bullet.y,
-								"#ffaa44",
-								6,
-								"spark",
-							);
-							if (enemy.hp <= 0) {
-								enemy.dead = true;
-								gainScore(
-									enemy.score,
-									enemy.x,
-									enemy.y,
-									true, // isEnemyKill
-								);
-								particles.burst(
-									enemy.x,
-									enemy.y,
-									enemy.color || "#ff6600",
-									18,
-									"explosion",
-								);
-
-								// ── Loot garanti pour les élites ─────────────────────────
-								if (enemy.isElite) {
-									powerups.spawn(enemy.x, enemy.y);
-									powerups.spawn(enemy.x - 20, enemy.y + 15);
-									addMessage(settings.lang === "fr" ? "💀 ÉLITE VAINCU !" : "💀 ELITE DOWN!", "#ffd700", 24);
-									seasonBadges.unlock("eliteSlayer");
-									const _eu = dailySystem.markMissionProgress("elite", 1);
-									for (const _em of _eu) _notifyMission(_em);
-								}
-
-								// ── Compteur élite (toutes les 10 kills) ────────────────
-								state.eliteKillCount = (state.eliteKillCount || 0) + 1;
-								if (state.eliteKillCount >= 10) {
-									state.eliteKillCount = 0;
-									state.eliteWaveCount = (state.eliteWaveCount || 0) + 1;
-									// Spawn un ennemi élite à droite de l'écran
-									const _eliteTypes = ["drone","kamikaze","interceptor"];
-									const _et = _eliteTypes[state.eliteWaveCount % _eliteTypes.length];
-									const _elite = enemies._createEnemy(_et, width + 40, height * 0.3 + Math.random() * height * 0.4, 0);
-									_elite.isElite = true;
-									_elite.hp   *= 3;
-									_elite.score *= 4;
-									_elite.speed *= 1.3;
-									_elite.w    *= 1.25;
-									_elite.h    *= 1.25;
-									enemies.list.push(_elite);
-									addMessage(settings.lang === "fr" ? "👑 ÉLITE EN APPROCHE !" : "👑 ELITE INCOMING!", "#ffd700", 22);
-								}
-
-								// ── Chaîne d'explosions ──────────────────────────────────
-								const _chainR = 65;
-								for (const ne of enemies.list) {
-									if (ne.dead || ne === enemy) continue;
-									const cdx = ne.x - enemy.x, cdy = ne.y - enemy.y;
-									if (cdx*cdx + cdy*cdy < _chainR*_chainR) {
-										ne.hp -= 1; // dégât de chaîne
-										particles.burst(ne.x, ne.y, "#ffaa00", 6, "spark");
-										if (ne.hp <= 0) {
-											ne.dead = true;
-											gainScore(Math.round(ne.score * 0.5), ne.x, ne.y, true);
-											particles.burst(ne.x, ne.y, ne.color||"#ff6600", 12, "explosion");
-										}
-									}
-								}
-
-								// ── Fire powerup garanti niveau 1 (aléatoire sur kill) ──
-								if (state.level === 0 && state._firePowerupPending) {
-									// 40% de chance par kill ; garantie si >= 8 kills sans drop
-									const killCount = (state._firePowerupKills = (state._firePowerupKills||0) + 1);
-									const forceSpawn = killCount >= 8;
-									if (forceSpawn || Math.random() < 0.40) {
-										state._firePowerupPending = false;
-										const fireType = TYPES.find(ft => ft.type === "fire");
-										if (fireType) {
-											powerups.list.push({
-												...fireType,
-												x: enemy.x,
-												y: enemy.y,
-												vx: -70,
-												vy: (Math.random() - 0.5) * 60,
-												collected: false,
-												animT: 0,
-											});
-										}
-									}
-								} else if (Math.random() < 0.18) {
-									powerups.spawn(enemy.x, enemy.y);
-								}
-
-								triggerShake(3);
-								{
-									const _as = achStats.get();
-									_as.totalKills =
-										(_as.totalKills || 0) + 1;
-									if (enemy.type === "drone")
-										_as.droneKills =
-											(_as.droneKills || 0) +
-											1;
-									else if (
-										enemy.type === "turret"
-									)
-										_as.turretKills =
-											(_as.turretKills || 0) +
-											1;
-									else if (
-										enemy.type === "kamikaze"
-									)
-										_as.kamikazeKills =
-											(_as.kamikazeKills ||
-												0) + 1;
-									// interceptor / carrier kills
-									if (enemy.type === "interceptor") achStats.get().totalKills++;
-									if (enemy.type === "carrier") achStats.get().totalKills++;
-									achStats.save();
-									// Daily kills mission
-									const ku = dailySystem.markMissionProgress("kills", 1);
-									dailySystem.markMissionProgress("kills2", 1);
-									for(const m of ku) _notifyMission(m);
-									state.sessionKills++;
-
-									// ── Badge firstBlood ──
-									if (_as.totalKills >= 1) seasonBadges.unlock("firstBlood");
-									// ── Badge kills100 ──
-									if (_as.totalKills >= 1000) seasonBadges.unlock("kills100");
-									// ── Badge score10k ──
-									if (state.score >= 1000000) seasonBadges.unlock("score10k");
-									// ── Badge noHit (vague sans dégât) : on suit en live ──
-									if (state.runLevelDeaths === 0 && state.levelTime > 10)
-										seasonBadges.unlock("noHit");
-								}
-							}
-							break;
-						}
-					}
-				}
-			}
-
-			// Player bullets vs boss
-			if (state.phase === "boss" && boss.active) {
-				var bh = boss.hitbox();
-				for (
-					var bi2 = 0;
-					bi2 < bullets.playerBullets.length;
-					bi2++
-				) {
-					var pb = bullets.playerBullets[bi2];
-					if (pb.dead) continue;
-					if (
-						rectsOverlap(pb, pb.w, pb.h, bh, bh.w, bh.h)
-					) {
-						pb.dead = true;
-						boss.takeDamage(pb.dmg);
-						particles.burst(
-							pb.x,
-							pb.y,
-							"#ffdd00",
-							8,
-							"spark",
-						);
-						audio.sfx.bossHit();
-						triggerShake(1);
-					}
-				}
-			}
-
-			// Enemy bullets vs player
-			if (!player.invincible) {
-				var playerHB = player.hitbox();
-				for (
-					var ebi = 0;
-					ebi < bullets.enemyBullets.length;
-					ebi++
-				) {
-					var eb = bullets.enemyBullets[ebi];
-					if (eb.dead) continue;
-					if (
-						rectsOverlap(
-							eb,
-							eb.w,
-							eb.h,
-							playerHB,
-							playerHB.w,
-							playerHB.h,
-						)
-					) {
-						eb.dead = true;
-						loseLife();
-						break;
-					}
-				}
-
-				// Enemies collide with player
-				for (
-					var eci = 0;
-					eci < enemies.list.length;
-					eci++
-				) {
-					var en = enemies.list[eci];
-					if (en.dead) continue;
-					if (
-						rectsOverlap(
-							en,
-							en.w,
-							en.h,
-							playerHB,
-							playerHB.w,
-							playerHB.h,
-						)
-					) {
-						en.dead = true;
-						particles.burst(
-							en.x,
-							en.y,
-							"#ff4400",
-							12,
-							"explosion",
-						);
-						loseLife();
-						break;
-					}
-				}
-
-				// Boss body vs player
-				if (state.phase === "boss" && boss.active) {
-					var bosshb = boss.hitbox();
-					if (
-						rectsOverlap(
-							playerHB,
-							playerHB.w,
-							playerHB.h,
-							bosshb,
-							bosshb.w,
-							bosshb.h,
-						)
-					) {
-						loseLife();
-					}
-				}
-			}
-
-			// Powerup collection
-			var playerHB2 = player.hitbox();
-			for (var pi = 0; pi < powerups.list.length; pi++) {
-				var pu = powerups.list[pi];
-				if (pu.collected) continue;
-				if (
-					rectsOverlap(
-						pu,
-						pu.w,
-						pu.h,
-						playerHB2,
-						playerHB2.w,
-						playerHB2.h,
-					)
-				) {
-					pu.collected = true;
-					// Power-up combo: 2x même type = version améliorée
-					const _isCombo = state.lastPowerupType === pu.type;
-					state.lastPowerupType = pu.type;
-					if (_isCombo) {
-						// Effet amélioré selon le type
-						switch(pu.type) {
-							case "fire":
-								player.fireLevel = Math.min(player.fireLevel + 2, 5);
-								break;
-							case "shield":
-								player.hasShield = true;
-								player.shieldTimer = 16.0;
-								player.invincible = true;
-								player.invincibleTimer = 16.0;
-								break;
-							case "homing":
-								player.hasHoming = true;
-								player.homingTimer = 20.0;
-								break;
-							case "speed":
-								player.speedBoost = true;
-								player.speedTimer = 14.0;
-								break;
-							case "mega":
-								player.megaReady = true;
-								// bonus: score x2 pendant 10s
-								state.scoreMul = 2;
-								state.scoreMulTimer = 10;
-								break;
-							case "life":
-								state.lives = Math.min(state.lives + 2, 5);
-								break;
-							default:
-								player.applyPowerUp(pu.type, state);
-						}
-						gainScore(500, pu.x, pu.y);
-						const _comboLabel = (settings.lang === "fr" ? "⚡ COMBO " : "⚡ COMBO ") + pu.label;
-						state.messages.push({ text: _comboLabel, color: "#ffff00", size: 24, life: 2.0, x: pu.x, y: pu.y - 30 });
-						state.lastPowerupType = null; // reset after combo
-					} else {
-						player.applyPowerUp(pu.type, state);
-						gainScore(200, pu.x, pu.y);
-						state.messages.push({
-							text: pu.label,
-							color: pu.color,
-							size: 20,
-							life: 1.5,
-							x: pu.x,
-							y: pu.y - 20,
-						});
-					}
-					audio.sfx.powerUp();
-					particles.burst(
-						pu.x,
-						pu.y,
-						pu.color,
-						12,
-						"spark",
-					);
-					{
-						const _as = achStats.get();
-						_as.powerupsCollected =
-							(_as.powerupsCollected || 0) + 1;
-						state.sessionPowerups++;
-						// Daily powerup mission
-						const pu2 = dailySystem.markMissionProgress("powerups", 1);
-						dailySystem.markMissionProgress("powerups2", 1);
-						for(const mp of pu2) _notifyMission(mp);
-						if (pu.type === "shield")
-							_as.shieldsUsed =
-								(_as.shieldsUsed || 0) + 1;
-						if (pu.type === "homing")
-							_as.homingUsed =
-								(_as.homingUsed || 0) + 1;
-						if (pu.type === "speed")
-							_as.speedsUsed =
-								(_as.speedsUsed || 0) + 1;
-						if (pu.type === "life") {
-							_as.livesCollected =
-								(_as.livesCollected || 0) + 1;
-						}
-						_as.maxLives = Math.max(
-							_as.maxLives || 0,
-							state.lives,
-						);
-						_puRun++;
-						achStats.save();
-						achStats.check(_notifyAch);
-					}
-				}
-			}
-
-			// Clean up dead objects
-			enemies.cleanup();
-			bullets.cleanup();
-			powerups.cleanup();
-
-			// --- RENDER ---
-			var shakeX = state.screenShake
-				? (Math.random() - 0.5) * state.screenShake
-				: 0;
-			var shakeY = state.screenShake
-				? (Math.random() - 0.5) * state.screenShake
-				: 0;
-
-			ctx.save();
-			ctx.translate(shakeX, shakeY);
-
-			renderer.drawBackground(
-				state.bgOffset,
-				state.level,
-				state.phase,
-				state.transitionTimer,
-			);
-			if (state.meteors && state.meteors.length) renderer.drawMeteors(state.meteors);
-			if (state.dangerZones) renderer.drawDangerZones(state.dangerZones, state.levelTime);
-			renderer.drawPowerUps(powerups.list);
-			renderer.drawEnemies(enemies.list, state.levelTime);
-			if (
-				state.phase === "boss" ||
-				state.phase === "transition"
-			) {
-				renderer.drawBoss(boss);
-			}
-			renderer.drawBullets(bullets, state.combo, state.rageMode);
-			renderer.drawParticles(particles.list);
-			renderer.drawPlayer(player, state.levelTime, state.level, state.combo, state.rageMode);
-			renderer.drawMessages(state.messages, state.levelTime);
-
-			// Flash overlay
-			if (state.flashTimer > 0) {
-				ctx.fillStyle =
-					"rgba(255,100,0," +
-					state.flashTimer * 0.6 +
-					")";
-				ctx.fillRect(-shakeX, -shakeY, width, height);
-			}
-
-			ctx.restore();
-
-			// Update HUD at most every 150 ms (not every frame)
-			if (!_hudTimer) _hudTimer = 0;
-			_hudTimer += dt;
-			if (_hudTimer >= 0.15) {
-				_hudTimer = 0;
-				hud.renderHUD(state, player);
-			}
-		});
-
-		function rectsOverlap(a, aw, ah, b, bw, bh) {
-			var ax = a.x - aw / 2,
-				ay = a.y - ah / 2;
-			var bx = b.x - bw / 2,
-				by = b.y - bh / 2;
-			return (
-				ax < bx + bw &&
-				ax + aw > bx &&
-				ay < by + bh &&
-				ay + ah > by
-			);
-		}
-	},
-	{ preset: "landscape" },
-);
-}); // end idb.preload().then
+let pausedFromOptions = false;
+
+let camX = 0,
+    shakeX = 0,
+    shakeY = 0,
+    shakeIntensity = 0;
+const CAM_LEAD = () => W * 0.3;
+const GY = () => H * 0.8;
+const CANNON_WX = () => p(52);
+
+// Game vars
+let distM = 0,
+    coins = 0;
+let jetFuel = 1,
+    maxFuel = 1,
+    jetOn = false;
+let shield = 0;
+let _pmFullGlobal = false; // partagé drawHUD ↔ robot.draw
+let _pmFullHyst = 0;       // hysteresis : reste true N frames après PM_FULL=false
+let robot = null;
+let stars = [],
+    enemies = [],
+    boosts = [],
+    rings = [],
+    chests = [],
+    meteors = [],
+    windZones = [],
+    pfx = [],
+    floatTexts = [];
+let nextStarWX = 0,
+    nextEnemyWX = 0,
+    nextBoostWX = 0,
+    nextRingWX = 0,
+    nextChestWX = 0,
+    nextMeteorWX = 0;
+let deadTimer = 0,
+    pendingDist = 0,
+    resData = {};
+
+// COMBO system
+let combo = 0,
+    comboTimer = 0,
+    comboMax = 0;
+const COMBO_WINDOW = 170; // frames to maintain combo
+const COMBO_MULT = [1, 1, 1.5, 2, 2.5, 3, 4, 5]; // index = combo count capped at 7
+
+// Setup flow
+let setupLang = "fr";
+let nameSetupActive = false;
+
+// ══════════════════════════════════════════
+//  BACKGROUND THEMES
+// ══════════════════════════════════════════
+// Theme index = Math.floor(distM / 2000) % BG_THEMES.length
+// Each theme defines sky gradient, ground color, building colors, accent, star tint
+const BG_THEMES = [
+    {
+        // 0 — Ville nocturne (default)
+        name: "NUIT",
+        sky: ["#060518", "#131050", "#1e1660"],
+        bldFar: "#12102e",
+        bldNear: "#0e0b25",
+        groundTop: "#1c1848",
+        groundBot: "#0b0920",
+        groundLine: "rgba(65,85,200,0.5)",
+        hasMoon: true,
+        moonCol: ["#cdc0a5", "#8f7090"],
+        starTint: "#fff",
+    },
+    {
+        // 1 — Désert / coucher de soleil
+        name: "DÉSERT",
+        sky: ["#1a0808", "#6b1f00", "#d45000"],
+        bldFar: "#3a1a00",
+        bldNear: "#2a1000",
+        groundTop: "#4a2800",
+        groundBot: "#1a0a00",
+        groundLine: "rgba(255,120,30,0.6)",
+        hasMoon: false,
+        starTint: "#ffcc88",
+        drawExtra(sy) {
+            // Dunes
+            ctx.fillStyle = "#3a1800";
+            for (let i = 0; i < 6; i++) {
+                const dx =
+                    ((((i * W * 0.38 - camX * 0.08) % (W * 2.5)) +
+                        W * 2.5) %
+                        (W * 2.5)) -
+                    W * 0.2;
+                ctx.beginPath();
+                ctx.ellipse(
+                    dx,
+                    sy + shakeY,
+                    p(110 + i * 20),
+                    p(30 + i * 5),
+                    0,
+                    Math.PI,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+            }
+            // Big sun/moon on horizon
+            const sx2 = W * 0.75 - camX * 0.005,
+                sy2 = GY() - p(55) + shakeY;
+            const sg = ctx.createRadialGradient(
+                sx2,
+                sy2,
+                p(2),
+                sx2,
+                sy2,
+                p(48),
+            );
+            sg.addColorStop(0, "rgba(255,220,50,0.95)");
+            sg.addColorStop(0.5, "rgba(255,120,10,0.7)");
+            sg.addColorStop(1, "rgba(200,40,0,0)");
+            ctx.fillStyle = sg;
+            ctx.beginPath();
+            ctx.arc(sx2, sy2, p(48), 0, Math.PI * 2);
+            ctx.fill();
+        },
+    },
+    {
+        // 2 — Forêt / jungle
+        name: "JUNGLE",
+        sky: ["#020a04", "#04200a", "#082e12"],
+        bldFar: "#051a08",
+        bldNear: "#031208",
+        groundTop: "#042010",
+        groundBot: "#010a04",
+        groundLine: "rgba(30,160,60,0.5)",
+        hasMoon: true,
+        moonCol: ["#a8d8a0", "#507a50"],
+        starTint: "#aaffaa",
+        drawExtra(sy) {
+            // Trees silhouettes
+            ctx.fillStyle = "#041a08";
+            for (let i = 0; i < 14; i++) {
+                const tx =
+                    ((((i * p(90) + 20 - camX * 0.15) % (W * 3)) +
+                        W * 3) %
+                        (W * 3)) -
+                    p(40);
+                const th = p(60 + Math.sin(i * 2.3) * 30),
+                    tw = p(28 + Math.sin(i * 1.7) * 10);
+                // trunk
+                ctx.fillRect(tx - p(4), sy - th + shakeY, p(8), th);
+                // canopy
+                ctx.beginPath();
+                ctx.arc(tx, sy - th + shakeY, tw, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(
+                    tx - p(14),
+                    sy - th + p(18) + shakeY,
+                    tw * 0.7,
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(
+                    tx + p(14),
+                    sy - th + p(20) + shakeY,
+                    tw * 0.65,
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+            }
+        },
+    },
+    {
+        // 3 — Espace / cosmos
+        name: "COSMOS",
+        sky: ["#000005", "#05000f", "#080018"],
+        bldFar: "#0a0520",
+        bldNear: "#060012",
+        groundTop: "#120828",
+        groundBot: "#04010e",
+        groundLine: "rgba(160,80,255,0.6)",
+        hasMoon: false,
+        starTint: "#eeddff",
+        drawExtra(sy) {
+            // Nebula clouds
+            const nc = [
+                ["rgba(80,0,160,0.12)", W * 0.3],
+                ["rgba(0,60,160,0.1)", W * 0.7],
+                ["rgba(120,0,80,0.09)", W * 0.15],
+            ];
+            nc.forEach(([col, nx]) => {
+                const gx = nx - camX * 0.003;
+                const ng = ctx.createRadialGradient(
+                    gx,
+                    H * 0.3,
+                    p(10),
+                    gx,
+                    H * 0.3,
+                    p(160),
+                );
+                ng.addColorStop(0, col);
+                ng.addColorStop(1, "transparent");
+                ctx.fillStyle = ng;
+                ctx.fillRect(0, 0, W, H * 0.7);
+            });
+            // Distant planet
+            const px = W * 0.2 - camX * 0.004,
+                py = H * 0.25 + shakeY;
+            const pg2 = ctx.createRadialGradient(
+                px - p(12),
+                py - p(12),
+                p(2),
+                px,
+                py,
+                p(38),
+            );
+            pg2.addColorStop(0, "rgba(180,140,255,0.7)");
+            pg2.addColorStop(0.7, "rgba(80,40,160,0.5)");
+            pg2.addColorStop(1, "transparent");
+            ctx.fillStyle = pg2;
+            ctx.beginPath();
+            ctx.arc(px, py, p(38), 0, Math.PI * 2);
+            ctx.fill();
+            // Ring around planet
+            ctx.strokeStyle = "rgba(160,100,255,0.3)";
+            ctx.lineWidth = p(3);
+            ctx.beginPath();
+            ctx.ellipse(px, py, p(56), p(14), -0.3, 0, Math.PI * 2);
+            ctx.stroke();
+        },
+    },
+    {
+        // 4 — Glacier / arctique
+        name: "ARCTIQUE",
+        sky: ["#040e1a", "#082030", "#0e3050"],
+        bldFar: "#081828",
+        bldNear: "#051018",
+        groundTop: "#102844",
+        groundBot: "#040e1a",
+        groundLine: "rgba(100,200,255,0.5)",
+        hasMoon: true,
+        moonCol: ["#dde8f5", "#90aac0"],
+        starTint: "#ccddff",
+        drawExtra(sy) {
+            // Ice sheets / icebergs
+            ctx.fillStyle = "#0e2840";
+            for (let i = 0; i < 8; i++) {
+                const ix =
+                    ((((i * p(130) - camX * 0.12) % (W * 3)) +
+                        W * 3) %
+                        (W * 3)) -
+                    p(60);
+                const ih = p(20 + Math.sin(i * 1.9) * 15);
+                ctx.beginPath();
+                ctx.moveTo(ix, sy + shakeY);
+                ctx.lineTo(ix + p(20), sy - ih + shakeY);
+                ctx.lineTo(ix + p(55), sy - ih * 0.6 + shakeY);
+                ctx.lineTo(ix + p(80), sy - ih * 0.9 + shakeY);
+                ctx.lineTo(ix + p(100), sy + shakeY);
+                ctx.closePath();
+                ctx.fill();
+                // Ice highlight
+                ctx.fillStyle = "rgba(150,210,255,0.15)";
+                ctx.beginPath();
+                ctx.moveTo(ix + p(18), sy - ih + shakeY);
+                ctx.lineTo(ix + p(22), sy - ih + shakeY);
+                ctx.lineTo(ix + p(25), sy - ih + p(8) + shakeY);
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = "#0e2840";
+            }
+            // Aurora borealis
+            const aurY = H * 0.12;
+            [
+                ["rgba(0,255,120,0.07)", 0],
+                ["rgba(0,180,255,0.06)", W * 0.4],
+                ["rgba(120,0,255,0.05)", W * 0.7],
+            ].forEach(([col, ax]) => {
+                const ag = ctx.createLinearGradient(
+                    ax - camX * 0.01,
+                    aurY,
+                    ax - camX * 0.01,
+                    aurY + H * 0.3,
+                );
+                ag.addColorStop(0, col);
+                ag.addColorStop(1, "transparent");
+                ctx.fillStyle = ag;
+                ctx.fillRect(0, aurY, W, H * 0.3);
+            });
+        },
+    },
+];
+
+let bgThemeIdx = 0; // set in startGame/endGame
+let bgTransitionAlpha = 0; // 0=none, fading in new theme
+
+function getBgTheme() {
+    return BG_THEMES[bgThemeIdx % BG_THEMES.length];
+}
+function getNextThemeIdx() {
+    return Math.floor(distM / 3000) % BG_THEMES.length;
+}
+
+let bgStars = [],
+    bld1 = { arr: [], span: 1 },
+    bld2 = { arr: [], span: 1 };
+let _bgFadeAlpha = 0;    // 0=transparent → 1=noir total
+let _bgFadeDir   = 0;    // 0=idle, 1=vers noir, -1=vers transparent
+let _bgNextIdx   = 0;    // thème en attente pendant le fade
+function initBg() {
+    _skyGrad = null;
+    _moonGrad = null;
+    // If W is 0 (page not yet laid out), defer until next frame
+    if (!W || W < 10) {
+        setTimeout(initBg, 50);
+        return;
+    }
+    bgStars = Array.from({ length: 55 }, () => ({
+        x: Math.random() * W * 3,
+        y: Math.random() * (H * 0.65),
+        r: Math.random() * p(1.4) + p(0.25),
+        a: 0.3 + Math.random() * 0.7,
+    }));
+    bld1 = mkBld(p(38), p(85), W * 6);
+    bld2 = mkBld(p(52), p(145), W * 5);
+    bgThemeIdx = 0;
+}
+function mkBld(minW, maxH, span) {
+    // Guard: W may be 0 on first mobile load before layout is ready
+    if (!span || span <= 0 || !minW || minW <= 0)
+        return { arr: [], span: 1 };
+    const arr = [];
+    let x = 0;
+    while (x < span) {
+        const w = minW + Math.random() * minW * 0.8,
+            h = p(20) + Math.random() * maxH;
+        arr.push({ wx: x, w, h, seed: Math.floor(x * 137.5 + h * 31) });
+        x += w + Math.random() * p(6);
+        if (w <= 0) break; // prevent infinite loop if SC=0
+    }
+    if (!arr.length) return { arr: [], span: 1 };
+    const totalSpan =
+        arr[arr.length - 1].wx + arr[arr.length - 1].w;
+    return { arr, span: Math.max(1, totalSpan) };
+}
+function sx(wx) {
+    return wx - camX + shakeX;
+}
+let _skyGrad = null,
+    _skyH = 0,
+    _skyTheme = "";
+let _moonGrad = null,
+    _moonR = 0;
+
+// ── Seed helper ──────────────────────────────────────────────
+const _bySeed = (seed, n) => Math.abs(seed) % n;
+
+// ── Bâtiments thématiques — définis hors drawBg (perf + lisibilité)
+function _drawBld(b, dx, bsy, tIdx, col) {
+    const bTop = bsy - b.h + shakeY;
+    const bBot = bsy + shakeY;
+    const s = b.seed || 0;
+
+    if (tIdx === 0) {
+        // ── NUIT — gratte-ciel avec fenêtres lumineuses ────────
+        ctx.fillStyle = col;
+        ctx.fillRect(dx, bTop, b.w + 1, b.h + p(4));
+        // Antenne
+        ctx.fillRect(dx + b.w/2 - p(1.5), bTop - p(18), p(3), p(20));
+        // Lumière d'antenne rouge
+        ctx.fillStyle = "rgba(255,80,80,0.85)";
+        ctx.beginPath(); ctx.arc(dx+b.w/2, bTop-p(17), p(2.5), 0, Math.PI*2); ctx.fill();
+        // Fenêtres
+        const wRows = Math.min(6, Math.floor(b.h/p(14)));
+        const wCols = Math.min(4, Math.max(1, Math.floor(b.w/p(14))));
+        for (let r=0;r<wRows;r++) for (let c=0;c<wCols;c++) {
+            if (_bySeed(s+r*7+c*13,4)>0) {
+                const wCol = _bySeed(s+r+c,3)===0?"rgba(255,232,138,0.65)":_bySeed(s+r+c,3)===1?"rgba(136,204,255,0.65)":"rgba(255,153,102,0.65)";
+                ctx.fillStyle = wCol;
+                ctx.fillRect(dx+p(5)+c*p(14), bTop+p(5)+r*p(14), p(7), p(9));
+            }
+        }
+
+    } else if (tIdx === 1) {
+        // ── DÉSERT — sable doré, dômes et créneaux ────────────
+        // Corps en grès doré
+        ctx.fillStyle = _bySeed(s,3)===0 ? "#b06820" : _bySeed(s,3)===1 ? "#a05c18" : "#c07828";
+        if (_bySeed(s,2)===0) {
+            // Tour à dôme
+            const dH = b.w * 0.38;
+            ctx.fillRect(dx + b.w*0.1, bTop + dH, b.w*0.8, b.h - dH + p(4));
+            // Dôme doré
+            ctx.fillStyle = "#d4a044";
+            ctx.beginPath();
+            ctx.ellipse(dx+b.w/2, bTop+dH, b.w/2, dH, 0, Math.PI, 0, true);
+            ctx.fill();
+            // Croissant sur le dôme
+            ctx.fillStyle = "#f0c060";
+            ctx.beginPath(); ctx.arc(dx+b.w/2, bTop+p(4), p(5), 0, Math.PI*2); ctx.fill();
+        } else {
+            // Bâtiment plat avec créneaux
+            ctx.fillRect(dx, bTop+p(8), b.w+1, b.h + p(4));
+            // Créneaux visibles
+            ctx.fillStyle = "#d4922a";
+            const cN = Math.max(2, Math.floor(b.w/p(20)));
+            for(let ci=0;ci<cN;ci++)
+                ctx.fillRect(dx+ci*(b.w/cN)+p(2), bTop, b.w/cN - p(4), p(14));
+            // Arche d'entrée
+            ctx.fillStyle = "rgba(0,0,0,0.55)";
+            ctx.beginPath();
+            ctx.arc(dx+b.w/2, bBot, p(11), Math.PI, 0, true);
+            ctx.fill();
+        }
+
+    } else if (tIdx === 2) {
+        // ── JUNGLE — temples en gradins de pierre ─────────────
+        const steps = 1 + _bySeed(s,3);  // 1, 2 ou 3 niveaux
+        // Corps de pierre grise-verte
+        ctx.fillStyle = _bySeed(s,2)===0 ? "#4a6040" : "#3a5030";
+        for (let st=0; st<=steps; st++) {
+            const ratio = (steps-st) / (steps+1);
+            const sw = b.w * (0.4 + ratio*0.6);
+            const sh = b.h / (steps+1);
+            ctx.fillRect(dx+(b.w-sw)/2, bsy-(sh*(st+1))+shakeY, sw, sh+p(2));
+        }
+        // Végétation verte vive sur chaque gradin
+        ctx.fillStyle = "#2a8a30";
+        for (let st=0;st<=steps;st++) {
+            const ratio = (steps-st) / (steps+1);
+            const sw = b.w * (0.4 + ratio*0.6);
+            const gY = bsy - (b.h/(steps+1))*(st+1) + shakeY;
+            for(let gi=0;gi<3;gi++) {
+                ctx.beginPath();
+                ctx.arc(dx+(b.w-sw)/2+sw*0.2+gi*(sw*0.3), gY, p(6+gi*2), 0, Math.PI*2);
+                ctx.fill();
+            }
+        }
+        // Halo de mousse sur les bords
+        ctx.fillStyle = "rgba(30,120,40,0.35)";
+        ctx.fillRect(dx+(b.w-b.w*0.4)/2-p(3), bTop-p(5), b.w*0.4+p(6), p(8));
+
+    } else if (tIdx === 3) {
+        // ── COSMOS — tours futuristes avec liseré néon ─────────
+        // Corps sombre avec léger reflet
+        ctx.fillStyle = col;
+        const taper = b.w * 0.18;
+        ctx.beginPath();
+        ctx.moveTo(dx+taper, bTop);
+        ctx.lineTo(dx+b.w-taper, bTop);
+        ctx.lineTo(dx+b.w, bBot);
+        ctx.lineTo(dx, bBot);
+        ctx.closePath(); ctx.fill();
+        // Liseré néon sur les arêtes
+        const nCol = _bySeed(s,3)===0?"#00ffcc":_bySeed(s,3)===1?"#cc44ff":"#00aaff";
+        ctx.strokeStyle = nCol; ctx.lineWidth = p(1.5);
+        ctx.globalAlpha = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(dx+taper, bTop); ctx.lineTo(dx, bBot);
+        ctx.moveTo(dx+b.w-taper, bTop); ctx.lineTo(dx+b.w, bBot);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        // Dôme lumineux au sommet
+        ctx.fillStyle = nCol.replace(")", ",0.4)").replace("rgb","rgba").replace("#","rgba(").replace("rgba(","rgba(").replace("00ff","0,255,").replace("cc44","204,68,").replace("00aa","0,170,").replace("ff)","255,0.35)");
+        // Simpler: juste un arc coloré
+        ctx.fillStyle = nCol;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.arc(dx+b.w/2, bTop, b.w*0.22, Math.PI, 0, true); ctx.fill();
+        ctx.globalAlpha = 1;
+        // Fenêtres hexagonales (petits carrés en quinconce)
+        ctx.fillStyle = nCol;
+        ctx.globalAlpha = 0.7;
+        for(let ri=0;ri<3;ri++) for(let ci=0;ci<2;ci++)
+            ctx.fillRect(dx+b.w*0.25+ci*b.w*0.35+(ri%2)*b.w*0.05, bTop+b.h*0.2+ri*b.h*0.2, p(4), p(5));
+        ctx.globalAlpha = 1;
+
+    } else {
+        // ── ARCTIQUE — bâtiments gelés avec neige épaisse ─────
+        // Corps bleu-gris
+        ctx.fillStyle = col;
+        ctx.fillRect(dx, bTop+p(12), b.w+1, b.h + p(4));
+        // Capuchon de neige blanc épais
+        ctx.fillStyle = "#e8f4ff";
+        ctx.beginPath();
+        ctx.moveTo(dx-p(5), bTop+p(14));
+        ctx.lineTo(dx+b.w/2, bTop-p(14));
+        ctx.lineTo(dx+b.w+p(5), bTop+p(14));
+        ctx.closePath(); ctx.fill();
+        // Stalactites de glace
+        ctx.fillStyle = "rgba(180,220,255,0.75)";
+        const icicleN = Math.max(2, Math.floor(b.w/p(14)));
+        for(let ii=0;ii<icicleN;ii++) {
+            const ix = dx+p(6)+ii*(b.w-p(12))/icicleN;
+            const ih = p(6 + _bySeed(s+ii*5,8));
+            ctx.beginPath();
+            ctx.moveTo(ix, bTop+p(14));
+            ctx.lineTo(ix+p(3), bTop+p(14)+ih);
+            ctx.lineTo(ix+p(6), bTop+p(14));
+            ctx.closePath(); ctx.fill();
+        }
+        // Reflet bleu sur la façade
+        ctx.fillStyle = "rgba(150,210,255,0.18)";
+        ctx.fillRect(dx+p(4), bTop+p(14), b.w*0.35, b.h*0.5);
+    }
+}
+
+function drawBg() {
+    // Check if theme should change
+    const wantIdx = getNextThemeIdx();
+    // Dip-to-black : fondu vers noir → changer thème → éclaircir
+    if (wantIdx !== bgThemeIdx && _bgFadeDir === 0 && gs === "flying") {
+        _bgNextIdx = wantIdx;
+        _bgFadeDir = 1;   // commencer le fondu vers noir
+    }
+    if (_bgFadeDir === 1) {
+        _bgFadeAlpha = Math.min(1, _bgFadeAlpha + 0.025); // ~40f vers noir
+        if (_bgFadeAlpha >= 1) { bgThemeIdx = _bgNextIdx; _bgFadeDir = -1; }
+    } else if (_bgFadeDir === -1) {
+        _bgFadeAlpha = Math.max(0, _bgFadeAlpha - 0.015); // ~67f vers transparent
+        if (_bgFadeAlpha <= 0) _bgFadeDir = 0;
+    }
+
+    const th = getBgTheme();
+    const sy = GY();
+
+    // Sky gradient — cached
+    const _skyKey = th.sky.join("|");
+    if (!_skyGrad || _skyH !== H || _skyTheme !== _skyKey) {
+        const sk = ctx.createLinearGradient(0, 0, 0, H * 0.85);
+        sk.addColorStop(0, th.sky[0]);
+        sk.addColorStop(0.45, th.sky[1]);
+        sk.addColorStop(1, th.sky[2]);
+        _skyGrad = sk;
+        _skyH = H;
+        _skyTheme = _skyKey;
+    }
+    ctx.fillStyle = _skyGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars — single path batch
+    ctx.fillStyle = th.starTint;
+    ctx.beginPath();
+    bgStars.forEach((s) => {
+        const x =
+            (((s.x - camX * 0.025) % (W * 3)) + W * 3) % (W * 3);
+        if (x < W + 4) {
+            ctx.globalAlpha = s.a;
+            ctx.moveTo(x + s.r, s.y + shakeY);
+            ctx.arc(x, s.y + shakeY, s.r, 0, Math.PI * 2);
+        }
+    });
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Moon
+    if (th.hasMoon) {
+        const mx = W * 0.74 - camX * 0.01,
+            my = H * 0.16 + shakeY,
+            mr = p(52);
+        // Gradient must be centered at (mx,my) — recreated each frame (cheap, 1 call)
+        const mg = ctx.createRadialGradient(
+            mx,
+            my,
+            p(4),
+            mx,
+            my,
+            mr,
+        );
+        mg.addColorStop(0, th.moonCol[0]);
+        mg.addColorStop(0.6, th.moonCol[1]);
+        mg.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = mg;
+        ctx.beginPath();
+        ctx.arc(mx, my, mr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(35,15,55,0.42)";
+        [
+            [mx - p(12), my - p(8), p(13)],
+            [mx + p(10), my + p(12), p(9)],
+            [mx + p(1), my - p(18), p(6)],
+        ].forEach(([cx, cy, cr]) => {
+            ctx.beginPath();
+            ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    // Theme-specific extras — drawn every 2 frames to save GPU
+    if (th.drawExtra && frame % 2 === 0) th.drawExtra(sy);
+
+    // Far buildings — rectangles qui atteignent le sol
+    ctx.fillStyle = th.bldFar;
+    const off1 = bld1.arr.length ? (camX * 0.1) % bld1.span : 0;
+    bld1.arr.forEach((b) => {
+        for (const shift of [0, bld1.span, -bld1.span]) {
+            const dx = b.wx - off1 + shift;
+            if (dx > -b.w - 2 && dx < W + 2)
+                // p(40) offset parallax + p(44) extension = bottom à sy+p(4) (sol)
+                ctx.fillRect(dx, sy - p(40) - b.h + shakeY, b.w + 1, b.h + p(44));
+        }
+    });
+    // Near buildings — thématiques
+    const off2 = bld2.arr.length ? (camX * 0.22) % bld2.span : 0;
+    bld2.arr.forEach((b) => {
+        for (const shift of [0, bld2.span, -bld2.span]) {
+            const dx = b.wx - off2 + shift;
+            if (dx > -b.w - 2 && dx < W + 2)
+                _drawBld(b, dx, sy, bgThemeIdx, th.bldNear);
+        }
+    });
+
+    // Ground
+    const gd = ctx.createLinearGradient(0, sy + shakeY, 0, H);
+    gd.addColorStop(0, th.groundTop);
+    gd.addColorStop(1, th.groundBot);
+    ctx.fillStyle = gd;
+    ctx.fillRect(0, sy + shakeY, W, H - sy);
+    ctx.strokeStyle = th.groundLine;
+    ctx.lineWidth = p(1.5);
+    ctx.beginPath();
+    ctx.moveTo(0, sy + shakeY);
+    ctx.lineTo(W, sy + shakeY);
+    ctx.stroke();
+
+    // Theme transition — dip-to-black overlay
+    if (_bgFadeAlpha > 0) {
+        ctx.fillStyle = `rgba(0,0,0,${_bgFadeAlpha})`;
+        ctx.fillRect(0, 0, W, H);
+        // Nom du nouveau thème visible pendant le noir complet
+        const a2 = Math.max(0, (_bgFadeAlpha - 0.7) / 0.3); // visible seulement > 70% noir
+        if (a2 > 0) {
+            ctx.globalAlpha = a2;
+            ctx.fillStyle = "rgba(0,0,0,.5)";
+            ctx.beginPath();
+            ctx.roundRect(
+                W / 2 - p(70),
+                p(38),
+                p(140),
+                p(22),
+                p(4),
+            );
+            ctx.fill();
+            ctx.fillStyle = "#ffe060";
+            ctx.font = `bold ${p(10)}px monospace`;
+            ctx.textAlign = "center";
+            ctx.fillText("⬡  " + th.name, W / 2, p(53));
+            ctx.globalAlpha = 1;
+        }
+    }
+}
+function tickShake() {
+    if (shakeIntensity > 0) {
+        shakeX = (Math.random() - 0.5) * shakeIntensity;
+        shakeY = (Math.random() - 0.5) * shakeIntensity;
+        shakeIntensity *= 0.8;
+        if (shakeIntensity < 0.5) {
+            shakeIntensity = 0;
+            shakeX = 0;
+            shakeY = 0;
+        }
+    }
+}
+
+// ══════════════════════════════════════════
+//  CANNON
+// ══════════════════════════════════════════
+const CANNON = {
+    angle: -Math.PI * 0.35,
+    dir: 1,
+    spd: 0.02,
+    minA: -Math.PI * 0.5,
+    maxA: -Math.PI * 0.1,
+    active: false,
+    show: true,
+    get wx() {
+        return CANNON_WX();
+    },
+    get wy() {
+        return GY() - p(13);
+    },
+    update() {
+        if (!this.active) return;
+        this.angle += this.spd * this.dir;
+        if (this.angle > this.maxA || this.angle < this.minA)
+            this.dir *= -1;
+    },
+    draw() {
+        if (!this.show) return;
+        const screenX = sx(this.wx),
+            screenY = this.wy + shakeY;
+        if (screenX < -p(100) || screenX > W + p(100)) return;
+        ctx.save();
+        ctx.translate(screenX, screenY);
+        ctx.fillStyle = "#1a3a6a";
+        ctx.beginPath();
+        ctx.roundRect(-p(46), -p(12), p(92), p(16), p(3));
+        ctx.fill();
+        ctx.fillStyle = "rgba(100,180,255,.1)";
+        ctx.fillRect(-p(44), -p(10), p(88), p(6));
+        ctx.fillStyle = "#0d2040";
+        [
+            [-p(32), p(5)],
+            [p(32), p(5)],
+        ].forEach(([wx, wy]) => {
+            ctx.beginPath();
+            ctx.arc(wx, wy, p(8), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = "#1e4488";
+            ctx.lineWidth = p(2);
+            ctx.stroke();
+            ctx.fillStyle = "#3a66aa";
+            ctx.beginPath();
+            ctx.arc(wx, wy, p(3), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#0d2040";
+        });
+        ctx.rotate(this.angle);
+        ctx.fillStyle = "#2255cc";
+        ctx.beginPath();
+        ctx.roundRect(p(2), -p(7), p(50), p(14), p(3));
+        ctx.fill();
+        ctx.fillStyle = "#1a44aa";
+        ctx.fillRect(p(42), -p(7), p(10), p(14));
+        ctx.fillStyle = "rgba(150,200,255,.15)";
+        ctx.fillRect(p(4), -p(5), p(38), p(6));
+        ctx.restore();
+        if (this.active) {
+            const spd = uv("cannon") * SC;
+            let wx = this.wx + Math.cos(this.angle) * p(56),
+                wy = this.wy + Math.sin(this.angle) * p(56);
+            let dvx = Math.cos(this.angle) * spd,
+                dvy = Math.sin(this.angle) * spd;
+            ctx.save();
+            for (let i = 0; i < 34; i++) {
+                dvy += GRAV();
+                dvx *= 0.998;
+                wx += dvx;
+                wy += dvy;
+                const ssx = sx(wx);
+                if (wy > GY() || ssx > W || ssx < -p(5)) break;
+                ctx.globalAlpha = (1 - i / 34) * 0.48;
+                ctx.fillStyle = "#88aaff";
+                ctx.beginPath();
+                ctx.arc(
+                    ssx,
+                    wy + shakeY,
+                    Math.max(p(0.5), p(2.4) - i * p(0.06)),
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+    },
+    spawnPos() {
+        return {
+            wx: this.wx + Math.cos(this.angle) * p(58),
+            wy: this.wy + Math.sin(this.angle) * p(58),
+        };
+    },
+    launchVel() {
+        const spd = uv("cannon") * SC;
+        return {
+            vx: Math.cos(this.angle) * spd,
+            vy: Math.sin(this.angle) * spd,
+        };
+    },
+};
+const GRAV = () => p(0.07);
+const JET = () => p(0.18);
+
+// ══════════════════════════════════════════
+//  ROBOT
+// ══════════════════════════════════════════
+function makeRobot() {
+    const { wx, wy } = CANNON.spawnPos();
+    const { vx, vy } = CANNON.launchVel();
+    const r = p(12);
+    return {
+        wx,
+        wy,
+        vx,
+        vy,
+        r,
+        alive: true,
+        trail: [],
+        facingA: 0,
+        speed: 0,
+        hitCooldown: 0,
+        shieldFlash: 0,
+        boostFlash: 0,
+        update() {
+            if (jetOn && jetFuel > 0) {
+                jetFuel = Math.max(0, jetFuel - 1);
+                this.vy -= JET();
+                startJetSFX(); // loop while thrusting
+                // Moderate horizontal boost from jetpack thrust
+                this.vx = Math.min(
+                    this.vx + p(0.012),
+                    uv("cannon") * SC,
+                );
+                if (frame % 2 === 0)
+                    pfx.push({
+                        wx: this.wx - p(14),
+                        wy:
+                            this.wy +
+                            p(4) +
+                            (Math.random() - 0.5) * p(4),
+                        vx: (Math.random() * -2 - 1.5) * SC,
+                        vy: (Math.random() - 0.5) * SC,
+                        col: _pmFullGlobal
+                            ? (Math.random() < 0.5 ? "#00ccff" : "#aaeeff")
+                            : (Math.random() < 0.5 ? "#ff8800" : "#ffe060"),
+                        life: 1,
+                        r: p(2.5) + Math.random() * p(2),
+                    });
+            } else {
+                stopJetSFX(); // stop loop when not thrusting
+            }
+            if (!jetOn && jetFuel < maxFuel)
+                jetFuel = Math.min(maxFuel, jetFuel + 0.4);
+            this.vy += GRAV();
+            // Hard speed cap — never exceed 1.8× max cannon launch speed
+            this.vx *= 0.9995;
+            // Hard cap: vitesse max = vitesse de lancement du canon (pas d'accélération nette)
+            const MAX_VX = uv("cannon") * SC;
+            if (this.vx > MAX_VX) this.vx = MAX_VX;
+            this.wx += this.vx;
+            this.wy += this.vy;
+            this.facingA = Math.atan2(
+                this.vy,
+                Math.max(this.vx, 0.1),
+            );
+            this.speed = Math.max(
+                0,
+                Math.round((this.vx / SC) * 18),
+            );
+            if (this.hitCooldown > 0) this.hitCooldown--;
+            if (this.shieldFlash > 0) this.shieldFlash--;
+            if (this.boostFlash > 0) this.boostFlash--;
+            this.trail.unshift({ wx: this.wx, wy: this.wy, a: 1 });
+            if (this.trail.length > 16) this.trail.pop();
+            this.trail.forEach((t) => (t.a *= 0.78));
+            if (this.wy < this.r) {
+                this.wy = this.r;
+                this.vy = Math.abs(this.vy) * 0.3;
+            }
+            if (this.wy >= GY() - this.r) {
+                this.alive = false;
+                this.speed = 0;
+                this.vx = 0;
+                boom(this.wx, this.wy, "#ffaa00", 14);
+                stopJetSFX();
+                playsfx("hit", { vol: 0.85 });
+                return;
+            }
+            const target = this.wx - CAM_LEAD();
+            camX += (target - camX) * 0.14;
+            if (camX < 0) camX = 0;
+            distM = Math.max(
+                distM,
+                Math.floor(
+                    Math.max(0, this.wx - CANNON.wx) / p(10),
+                ),
+            );
+            stars.forEach((s) => {
+                const dx = this.wx - s.wx,
+                    dy = this.wy - s.wy,
+                    d = Math.hypot(dx, dy);
+                if (d < p(65) && d > 1) {
+                    s.wx += (dx / d) * p(5);
+                    s.wy += (dy / d) * p(5);
+                }
+            });
+        },
+        draw() {
+            const scx = sx(this.wx),
+                scy = this.wy + shakeY,
+                r = this.r;
+            // Aura d'invincibilité bouclier — anneau bleu pulsé
+            if (this.shieldFlash > 0) {
+                const _sfPct = this.shieldFlash / 150;
+                const _sfPulse = 0.5 + Math.sin(frame * 0.35) * 0.45;
+                ctx.save();
+                ctx.globalAlpha = _sfPct * _sfPulse * 0.75;
+                ctx.strokeStyle = "#44ddff";
+                ctx.lineWidth = p(3.5);
+                ctx.shadowColor = "#44ddff";
+                ctx.shadowBlur = p(14);
+                ctx.beginPath();
+                ctx.arc(scx, scy, r + p(9) + Math.sin(frame*0.4)*p(2), 0, Math.PI*2);
+                ctx.stroke();
+                ctx.restore();
+            }
+            // Clignotement d'invincibilité (robot semi-transparent)
+            const flickOn =
+                this.hitCooldown > 0 &&
+                Math.floor(this.hitCooldown / 5) % 2 === 0;
+            if (flickOn) {
+                ctx.save();
+                ctx.globalAlpha = this.shieldFlash > 0 ? 0.5 : 0.35;
+            }
+            // Boost aura
+            if (this.boostFlash > 0) {
+                ctx.save();
+                ctx.globalAlpha = (this.boostFlash / 20) * 0.6;
+                ctx.fillStyle = "#44aaff";
+                ctx.beginPath();
+                ctx.arc(scx, scy, r * 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            // Trail
+            const _tc = TRAIL_COLORS[sd.activeTrail||0].col;
+            this.trail.forEach((t) => {
+                ctx.save();
+                ctx.globalAlpha = t.a * 0.22;
+                ctx.fillStyle = this.boostFlash > 0 ? "#44aaff" : _tc;
+                ctx.beginPath();
+                ctx.arc(
+                    sx(t.wx),
+                    t.wy + shakeY,
+                    r * t.a,
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+                ctx.restore();
+            });
+            ctx.save();
+            ctx.translate(scx, scy);
+            ctx.rotate(this.facingA);
+            const bg = ctx.createRadialGradient(
+                -r * 0.1,
+                -r * 0.1,
+                r * 0.1,
+                0,
+                0,
+                r,
+            );
+            bg.addColorStop(0, "#ffe060");
+            bg.addColorStop(0.65, "#ffaa00");
+            bg.addColorStop(1, "#cc7700");
+            ctx.fillStyle = bg;
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "#1a44bb";
+            ctx.beginPath();
+            ctx.roundRect(-r - p(7), -p(6), p(8), p(12), p(2));
+            ctx.fill();
+            ctx.fillStyle = "#2a66dd";
+            ctx.fillRect(-r - p(6), -p(5), p(5), p(4));
+            if (jetOn && jetFuel > 0) {
+                const fl = p(6) + Math.random() * p(8);
+                if (_pmFullGlobal) {
+                    // Flamme bleue ardente — vitesse maximale
+                    ctx.save();
+                    ctx.shadowColor = "#00aaff";
+                    ctx.shadowBlur = p(10);
+                    ctx.fillStyle = "rgba(0,160,255,.95)";
+                    ctx.beginPath();
+                    ctx.moveTo(-r - p(3), -p(4));
+                    ctx.lineTo(-r - p(3) - fl * 1.15, 0);
+                    ctx.lineTo(-r - p(3), p(4));
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = "rgba(200,240,255,.80)";
+                    ctx.beginPath();
+                    ctx.moveTo(-r - p(3), -p(2.5));
+                    ctx.lineTo(-r - p(3) - fl * 0.7, 0);
+                    ctx.lineTo(-r - p(3), p(2.5));
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                } else {
+                    // Flamme normale — orange/jaune
+                    ctx.fillStyle = "rgba(255,140,0,.92)";
+                    ctx.beginPath();
+                    ctx.moveTo(-r - p(3), -p(4));
+                    ctx.lineTo(-r - p(3) - fl, 0);
+                    ctx.lineTo(-r - p(3), p(4));
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = "rgba(255,230,80,.72)";
+                    ctx.beginPath();
+                    ctx.moveTo(-r - p(3), -p(2.5));
+                    ctx.lineTo(-r - p(3) - fl * 0.6, 0);
+                    ctx.lineTo(-r - p(3), p(2.5));
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+            ctx.fillStyle = "#002255";
+            ctx.beginPath();
+            ctx.ellipse(p(2), -p(1), p(7), p(5), 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = "#0088ff";
+            ctx.beginPath();
+            ctx.ellipse(
+                p(3),
+                -p(1.5),
+                p(4),
+                p(3),
+                0,
+                0,
+                Math.PI * 2,
+            );
+            ctx.fill();
+            ctx.fillStyle = "rgba(255,255,255,.5)";
+            ctx.beginPath();
+            ctx.ellipse(
+                p(4),
+                -p(2.5),
+                p(1.5),
+                p(1),
+                -0.3,
+                0,
+                Math.PI * 2,
+            );
+            ctx.fill();
+            if (shield > 0) {
+                ctx.strokeStyle = `rgba(100,200,255,${0.4 + Math.sin(frame * 0.18) * 0.35})`;
+                ctx.lineWidth = p(2.2);
+                ctx.beginPath();
+                ctx.arc(0, 0, r + p(6), 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.restore();
+            if (flickOn) ctx.restore();
+        },
+        hit() {
+            if (this.hitCooldown > 0) return;
+            if (shield > 0) {
+                shield--;
+                boom(this.wx, this.wy, "#88ddff", 8);
+                this.hitCooldown = 150; // 2.5s @60fps
+                this.shieldFlash = 150; // aura bleue pendant toute l'invincibilité
+                shakeIntensity = p(5);
+                synthEnemyHit();
+                return;
+            }
+            // Drain 50% jetpack + slow down
+            jetFuel = Math.max(0, jetFuel - maxFuel * 0.5);
+            this.vx *= 0.65; // ralentissement moins brutal
+            this.hitCooldown = 120; // 2.0s @60fps
+            shakeIntensity = p(8);
+            sd.totalHits = (sd.totalHits || 0) + 1;
+            boom(this.wx, this.wy, "#ff4400", 10);
+            synthEnemyHit();
+            if (sd.vibration && navigator.vibrate)
+                navigator.vibrate(100);
+            if (combo > 1)
+                addFloat(
+                    this.wx,
+                    this.wy - p(20),
+                    t("comboBreak"),
+                    "#ff4400",
+                );
+            combo = 0;
+            comboTimer = 0;
+            checkAch("hit");
+        },
+    };
+}
+
+// ══════════════════════════════════════════
+//  COMBO SYSTEM
+// ══════════════════════════════════════════
+function getComboMult() {
+    return COMBO_MULT[Math.min(combo, COMBO_MULT.length - 1)];
+}
+function addCombo(wx, wy) {
+    combo++;
+    comboTimer = COMBO_WINDOW;
+    if (combo > comboMax) comboMax = combo;
+    if (combo > sd.bestCombo) {
+        sd.bestCombo = combo;
+        save();
+    }
+    const mult = getComboMult();
+    if (combo >= 2) {
+        const col =
+            combo >= 5
+                ? "#ff4400"
+                : combo >= 3
+                    ? "#ffaa00"
+                    : "#ffe000";
+        addFloat(
+            wx,
+            wy - p(16),
+            `x${combo} COMBO!`,
+            col,
+            combo >= 5 ? 1.4 : 1,
+        );
+    }
+}
+function tickCombo() {
+    if (comboTimer > 0) {
+        comboTimer--;
+        if (comboTimer <= 0 && combo > 0) {
+            combo = 0;
+        }
+    }
+}
+
+// ══════════════════════════════════════════
+//  FLOAT TEXTS
+// ══════════════════════════════════════════
+function addFloat(wx, wy, text, col, scale = 1) {
+    floatTexts.push({
+        wx,
+        wy,
+        text,
+        col,
+        life: 1,
+        vy: -p(0.8),
+        scale,
+    });
+}
+function tickDrawFloats() {
+    for (let i = floatTexts.length - 1; i >= 0; i--) {
+        const f = floatTexts[i];
+        f.wy += f.vy;
+        f.life -= 0.02;
+        if (f.life <= 0) {
+            floatTexts.splice(i, 1);
+            continue;
+        }
+        const scx = sx(f.wx),
+            scy = f.wy + shakeY;
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, f.life * 2);
+        ctx.fillStyle = f.col;
+        // Halo matches text color — draw twice: once with glow, once sharp
+        ctx.shadowColor = f.col;
+        ctx.shadowBlur = p(16);
+        ctx.font = `bold ${p(11 * f.scale)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.fillText(f.text, scx, scy);
+        ctx.shadowBlur = p(6);
+        ctx.fillText(f.text, scx, scy); // second pass for crisp core
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+}
+
+// ══════════════════════════════════════════
+//  STARS
+// ══════════════════════════════════════════
+function spawnStar(wx) {
+    stars.push({
+        wx,
+        wy: p(40) + Math.random() * (GY() - p(100)),
+        bob: Math.random() * Math.PI * 2,
+        alive: true,
+    });
+}
+function spawnStarCluster(wx, n = 6) {
+    for (let i = 0; i < n; i++) spawnStar(wx + p(i * 18 - n * 9));
+}
+function tickDrawStars() {
+    for (let i = stars.length - 1; i >= 0; i--) {
+        const s = stars[i];
+        s.bob += 0.055;
+        s.wy += Math.sin(s.bob) * p(0.38);
+        const scx = sx(s.wx),
+            scy = s.wy + shakeY;
+        if (scx < -p(30) || scx > W + p(30)) {
+            if (scx < -p(100)) stars.splice(i, 1);
+            continue;
+        }
+        const sc2 = 1 + Math.sin(s.bob) * 0.08;
+        ctx.save();
+        ctx.translate(scx, scy);
+        ctx.scale(sc2, sc2);
+        // Fake glow: concentric alpha circles (no shadowBlur GPU cost)
+        ctx.fillStyle = "rgba(255,228,0,0.12)";
+        ctx.beginPath();
+        ctx.arc(0, 0, p(16), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,228,0,0.22)";
+        ctx.beginPath();
+        ctx.arc(0, 0, p(12), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ffe000";
+        ctx.beginPath();
+        for (let j = 0; j < 10; j++) {
+            const a = (j / 10) * Math.PI * 2 - Math.PI / 2,
+                r = j % 2 === 0 ? p(10) : p(4.5);
+            j === 0
+                ? ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r)
+                : ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        if (
+            robot &&
+            robot.alive &&
+            Math.hypot(robot.wx - s.wx, robot.wy - s.wy) <
+                robot.r + p(12)
+        ) {
+            stars.splice(i, 1);
+            const earn = Math.round(15 * getComboMult() * speedStreakMult);
+            coins += earn;
+            playsfx("coin", { vol: 0.7 });
+            sd.totalStars = (sd.totalStars || 0) + 1;
+            runStars++;
+            runHasStar = true;
+            boom(s.wx, s.wy, "#ffe000", 7);
+            addCombo(s.wx, s.wy);
+            if (earn > 15)
+                addFloat(
+                    s.wx,
+                    s.wy - p(8),
+                    "+" + (earn > 15 ? earn : ""),
+                    earn > 15 ? "#ffee44" : "#ffe000",
+                );
+            checkAch("star");
+        }
+    }
+}
+
+// ══════════════════════════════════════════
+//  BOOST ORBS
+// ══════════════════════════════════════════
+function spawnBoost(wx) {
+    boosts.push({
+        wx,
+        wy: p(50) + Math.random() * (GY() - p(120)),
+        pulse: Math.random() * Math.PI * 2,
+        alive: true,
+        rx: p(18) + Math.random() * p(8),
+        ry: p(10) + Math.random() * p(5),
+        tilt: (Math.random() - 0.5) * 0.4,
+        orbitAngle: Math.random() * Math.PI * 2,
+    });
+}
+function tickDrawBoosts() {
+    for (let i = boosts.length - 1; i >= 0; i--) {
+        const b = boosts[i];
+        b.pulse += 0.06;
+        b.orbitAngle += 0.04;
+        const scx = sx(b.wx),
+            scy = b.wy + shakeY;
+        if (scx < -p(60) || scx > W + p(60)) {
+            if (scx < -p(120)) boosts.splice(i, 1);
+            continue;
+        }
+        const glow = 0.5 + Math.sin(b.pulse) * 0.3,
+            rScale = 1 + Math.sin(b.pulse) * 0.12;
+        ctx.save();
+        ctx.translate(scx, scy);
+        ctx.rotate(b.tilt);
+        ctx.strokeStyle = `rgba(60,160,255,${glow * 0.5})`;
+        ctx.lineWidth = p(3);
+        ctx.beginPath();
+        ctx.ellipse(
+            0,
+            0,
+            b.rx * rScale * 1.3,
+            b.ry * rScale * 1.3,
+            0,
+            0,
+            Math.PI * 2,
+        );
+        ctx.stroke();
+        const bg = ctx.createRadialGradient(0, 0, p(2), 0, 0, b.rx);
+        bg.addColorStop(0, "rgba(180,230,255,0.95)");
+        bg.addColorStop(0.4, "rgba(50,140,255,0.88)");
+        bg.addColorStop(1, "rgba(10,60,180,0.7)");
+        ctx.fillStyle = bg;
+        ctx.beginPath();
+        ctx.ellipse(
+            0,
+            0,
+            b.rx * rScale,
+            b.ry * rScale,
+            0,
+            0,
+            Math.PI * 2,
+        );
+        ctx.fill();
+        ctx.fillStyle = `rgba(220,240,255,${glow * 0.6})`;
+        ctx.beginPath();
+        ctx.ellipse(
+            -b.rx * 0.2,
+            -b.ry * 0.25,
+            b.rx * 0.35,
+            b.ry * 0.3,
+            -0.4,
+            0,
+            Math.PI * 2,
+        );
+        ctx.fill();
+        const ox = Math.cos(b.orbitAngle) * b.rx * 1.1,
+            oy = Math.sin(b.orbitAngle) * b.ry * 1.1;
+        ctx.fillStyle = `rgba(180,220,255,${glow * 0.8})`;
+        ctx.beginPath();
+        ctx.arc(ox, oy, p(3), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.font = `bold ${p(10)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("⚡", 0, 0);
+        ctx.restore();
+        if (
+            robot &&
+            robot.alive &&
+            Math.hypot(robot.wx - b.wx, robot.wy - b.wy) <
+                robot.r + b.rx * 0.9
+        ) {
+            boosts.splice(i, 1);
+            synthBoostSonic();
+            // Ellipse bleue : +20% de la vitesse max, plafonné à maxVx
+            const maxVx = uv("cannon") * SC;
+            robot.vx = Math.min(
+                robot.vx + maxVx * 0.14,
+                maxVx,
+            );
+            jetFuel = Math.min(maxFuel, jetFuel + maxFuel * 0.45);
+            sd.totalBoosts = (sd.totalBoosts || 0) + 1;
+            runBoosts++;
+            runHasBoost = true;
+            robot.boostFlash = 20;
+            boom(b.wx, b.wy, "#44aaff", 12);
+            boom(b.wx, b.wy, "#aaddff", 6);
+            addCombo(b.wx, b.wy);
+            addFloat(b.wx, b.wy - p(18), "+BOOST!", "#44ddff", 1.2);
+            if (sd.vibration && navigator.vibrate)
+                navigator.vibrate([30, 20, 30]);
+            checkAch("boost");
+        }
+    }
+}
+
+// ══════════════════════════════════════════
+//  WARP RINGS (pass-through for speed + points)
+// ══════════════════════════════════════════
+function spawnRing(wx) {
+    rings.push({
+        wx,
+        wy: p(60) + Math.random() * (GY() - p(140)),
+        alive: true,
+        angle: 0,
+        r: p(22),
+        pulse: Math.random() * Math.PI * 2,
+    });
+}
+function tickDrawRings() {
+    for (let i = rings.length - 1; i >= 0; i--) {
+        const rg = rings[i];
+        rg.angle += 0.04;
+        rg.pulse += 0.08;
+        const scx = sx(rg.wx),
+            scy = rg.wy + shakeY,
+            r = rg.r;
+        if (scx < -p(60) || scx > W + p(60)) {
+            if (scx < -p(120)) rings.splice(i, 1);
+            continue;
+        }
+        const glow = 0.6 + Math.sin(rg.pulse) * 0.4;
+        ctx.save();
+        ctx.translate(scx, scy);
+        ctx.rotate(rg.angle);
+        // Outer glow
+        ctx.strokeStyle = `rgba(255,140,0,${glow * 0.4})`;
+        ctx.lineWidth = p(6);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 1.15, 0, Math.PI * 2);
+        ctx.stroke();
+        // Main ring
+        const grad = ctx.createLinearGradient(-r, -r, r, r);
+        grad.addColorStop(0, "#ffdd00");
+        grad.addColorStop(0.5, "#ff8800");
+        grad.addColorStop(1, "#ff4400");
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = p(4);
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+        // Inner glow hole
+        ctx.fillStyle = `rgba(255,140,0,${glow * 0.08})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, r - p(3), 0, Math.PI * 2);
+        ctx.fill();
+        // Star icon
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "rgba(255,220,0,0.9)";
+        ctx.font = `bold ${p(12)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("★", 0, 1);
+        ctx.restore();
+        if (
+            robot &&
+            robot.alive &&
+            Math.hypot(robot.wx - rg.wx, robot.wy - rg.wy) <
+                robot.r + r * 0.75
+        ) {
+            rings.splice(i, 1);
+            synthPowerup();
+            // Anneau doré: bonus de pièces uniquement, pas d'accélération
+            const earn = Math.round(3 * getComboMult());
+            coins += earn;
+            sd.totalRings = (sd.totalRings || 0) + 1;
+            runRings++;
+            runHasRing = true;
+            boom(rg.wx, rg.wy, "#ffaa00", 16);
+            boom(rg.wx, rg.wy, "#ffff88", 8);
+            addCombo(rg.wx, rg.wy);
+            addCombo(rg.wx, rg.wy); // rings give double combo
+            addFloat(
+                rg.wx,
+                rg.wy - p(20),
+                "RING! +" + earn,
+                "#ffdd00",
+                1.3,
+            );
+            shakeIntensity = p(3);
+            if (sd.vibration && navigator.vibrate)
+                navigator.vibrate([20, 10, 20, 10, 20]);
+            checkAch("ring");
+        }
+    }
+}
+
+// ══════════════════════════════════════════
+//  MYSTERY CHESTS
+// ══════════════════════════════════════════
+function spawnChest(wx) {
+    chests.push({
+        wx,
+        wy: GY() - p(20),
+        alive: true,
+        bob: Math.random() * Math.PI * 2,
+        glow: 0,
+    });
+}
+function tickDrawChests() {
+    for (let i = chests.length - 1; i >= 0; i--) {
+        const c = chests[i];
+        c.bob += 0.05;
+        c.glow = (c.glow + 0.06) % (Math.PI * 2);
+        const scx = sx(c.wx),
+            scy = c.wy + Math.sin(c.bob) * p(3) + shakeY;
+        if (scx < -p(40) || scx > W + p(40)) {
+            if (scx < -p(100)) chests.splice(i, 1);
+            continue;
+        }
+        const glowA = 0.5 + Math.sin(c.glow) * 0.3;
+        ctx.save();
+        ctx.translate(scx, scy);
+        ctx.fillStyle = `rgba(180,120,0,0.2)`;
+        ctx.fillRect(-p(12), -p(12), p(24), p(24));
+        ctx.fillStyle = "#8b5e00";
+        ctx.fillRect(-p(11), -p(11), p(22), p(22));
+        ctx.fillStyle = "#c47800";
+        ctx.fillRect(-p(11), -p(11), p(22), p(10));
+        ctx.strokeStyle = `rgba(255,200,50,${glowA})`;
+        ctx.lineWidth = p(1.5);
+        ctx.strokeRect(-p(11), -p(11), p(22), p(22));
+        ctx.strokeStyle = `rgba(255,200,50,${glowA * 0.7})`;
+        ctx.lineWidth = p(1);
+        ctx.beginPath();
+        ctx.moveTo(-p(11), 0);
+        ctx.lineTo(p(11), 0);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(255,200,50,${glowA})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, p(3), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,240,100,0.9)";
+        ctx.font = `${p(8)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("?", 0, 0);
+        ctx.restore();
+        if (
+            robot &&
+            robot.alive &&
+            Math.hypot(robot.wx - c.wx, robot.wy - c.wy) <
+                robot.r + p(16)
+        ) {
+            chests.splice(i, 1);
+            synthPowerup();
+            openChest(c.wx, c.wy);
+        }
+    }
+}
+function openChest(wx, wy) {
+    const rewards = [
+        "fuel",
+        "fuel",
+        "shield",
+        "stars",
+        "stars",
+        "speed",
+    ];
+    const r = rewards[Math.floor(Math.random() * rewards.length)];
+    sd.totalChests = (sd.totalChests || 0) + 1;
+    runChests++;
+    runHasChest = true;
+    boom(wx, wy, "#ffcc00", 16);
+    if (r === "fuel") {
+        jetFuel = maxFuel;
+        addFloat(wx, wy - p(20), "FUEL FULL!", "#ff8800", 1.1);
+    } else if (r === "shield") {
+        if (shield < uv("armor")) shield++;
+        else coins += 30;
+        addFloat(wx, wy - p(20), "SHIELD +1", "#88ccff", 1.1);
+    } else if (r === "stars") {
+        spawnStarCluster(wx, 8);
+        addFloat(wx, wy - p(20), "COIN RAIN!", "#ffe000", 1.2);
+    }
+    // Coffre carburant: recharge complète du jetpack
+    else if (r === "speed") {
+        jetFuel = maxFuel;
+        if (robot) robot.boostFlash = 15;
+        addFloat(wx, wy - p(20), "FUEL MAX!", "#44ffaa", 1.1);
+    }
+    addCombo(wx, wy);
+    shakeIntensity = p(4);
+    if (sd.vibration && navigator.vibrate)
+        navigator.vibrate([40, 20, 40]);
+    checkAch("chest");
+}
+
+// ══════════════════════════════════════════
+//  METEORS (warning + dodge)
+// ══════════════════════════════════════════
+function spawnMeteor(wx) {
+    const targetY = p(40) + Math.random() * (GY() - p(80));
+    meteors.push({
+        wx,
+        wy: -p(40),
+        targetX: wx + (Math.random() - 0.5) * p(80),
+        targetY,
+        vx: 0,
+        vy: 0,
+        r: p(12),
+        alive: true,
+        state: "warn",
+        warnTimer: 80,
+        trail: [],
+    });
+}
+function tickDrawMeteors() {
+    for (let i = meteors.length - 1; i >= 0; i--) {
+        const m = meteors[i];
+        if (m.state === "warn") {
+            m.warnTimer--;
+            const scx = sx(m.targetX),
+                scy = m.targetY + shakeY;
+            const blink = Math.floor(m.warnTimer / 6) % 2 === 0;
+            if (blink) {
+                ctx.save();
+                ctx.globalAlpha = 0.7;
+                ctx.strokeStyle = "#ff2200";
+                ctx.lineWidth = p(2);
+                ctx.setLineDash([p(4), p(3)]);
+                ctx.beginPath();
+                ctx.moveTo(scx, 0);
+                ctx.lineTo(scx, scy + p(20));
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = "#ff2200";
+                ctx.font = `bold ${p(12)}px monospace`;
+                ctx.textAlign = "center";
+                ctx.fillText("⚠", scx, scy - p(20));
+                ctx.restore();
+            }
+            if (m.warnTimer <= 0) {
+                m.state = "fall";
+                m.wx = m.targetX;
+                m.wy = -p(30);
+                const angle =
+                    Math.PI * 0.5 + (Math.random() - 0.5) * 0.3;
+                const spd = p(5) + Math.random() * p(3);
+                m.vx = Math.cos(angle) * spd * 0.3;
+                m.vy = Math.abs(Math.sin(angle) * spd);
+            }
+        } else {
+            m.trail.unshift({ x: m.wx, y: m.wy });
+            if (m.trail.length > 8) m.trail.pop();
+            m.wx += m.vx;
+            m.wy += m.vy;
+            m.vy += p(0.15);
+            const scx = sx(m.wx),
+                scy = m.wy + shakeY;
+            // Draw trail
+            m.trail.forEach((pt, ti) => {
+                ctx.save();
+                ctx.globalAlpha = (1 - ti / 8) * 0.4;
+                ctx.fillStyle = "#ff6600";
+                ctx.beginPath();
+                ctx.arc(
+                    sx(pt.x),
+                    pt.y + shakeY,
+                    m.r * (1 - ti / 8),
+                    0,
+                    Math.PI * 2,
+                );
+                ctx.fill();
+                ctx.restore();
+            });
+            // Draw meteor
+            ctx.save();
+            ctx.translate(scx, scy);
+            const mg = ctx.createRadialGradient(
+                0,
+                0,
+                p(2),
+                0,
+                0,
+                m.r,
+            );
+            mg.addColorStop(0, "#ffcc00");
+            mg.addColorStop(0.5, "#ff6600");
+            mg.addColorStop(1, "#aa1100");
+            ctx.fillStyle = mg;
+            ctx.beginPath();
+            ctx.arc(0, 0, m.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            // Hit check
+            if (
+                robot &&
+                robot.alive &&
+                Math.hypot(robot.wx - m.wx, robot.wy - m.wy) <
+                    robot.r + m.r - p(3)
+            ) {
+                m.alive = false;
+                boom(m.wx, m.wy, "#ff6600", 14);
+                robot.hit();
+            }
+            if (m.wy > GY() + p(20)) {
+                m.alive = false;
+                boom(m.wx, GY(), "#cc4400", 8);
+                shakeIntensity = p(6);
+                // Meteor dodged
+                sd.meteorsDodged = (sd.meteorsDodged || 0) + 1;
+                runMeteorsDodged++;
+                checkAch("meteor");
+            }
+        }
+        if (!m.alive) meteors.splice(i, 1);
+    }
+}
+
+// ══════════════════════════════════════════
+//  ENEMIES
+// ══════════════════════════════════════════
+function spawnEnemy(wx) {
+    const tp = ["bat", "orb", "spike"][
+        Math.floor(Math.random() * 3)
+    ];
+    const diff = Math.min(3.5, 1 + distM / 280) * (hardcoreMode ? 1.5 : 1);
+    enemies.push({
+        tp,
+        wx,
+        wy: p(40) + Math.random() * (GY() - p(120)),
+        r: p(tp === "bat" ? 15 : 12),
+        ang: 0,
+        ph: Math.random() * Math.PI * 2,
+        alive: true,
+        spd: (1.2 + Math.random() * 1.1) * diff * SC,
+        update() {
+            this.ph += 0.05;
+            this.ang += 0.06;
+            const s = this.spd;
+            if (this.tp === "bat") {
+                this.wx -= s;
+                this.wy += Math.sin(this.ph) * p(2.4);
+            } else if (this.tp === "orb") {
+                this.wx -= s * 0.9;
+                this.wy += Math.sin(this.ph * 1.8) * p(1.8);
+            } else {
+                this.wx -= s * 1.12;
+                this.wy += Math.sin(this.ph * 2.4) * p(3.2);
+            }
+            if (this.wx < camX - p(100)) this.alive = false;
+        },
+        draw() {
+            const scx = sx(this.wx),
+                scy = this.wy + shakeY,
+                r = this.r;
+            if (scx < -p(40) || scx > W + p(40)) return;
+            ctx.save();
+            ctx.translate(scx, scy);
+            if (this.tp === "bat") {
+                ctx.rotate(Math.sin(this.ph * 2) * 0.28);
+                ctx.fillStyle = "#6633aa";
+                [-1, 1].forEach((side) => {
+                    ctx.beginPath();
+                    ctx.moveTo(0, -p(3));
+                    ctx.bezierCurveTo(
+                        side * p(20),
+                        -p(12),
+                        side * p(26),
+                        p(4),
+                        side * p(12),
+                        p(8),
+                    );
+                    ctx.bezierCurveTo(
+                        side * p(6),
+                        p(10),
+                        0,
+                        p(4),
+                        0,
+                        0,
+                    );
+                    ctx.fill();
+                });
+                ctx.fillStyle = "#8833cc";
+                ctx.beginPath();
+                ctx.arc(0, 0, p(6), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#ff2200";
+                ctx.beginPath();
+                ctx.arc(-p(1.5), -p(1), p(1.5), 0, Math.PI * 2);
+                ctx.fill();
+            } else if (this.tp === "orb") {
+                ctx.rotate(this.ang);
+                const g = ctx.createRadialGradient(
+                    0,
+                    0,
+                    p(2),
+                    0,
+                    0,
+                    r,
+                );
+                g.addColorStop(0, "#aaffcc");
+                g.addColorStop(0.5, "#22bb55");
+                g.addColorStop(1, "#0a5520");
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.arc(0, 0, r, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = "rgba(100,255,160,.4)";
+                ctx.lineWidth = p(1.5);
+                [0.6, 0.3].forEach((rs) => {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, r * rs, 0, Math.PI * 2);
+                    ctx.stroke();
+                });
+            } else {
+                ctx.rotate(this.ang * 0.5);
+                ctx.fillStyle = "#aa2200";
+                ctx.beginPath();
+                ctx.arc(0, 0, r * 0.65, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#cc3311";
+                for (let i2 = 0; i2 < 8; i2++) {
+                    const a = (i2 / 8) * Math.PI * 2;
+                    ctx.save();
+                    ctx.rotate(a);
+                    ctx.beginPath();
+                    ctx.moveTo(0, -r * 0.62);
+                    ctx.lineTo(-p(3.5), -r - p(4));
+                    ctx.lineTo(p(3.5), -r - p(4));
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+            }
+            ctx.restore();
+        },
+    });
+}
+
+// ══════════════════════════════════════════
+//  PARTICLES
+// ══════════════════════════════════════════
+function boom(wx, wy, col, n) {
+    n = Math.min(n, 6);
+    for (let i = 0; i < n; i++)
+        pfx.push({
+            wx,
+            wy,
+            vx: (Math.random() - 0.5) * p(6),
+            vy: (Math.random() - 0.5) * p(6),
+            col,
+            life: 1,
+            r: p(2) + Math.random() * p(3),
+        });
+}
+function tickPfx() {
+    const byCol = {};
+    for (let i = pfx.length - 1; i >= 0; i--) {
+        const q = pfx[i];
+        q.wx += q.vx;
+        q.wy += q.vy;
+        q.vx *= 0.9;
+        q.vy *= 0.9;
+        q.life *= 0.87;
+        if (q.life < 0.02) {
+            pfx.splice(i, 1);
+            continue;
+        }
+        if (!byCol[q.col]) byCol[q.col] = [];
+        byCol[q.col].push(q);
+    }
+    Object.entries(byCol).forEach(([col, ps]) => {
+        ctx.fillStyle = col;
+        ps.forEach((q) => {
+            ctx.globalAlpha = q.life;
+            ctx.beginPath();
+            ctx.arc(
+                sx(q.wx),
+                q.wy + shakeY,
+                q.r * q.life,
+                0,
+                Math.PI * 2,
+            );
+            ctx.fill();
+        });
+    });
+    ctx.globalAlpha = 1;
+}
+
+// ══════════════════════════════════════════
+//  PAUSE BUTTON
+// ══════════════════════════════════════════
+function drawPauseBtn() {
+    const bx = W - p(36),
+        by = p(4),
+        bw = p(28),
+        bh = p(22);
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, p(4));
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.7)";
+    ctx.font = `${p(12)}px monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("⏸", bx + bw / 2, by + bh / 2);
+}
+function isPauseBtn(x, y) {
+    return (
+        x >= W - p(38) && x <= W - p(6) && y >= p(2) && y <= p(28)
+    );
+}
+
+// ══════════════════════════════════════════
+//  COMBO HUD
+// ══════════════════════════════════════════
+function drawComboHUD() {
+    if (combo < 2) return;
+    const mult = getComboMult();
+    const col =
+        combo >= 5 ? "#ff4400" : combo >= 3 ? "#ffaa00" : "#ffe000";
+    const pulse = 1 + Math.sin(frame * 0.25) * 0.1;
+    ctx.save();
+    ctx.textAlign = "right";
+    ctx.font = `bold ${p(12 * pulse)}px monospace`;
+    ctx.fillStyle = col;
+    ctx.shadowColor = "rgba(255,255,255,0.9)";
+    ctx.shadowBlur = p(14);
+    ctx.fillText(`x${combo} COMBO`, W - p(44), p(52));
+    ctx.shadowBlur = 0;
+    ctx.font = `bold ${p(8)}px monospace`;
+    ctx.fillStyle = "#fff";
+    ctx.fillText(`×${mult} $`, W - p(44), p(64));
+    // Timer bar
+    const tw = p(68),
+        th = p(4),
+        tx = W - p(76),
+        ty = p(68);
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(tx, ty, tw, th);
+    ctx.fillStyle = col;
+    ctx.shadowBlur = 0;
+    ctx.fillRect(tx, ty, tw * (comboTimer / COMBO_WINDOW), th);
+    ctx.restore();
+}
+
+// ══════════════════════════════════════════
+//  HUD
+// ══════════════════════════════════════════
+function drawHUD() {
+    const bh = p(30);
+    // Top bar background
+    ctx.fillStyle = "rgba(0,0,0,.65)";
+    ctx.fillRect(0, 0, W, bh);
+    // Shield bar
+    const shMax = Math.max(1, uv("armor"));
+    ctx.fillStyle = "rgba(0,0,0,.6)";
+    ctx.fillRect(p(6), p(8), p(88), p(11));
+    if (shield > 0) {
+        const sg = ctx.createLinearGradient(p(6), 0, p(94), 0);
+        sg.addColorStop(0, "#ffee00");
+        sg.addColorStop(1, "#88cc00");
+        ctx.fillStyle = sg;
+        ctx.fillRect(p(6), p(8), p(88) * (shield / shMax), p(11));
+    }
+    ctx.strokeStyle = "#446";
+    ctx.lineWidth = p(1);
+    ctx.strokeRect(p(6), p(8), p(88), p(11));
+    ctx.fillStyle = "#ccddaa";
+    ctx.font = `bold ${p(7)}px monospace`;
+    ctx.textAlign = "left";
+    ctx.fillText("🛡 " + shield + "/" + shMax, p(8), p(26));
+    ctx.shadowBlur = 0;
+    // Distance counter — centre, gros
+    ctx.fillStyle = "rgba(0,0,0,.6)";
+    ctx.beginPath();
+    ctx.roundRect(W / 2 - p(46), p(4), p(92), p(23), p(3));
+    ctx.fill();
+    ctx.strokeStyle = "#2244aa";
+    ctx.lineWidth = p(1);
+    ctx.stroke();
+    ctx.fillStyle = "#66ff88";
+    ctx.shadowColor = "rgba(255,255,255,0.85)";
+    ctx.shadowBlur = p(14);
+    ctx.font = `bold ${p(13)}px monospace`;
+    ctx.textAlign = "center";
+    ctx.fillText(distM + " m", W / 2, p(21));
+    ctx.shadowBlur = 0;
+    // ── P-METER (SMB3 style) — below top bar, right-aligned ─────
+    // 7 speed segments + 1 "P" cap = 8 blocks
+    // Position: below top bar (sbY=p(33)), no overlap with pause btn
+    const spd = robot ? robot.speed : 0;
+    const spdMax = Math.max(1, uv("cannon") * 18 + 5);
+    const spdPct = Math.min(1, spd / Math.max(1, spdMax));
+    const PM_N = 8; // total segments incl. P
+    const PM_LIT = Math.round(spdPct * (PM_N - 1)); // how many lit (0..7), P=index 7
+    const PM_FULL = PM_LIT >= PM_N - 1; // all lit = full power
+    const pmSW = p(9),
+        pmSH = p(11),
+        pmGAP = p(2); // segment w/h/gap
+    const pmTotalW = PM_N * (pmSW + pmGAP) - pmGAP;
+    const pmX = W - pmTotalW - p(6); // right-aligned, clear of pause btn
+    const pmY = p(33); // just below top bar
+    // Segment colors (SMB3: white→yellow→orange→red progression)
+    const PM_COLS = [
+        "#4488ff",
+        "#44aaff",
+        "#44ddff",
+        "#ffee00",
+        "#ffcc00",
+        "#ff8800",
+        "#ff5500",
+        "#ff2200",
+    ];
+    // Background strip
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.beginPath();
+    ctx.roundRect(
+        pmX - p(3),
+        pmY - p(2),
+        pmTotalW + p(6),
+        pmSH + p(4),
+        p(3),
+    );
+    ctx.fill();
+    // Draw segments
+    for (let i = 0; i < PM_N; i++) {
+        const sx = pmX + i * (pmSW + pmGAP);
+        const isP = i === PM_N - 1;
+        const lit = i < PM_LIT || (isP && PM_FULL);
+        // Unlit: dark with dim border; Lit: bright fill + glow
+        if (lit) {
+            const blink =
+                isP && PM_FULL && Math.floor(frame / 5) % 2 === 0;
+            ctx.fillStyle = blink ? "#ffffff" : PM_COLS[i];
+            if (isP) {
+                ctx.shadowColor = blink
+                    ? "rgba(255,255,200,0.9)"
+                    : "rgba(255,50,0,0.8)";
+                ctx.shadowBlur = p(8);
+            }
+            ctx.fillRect(sx, pmY, pmSW, pmSH);
+            ctx.shadowBlur = 0;
+        } else {
+            ctx.fillStyle = "rgba(20,20,40,0.8)";
+            ctx.fillRect(sx, pmY, pmSW, pmSH);
+        }
+        // Border
+        ctx.strokeStyle = lit
+            ? isP
+                ? "#ffaaaa"
+                : "rgba(255,255,255,0.5)"
+            : "rgba(80,100,160,0.5)";
+        ctx.lineWidth = p(0.8);
+        ctx.strokeRect(sx, pmY, pmSW, pmSH);
+        // "P" label on last segment
+        if (isP) {
+            ctx.fillStyle = PM_FULL
+                ? Math.floor(frame / 5) % 2 === 0
+                    ? "#000"
+                    : "#fff"
+                : "rgba(120,80,80,0.9)";
+            ctx.font = `bold ${p(7)}px monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("P", sx + pmSW / 2, pmY + pmSH / 2);
+            ctx.textBaseline = "alphabetic";
+        }
+    }
+    // "SPEED" label left of segments
+    ctx.fillStyle = "rgba(180,200,255,0.7)";
+    ctx.font = `bold ${p(5.5)}px monospace`;
+    ctx.textAlign = "right";
+    ctx.fillText("SPEED", pmX - p(5), pmY + pmSH * 0.75);
+    ctx.shadowBlur = 0;
+    // Bottom HUD: label row + fuel bar, total p(28) height
+    const lblH = p(14),
+        barH = p(11),
+        bottomH = lblH + barH + p(3);
+    const bottomY = H - bottomH;
+    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillRect(0, bottomY, W, bottomH);
+    // Labels on their own row — clearly visible above bar
+    const lblY = bottomY + lblH * 0.82;
+    ctx.font = `bold ${p(8)}px monospace`;
+    ctx.fillStyle = "#dd9933";
+    ctx.textAlign = "left";
+    ctx.fillText("⚡ JETPACK", p(10), lblY);
+    ctx.fillStyle = "#ffe84d";
+    ctx.textAlign = "right";
+    ctx.fillText("★ " + coins, W - p(10), lblY);
+    if (speedStreakMult > 1) {
+        const sp = 1+Math.sin(frame*0.3)*0.12;
+        ctx.save();
+        ctx.font = `bold ${p(7*sp)}px monospace`;
+        ctx.fillStyle = speedStreakMult>=3?"#ff4400":speedStreakMult>=2?"#ff8800":"#ffdd00";
+        ctx.shadowColor="rgba(255,180,0,0.9)"; ctx.shadowBlur=p(8);
+        ctx.fillText("⚡ ×"+speedStreakMult, W-p(10), lblY-p(12));
+        ctx.restore(); ctx.shadowBlur=0;
+    }
+    // Fuel bar below labels
+    const barY = bottomY + lblH + p(2);
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
+    ctx.fillRect(p(6), barY, W - p(12), barH);
+    const fg = ctx.createLinearGradient(p(6), 0, W - p(6), 0);
+    fg.addColorStop(0, "#ff8800");
+    fg.addColorStop(1, "#ffe000");
+    ctx.fillStyle = fg;
+    ctx.fillRect(
+        p(6),
+        barY,
+        (W - p(12)) * (jetFuel / maxFuel),
+        barH,
+    );
+    ctx.strokeStyle = "#665533";
+    ctx.lineWidth = p(1);
+    ctx.strokeRect(p(6), barY, W - p(12), barH);
+    drawPauseBtn();
+    drawComboHUD();
+}
+
+// ══════════════════════════════════════════
+//  MILESTONE CELEBRATION
+// ══════════════════════════════════════════
+let nextMilestone = 100;
+function checkMilestone() {
+    if (distM >= nextMilestone) {
+        const ms = nextMilestone;
+        nextMilestone += ms < 500 ? 100 : 500;
+        if (!robot || !robot.alive) return; // safety: robot may have died in same frame
+        spawnStarCluster(robot.wx + W * 0.5, 6);
+        addFloat(
+            robot.wx,
+            robot.wy - p(30),
+            ms + "m " + t("milestone"),
+            "#44ffaa",
+            1.4,
+        );
+        boom(robot.wx, robot.wy, "#44ffaa", 16);
+        shakeIntensity = p(5);
+        if (sd.vibration && navigator.vibrate)
+            navigator.vibrate([50, 30, 50, 30, 50]);
+    }
+}
+
+// ══════════════════════════════════════════
+//  SETUP SCREENS (canvas-drawn)
+// ══════════════════════════════════════════
+
+
+// ══════════════════════════════════════════
+//  ÉCLAIRS ENTRE ENNEMIS PROCHES
+// ══════════════════════════════════════════
+function drawLightningArc(x1,y1,x2,y2) {
+    const segs=5,dx=(x2-x1)/segs,dy=(y2-y1)/segs;
+    ctx.beginPath(); ctx.moveTo(x1,y1);
+    for (let i=1;i<segs;i++) {
+        ctx.lineTo(x1+dx*i+(Math.random()-.5)*p(10),y1+dy*i+(Math.random()-.5)*p(10));
+    }
+    ctx.lineTo(x2,y2);
+    ctx.strokeStyle="rgba(130,170,255,0.75)"; ctx.lineWidth=p(1.2);
+    ctx.shadowColor="#99aaff"; ctx.shadowBlur=p(5);
+    ctx.stroke(); ctx.shadowBlur=0;
+}
+function tickLightning() {
+    if (frame%4!==0) return;
+    ctx.save(); ctx.globalAlpha=0.5;
+    const maxD=p(145);
+    for (let i=0;i<enemies.length;i++) for (let j=i+1;j<enemies.length;j++) {
+        if (Math.hypot(enemies[i].wx-enemies[j].wx,enemies[i].wy-enemies[j].wy)<maxD)
+            if (Math.floor(frame/6)%3!==0)
+                drawLightningArc(sx(enemies[i].wx),enemies[i].wy+shakeY,sx(enemies[j].wx),enemies[j].wy+shakeY);
+    }
+    ctx.restore();
+}
+
+// ══════════════════════════════════════════
+//  SPEED STREAK MULTIPLIER
+// ══════════════════════════════════════════
+function updateSpeedStreak() {
+    if (!robot||gs!=="flying") { speedStreakMult=1; _pmFullGlobal=false; _pmFullHyst=0; return; }
+    const pmFull=Math.round(Math.min(1,robot.speed/Math.max(1,uv("cannon")*18+5))*7)>=7;
+    if (pmFull) { speedStreakFrames=Math.min(speedStreakFrames+1,660); _pmFullHyst=12; }
+    else speedStreakFrames=Math.max(0,speedStreakFrames-3);
+    speedStreakMult=speedStreakFrames>=600?3:speedStreakFrames>=300?2:speedStreakFrames>=180?1.5:1;
+    // _pmFullGlobal avec hysteresis : reste true 12 frames après PM_FULL=false
+    if (pmFull) _pmFullGlobal=true;
+    else if (_pmFullHyst>0) { _pmFullHyst--; _pmFullGlobal=true; }
+    else _pmFullGlobal=false;
+}
+
+// ── Son boost style Sonic Generations ────────────────────────────
+function synthBoostSonic() {
+    if (!sd.sound) return;
+    const actx = getActx();
+    const play = () => {
+        try {
+            const ab = b64ToArrayBuffer(BOOST_SND_B64);
+            actx.decodeAudioData(ab).then((buf) => {
+                const src = actx.createBufferSource();
+                src.buffer = buf;
+                const g = actx.createGain();
+                g.gain.value = 0.85;
+                src.connect(g);
+                g.connect(actx.destination);
+                src.start(0);
+            }).catch(() => {});
+        } catch(e) {}
+    };
+    if (actx.state === 'running') play();
+    else actx.resume().then(play);
+}
+
+// ── Avance vers l'écran suivant après l'intro ─────────────────────
+function advanceFromIntro() {
+    if (!sd.lang) {
+        setupLang = "fr";
+        gs = "lang";
+    } else if (!sd.name) {
+        gs = "nameSetup";
+        showNameSetup();
+    } else if (!sd.setupDone) {
+        // Joueur existant sans setupDone (migration) → tutorial
+        sd.setupDone = true;
+        save();
+        gs = "tutorial";
+    } else {
+        gs = "start";
+        cgShowBanner();
+    }
+}
+
+// ── Écran de présentation IS DAOUDA GAMES ─────────────────────────
+function drawIntroScreen() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+
+    // Timing (à 60 fps)
+    const FADE_IN   = 18;   // 0.3 s  — fondu entrant + zoom-in
+    const SHIMMER_F = 72;   // 1.2 s  — début scintillement unique
+    const SHIMMER_D = 18;   // 0.3 s  — durée du scintillement
+    const HOLD_END  = 180;  // 3.0 s  — fin du maintien
+    const FADE_OUT  = 30;   // 0.5 s  — fondu sortant
+    const TOTAL     = HOLD_END + FADE_OUT;
+
+    if (introFrame >= TOTAL) {
+        advanceFromIntro();
+        return;
+    }
+
+    // Jouer le son logo une seule fois au premier frame
+    if (!introSoundPlayed) {
+        introSoundPlayed = true;
+        const actx = getActx();
+        const play = () => {
+            try {
+                const ab = b64ToArrayBuffer(INTRO_SND_B64);
+                actx.decodeAudioData(ab)
+                    .then((buf) => {
+                        const src = actx.createBufferSource();
+                        src.buffer = buf;
+                        const g = actx.createGain();
+                        g.gain.value = 1.0;
+                        src.connect(g);
+                        g.connect(actx.destination);
+                        src.start(0);
+                    })
+                    .catch(() => {});
+            } catch (e) {}
+        };
+        if (actx.state === "running") play();
+        else actx.resume().then(play);
+    }
+
+    // Opacité globale
+    let alpha = 1;
+    if (introFrame < FADE_IN) {
+        alpha = introFrame / FADE_IN;
+    } else if (introFrame >= HOLD_END) {
+        alpha = 1 - (introFrame - HOLD_END) / FADE_OUT;
+    }
+    alpha = Math.max(0, Math.min(1, alpha));
+
+    // Scale — zoom-in au départ
+    const scaleBase = introFrame < FADE_IN
+        ? 0.88 + 0.12 * (introFrame / FADE_IN)
+        : 1.0;
+
+    // Scintillement unique à 1.2 s (frame 72-90) en cloche sin
+    let shimmerAlpha = 0;
+    if (introFrame >= SHIMMER_F && introFrame < SHIMMER_F + SHIMMER_D) {
+        const s = (introFrame - SHIMMER_F) / SHIMMER_D;
+        shimmerAlpha = Math.sin(s * Math.PI);
+    }
+
+    // Dessin du logo pleine largeur
+    if (
+        introLogoImg.complete &&
+        introLogoImg.naturalWidth > 0
+    ) {
+        const iw = introLogoImg.naturalWidth;
+        const ih = introLogoImg.naturalHeight;
+        const drawW = W;
+        const drawH = (ih / iw) * W;
+        const drawX = 0;
+        const drawY = (H - drawH) / 2;
+
+        // shimmerAlpha va de 0→1→0 pendant la fenêtre
+        // On multiplie l'alpha de l'image par (1-shimmerAlpha)
+        // → image disparaît au pic puis réapparaît = clignotement
+        const logoAlpha = alpha * (1 - shimmerAlpha);
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, logoAlpha);
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(scaleBase, scaleBase);
+        ctx.translate(-W / 2, -H / 2);
+        ctx.drawImage(introLogoImg, drawX, drawY, drawW, drawH);
+        ctx.restore();
+    }
+
+    introFrame++;
+}
+
+function drawTapContinue() {
+    drawBg();
+    CANNON.draw();
+    const pw = p(240),
+        ph = p(150),
+        bx = W / 2 - pw / 2,
+        by = H / 2 - ph / 2 - p(30);
+    ctx.fillStyle = "rgba(0,0,0,.75)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, pw, ph, p(10));
+    ctx.fill();
+    ctx.strokeStyle = "#2244aa";
+    ctx.lineWidth = p(2);
+    ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#ffe060";
+    ctx.font = `bold ${p(22)}px monospace`;
+    ctx.fillText("VECTONOVA", W / 2, by + p(38));
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,220,70,.8)";
+    ctx.font = `bold ${p(8)}px monospace`;
+    ctx.fillText(t("launch"), W / 2, by + p(56));
+    const pulse = 0.55 + Math.sin(frame * 0.09) * 0.45;
+    ctx.fillStyle = `rgba(130,210,255,${pulse})`;
+    ctx.font = `bold ${p(13)}px monospace`;
+    ctx.fillText(t("tapContinue"), W / 2, by + p(90));
+    ctx.shadowBlur = 0;
+    ctx.font = `${p(18)}px monospace`;
+    ctx.fillText(
+        "👆",
+        W / 2,
+        by + ph + p(22) + Math.sin(frame * 0.1) * p(5),
+    );
+}
+
+function drawLangScreen() {
+    drawBg();
+    CANNON.draw();
+    const pw = p(248),
+        ph = p(195),
+        bx = W / 2 - pw / 2,
+        by = H / 2 - ph / 2 - p(10);
+    ctx.fillStyle = "rgba(0,0,0,.78)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, pw, ph, p(10));
+    ctx.fill();
+    ctx.strokeStyle = "#2244aa";
+    ctx.lineWidth = p(2);
+    ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#88ccff";
+    ctx.font = `bold ${p(13)}px monospace`;
+    ctx.fillText(
+        setupLang === "fr"
+            ? "CHOISIR LA LANGUE"
+            : "CHOOSE LANGUAGE",
+        W / 2,
+        by + p(28),
+    );
+    const drawLangBtn = (flag, label, selected, bx2, by2) => {
+        ctx.fillStyle = selected ? "#1a4a99" : "#111a2a";
+        ctx.beginPath();
+        ctx.roundRect(bx2, by2, p(88), p(52), p(6));
+        ctx.fill();
+        ctx.strokeStyle = selected ? "#4488ff" : "#224";
+        ctx.lineWidth = p(selected ? 2.5 : 1.5);
+        ctx.stroke();
+        ctx.font = `${p(24)}px monospace`;
+        ctx.fillText(flag, bx2 + p(44), by2 + p(24));
+        ctx.fillStyle = selected ? "#88ccff" : "#556";
+        ctx.font = `bold ${p(8.5)}px monospace`;
+        ctx.fillText(label, bx2 + p(44), by2 + p(43));
+    };
+    drawLangBtn(
+        "🇫🇷",
+        "Français",
+        setupLang === "fr",
+        W / 2 - p(96),
+        by + p(50),
+    );
+    drawLangBtn(
+        "🇬🇧",
+        "English",
+        setupLang === "en",
+        W / 2 + p(8),
+        by + p(50),
+    );
+    ctx.fillStyle = "#1a3a88";
+    ctx.beginPath();
+    ctx.roundRect(W / 2 - p(58), by + p(118), p(116), p(32), p(4));
+    ctx.fill();
+    ctx.strokeStyle = "#4466cc";
+    ctx.lineWidth = p(2);
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${p(10.5)}px monospace`;
+    ctx.fillText(
+        setupLang === "fr" ? "CONFIRMER" : "CONFIRM",
+        W / 2,
+        by + p(138),
+    );
+}
+
+// Géométrie partagée menu principal — draw ET click handler utilisent ceci
+function _smGeom() {
+    const hcUnlocked = (sd.gamesPlayed||0) >= 10;
+    const natH = p(hcUnlocked ? 401 : 357);          // hauteur naturelle
+    const pw   = Math.min(p(260), W * 0.94);
+    const ph   = Math.min(natH, GY() * 0.96);
+    const psc  = ph / natH;                           // facteur compression
+    const ip   = v => v * SC * psc;                   // offset interne mis à l'échelle
+    const bx   = Math.round(W / 2 - pw / 2);
+    const by   = Math.round(Math.max(p(4), GY() / 2 - ph / 2));
+    const PAD  = ip(8);
+    const BTNW = pw - PAD * 2;
+    const HALFGAP = ip(5);
+    const HALFW   = (BTNW - HALFGAP * 2) / 2;
+    const GAP  = ip(10);
+    const R1H  = ip(44);  const R1Y = by + ip(125);
+    const R2H  = ip(34);  const R2Y = R1Y + R1H + GAP;
+    const R3H  = ip(34);  const R3Y = R2Y + R2H + GAP;
+    const R4H  = ip(34);  const R4Y = R3Y + R3H + GAP;
+    const R5H  = ip(32);  const R5Y = R4Y + R4H + GAP;
+    const hcBtnY = R5Y + R5H + GAP;
+    const hcH    = ip(34);
+    const THIRD  = (BTNW - HALFGAP * 2) / 3;
+    return { hcUnlocked, pw, ph, bx, by, PAD, BTNW,
+                HALFGAP, HALFW, GAP, ip, psc,
+                R1Y,R1H,R2Y,R2H,R3Y,R3H,R4Y,R4H,R5Y,R5H,
+                hcBtnY, hcH, THIRD };
+}
+
+function drawStartScreen() {
+    drawBg();
+    CANNON.update();
+    CANNON.draw();
+
+    // ── Panel geometry ─────────────────────────────────────────────
+    const { hcUnlocked,pw,ph,bx,by,PAD,BTNW,HALFGAP,HALFW,GAP,ip,psc,
+            R1Y,R1H,R2Y,R2H,R3Y,R3H,R4Y,R4H,R5Y,R5H,
+            hcBtnY:_hcBtnY,hcH:_hcH,THIRD:_THIRD } = _smGeom();
+
+    // ── Background panel ──────────────────────────────────────────
+    ctx.fillStyle = "rgba(5,8,28,.82)";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, pw, ph, p(8));
+    ctx.fill();
+    ctx.strokeStyle = "#1e3888";
+    ctx.lineWidth = p(1.5);
+    ctx.stroke();
+
+    // ── Title — fills panel width, animated ──────────────────────
+    // pad_top=14 → title visual top at by+p(14), baseline at by+p(51)
+    // All content fills p(14)→p(336), bottom pad=14 → perfectly centered
+    const TITLE = "VECTONOVA";
+    let tSize = p(47);
+    ctx.font = `bold ${tSize}px monospace`;
+    while (
+        ctx.measureText(TITLE).width > pw * 0.96 &&
+        tSize > p(20)
+    ) {
+        tSize -= 0.5;
+        ctx.font = `bold ${tSize}px monospace`;
+    }
+    const tPulse = 1 + Math.sin(frame * 0.07) * 0.03;
+    const tGlow = 10 + Math.sin(frame * 0.09) * 8;
+    const tHue = frame * 1.2;
+    const c1 = `hsl(${(tHue % 60) + 40},100%,72%)`;
+    const c2 = `hsl(${((tHue + 30) % 60) + 20},100%,55%)`;
+    const tGrad = ctx.createLinearGradient(
+        W / 2 - BTNW / 2,
+        0,
+        W / 2 + BTNW / 2,
+        0,
+    );
+    tGrad.addColorStop(0, c2);
+    tGrad.addColorStop(0.5, c1);
+    tGrad.addColorStop(1, c2);
+    const tY = by + ip(51);
+    ctx.save();
+    ctx.translate(W / 2, tY);
+    ctx.scale(tPulse, tPulse);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = tGrad;
+    ctx.shadowColor = `rgba(255,200,50,${0.7 + Math.sin(frame * 0.09) * 0.3})`;
+    ctx.shadowBlur = p(tGlow);
+    ctx.font = `bold ${tSize}px monospace`;
+    ctx.fillText(TITLE, 0, 0);
+    ctx.shadowBlur = p(4);
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "rgba(255,255,220,0.9)";
+    ctx.fillText(TITLE, 0, 0);
+    ctx.restore();
+    ctx.shadowBlur = 0;
+    ctx.textBaseline = "alphabetic";
+
+    ctx.fillStyle = "#ffdd55";
+    ctx.font = `bold ${p(9)}px monospace`;
+    ctx.fillText(t("launch"), W / 2, by + ip(70));
+
+    ctx.fillStyle = "#aaccee";
+    ctx.font = `bold ${p(8)}px monospace`;
+    ctx.fillText(
+        t("record") +
+            ": " +
+            sd.best +
+            "m  ·  COMBO ×" +
+            sd.bestCombo,
+        W / 2,
+        by + ip(80),
+    );
+
+    // ── Stats widget — top=by+p(86) ──────────────────────────────
+    const achCount = sd.ach.length,
+        achPct = achCount / ACHS.length;
+    const bdgCount = sd.bdg.length,
+        bdgPct = bdgCount / BADGES.length;
+    const WGY = by + ip(93),
+        WGH = ip(22);
+    const LX = bx + PAD,
+        RX = LX + HALFW + HALFGAP * 2,
+        CW = HALFW;
+
+    // left cell
+    ctx.fillStyle = "rgba(0,0,0,.45)";
+    ctx.beginPath();
+    ctx.roundRect(LX, WGY, CW, WGH, p(3));
+    ctx.fill();
+    ctx.strokeStyle = "rgba(40,90,180,.5)";
+    ctx.lineWidth = p(1);
+    ctx.stroke();
+    if (achPct > 0) {
+        const g = ctx.createLinearGradient(LX, 0, LX + CW, 0);
+        g.addColorStop(0, "rgba(25,70,190,.6)");
+        g.addColorStop(1, "rgba(70,150,255,.3)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.roundRect(LX, WGY, CW * achPct, WGH, p(3));
+        ctx.fill();
+    }
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(140,190,255,.75)";
+    ctx.font = `${ip(5.5)}px monospace`;
+    ctx.fillText("🏅 SUCCÈS", LX + ip(4), WGY + ip(9));
+    ctx.fillStyle = "#ddeeff";
+    ctx.font = `bold ${ip(8)}px monospace`;
+    ctx.fillText(
+        achCount + "/" + ACHS.length,
+        LX + ip(4),
+        WGY + ip(19),
+    );
+    ctx.textAlign = "right";
+    ctx.fillStyle = "rgba(100,170,255,.65)";
+    ctx.font = `${ip(6)}px monospace`;
+    ctx.fillText(
+        Math.round(achPct * 100) + "%",
+        LX + CW - ip(4),
+        WGY + ip(19),
+    );
+
+    // right cell
+    ctx.fillStyle = "rgba(0,0,0,.45)";
+    ctx.beginPath();
+    ctx.roundRect(RX, WGY, CW, WGH, p(3));
+    ctx.fill();
+    ctx.strokeStyle = "rgba(130,85,0,.5)";
+    ctx.lineWidth = p(1);
+    ctx.stroke();
+    if (bdgPct > 0) {
+        const g = ctx.createLinearGradient(RX, 0, RX + CW, 0);
+        g.addColorStop(0, "rgba(155,95,0,.6)");
+        g.addColorStop(1, "rgba(255,195,55,.3)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.roundRect(RX, WGY, CW * bdgPct, WGH, p(3));
+        ctx.fill();
+    }
+    ctx.textAlign = "left";
+    ctx.fillStyle = "rgba(255,195,100,.75)";
+    ctx.font = `${ip(5.5)}px monospace`;
+    ctx.fillText("🎖 BADGES", RX + ip(4), WGY + ip(9));
+    ctx.fillStyle = "#ffeecc";
+    ctx.font = `bold ${ip(8)}px monospace`;
+    ctx.fillText(
+        bdgCount + "/" + BADGES.length,
+        RX + ip(4),
+        WGY + ip(19),
+    );
+    ctx.textAlign = "right";
+    ctx.fillStyle = "rgba(255,175,55,.65)";
+    ctx.font = `${ip(6)}px monospace`;
+    ctx.fillText(
+        Math.round(bdgPct * 100) + "%",
+        RX + CW - ip(4),
+        WGY + ip(19),
+    );
+    ctx.textAlign = "center";
+
+    // ── Buttons — stats bottom=p(108), R1Y=p(118), R5 bottom=p(336), pad=14 ──
+    // GAP=10, R1H=44, R2-4H=34, R5H=32 → perfectly symmetric with header
+    // (R1Y/R1H/GAP etc. déjà dans _smGeom)
+    ctx.fillStyle = "#12306e";
+    ctx.beginPath();
+    ctx.roundRect(bx + PAD, R1Y, BTNW, R1H, ip(5));
+    ctx.fill();
+    ctx.strokeStyle = "#3d66cc";
+    ctx.lineWidth = p(1.5);
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.shadowColor = "rgba(255,255,255,0.8)";
+    ctx.shadowBlur = p(10);
+    ctx.font = `bold ${ip(15)}px monospace`;
+    ctx.fillText(t("play"), W / 2, R1Y + R1H * 0.66);
+    ctx.shadowBlur = 0;
+
+    // Row 2 : AMÉLIORATIONS (full width)
+
+    ctx.fillStyle = "#241c00";
+    ctx.beginPath();
+    ctx.roundRect(bx + PAD, R2Y, BTNW, R2H, ip(4));
+    ctx.fill();
+    ctx.strokeStyle = "#7a5c00";
+    ctx.lineWidth = p(1.5);
+    ctx.stroke();
+    ctx.fillStyle = "#ffcc44";
+    ctx.font = `bold ${ip(11)}px monospace`;
+    ctx.fillText(t("upgrades"), W / 2, R2Y + R2H * 0.66);
+
+    // Row 3 : SCORES (full width)
+
+    ctx.fillStyle = "#001826";
+    ctx.beginPath();
+    ctx.roundRect(bx + PAD, R3Y, BTNW, R3H, ip(4));
+    ctx.fill();
+    ctx.strokeStyle = "#005a70";
+    ctx.lineWidth = p(1.5);
+    ctx.stroke();
+    ctx.fillStyle = "#44ddff";
+    ctx.font = `bold ${ip(11)}px monospace`;
+    ctx.fillText(t("scores"), W / 2, R3Y + R3H * 0.66);
+
+    // Row 4 : SUCCÈS | BADGES (half width each)
+
+    [
+        [t("achievements"), "#1a2a10", "#3d7020", "#88ff88"],
+        [t("badges"), "#271a00", "#7a5c20", "#ffcc66"],
+    ].forEach(([lbl, bg, br, col], i) => {
+        const rx2 = bx + PAD + (HALFW + HALFGAP * 2) * i;
+        ctx.fillStyle = bg;
+        ctx.beginPath();
+        ctx.roundRect(rx2, R4Y, HALFW, R4H, ip(4));
+        ctx.fill();
+        ctx.strokeStyle = br;
+        ctx.lineWidth = ip(1.5);
+        ctx.stroke();
+        ctx.fillStyle = col;
+        ctx.font = `bold ${ip(10)}px monospace`;
+        ctx.fillText(lbl, rx2 + HALFW / 2, R4Y + R4H * 0.66);
+    });
+
+    // Row 5 : DÉFIS | TUTORIEL | OPTIONS (3 colonnes égales)
+    const THIRD = _THIRD;
+    [
+        ["📅 " + t("daily"), "#1a1428", "#6a3a80", "#cc88ff"],
+        ["❓ " + t("tutorial"), "#0e1428", "#2a3a60", "#88aaff"],
+        ["⚙ " + t("options"), "#0e0e1a", "#333", "#888"],
+    ].forEach(([lbl, bg, br, col], i) => {
+        const rx2 = bx + PAD + (THIRD + HALFGAP) * i;
+        ctx.fillStyle = bg;
+        ctx.beginPath();
+        ctx.roundRect(rx2, R5Y, THIRD, R5H, ip(4));
+        ctx.fill();
+        ctx.strokeStyle = br;
+        ctx.lineWidth = ip(1.5);
+        ctx.stroke();
+        ctx.fillStyle = col;
+        ctx.font = `bold ${ip(9)}px monospace`;
+        ctx.fillText(lbl, rx2 + THIRD / 2, R5Y + R5H * 0.66);
+    });
+
+    if (hcUnlocked) {
+        const hcBtnY = _hcBtnY, hcH = _hcH;
+        ctx.fillStyle = hardcoreMode ? "#5c0000" : "#1a0800";
+        ctx.beginPath(); ctx.roundRect(bx+PAD, hcBtnY, BTNW, hcH, ip(4)); ctx.fill();
+        ctx.strokeStyle = hardcoreMode ? "#ff2200" : "#661100";
+        ctx.lineWidth = p(1.5); ctx.stroke();
+        const hcPulse = hardcoreMode ? 1+Math.sin(frame*0.18)*0.06 : 1;
+        ctx.fillStyle = hardcoreMode ? "#ff5544" : "#774433";
+        ctx.font = `bold ${ip(11*hcPulse)}px monospace`;
+        ctx.fillText(
+            hardcoreMode ? "🔥 HARDCORE : ON  (+50%)" : "🔥 HARDCORE : OFF",
+            W/2, hcBtnY + hcH*0.66
+        );
+        if (hardcoreMode) {
+            ctx.fillStyle = "rgba(255,60,30,0.07)";
+            ctx.fillRect(bx, by, pw, ph);
+        }
+    }
+    // ── Crédits musique — au-dessus du sol ────────────────────
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = "#aaccee";
+    ctx.font = `bold ${ip(12)}px monospace`;
+    ctx.textAlign = "center";
+    const _gy = GY();
+    ctx.fillText("© Is Daouda Games", W/2, _gy + ip(13));
+    ctx.font = `${ip(10.5)}px monospace`;
+    ctx.globalAlpha = 0.45;
+    ctx.fillText("Music by Vladislav Litvinenko from Pixabay", W/2, _gy + ip(26));
+    ctx.fillText("Music by Kontraa Music from Pixabay", W/2, _gy + ip(38));
+    ctx.restore();
+}
+
+function drawResults() {
+    drawBg();
+    const pw = p(244),
+        ph = p(350),
+        bx = W / 2 - pw / 2,
+        by = H / 2 - ph / 2 - p(8);
+    const rg = ctx.createLinearGradient(bx, by, bx, by + ph);
+    rg.addColorStop(0, "#c88010");
+    rg.addColorStop(0.4, "#a06008");
+    rg.addColorStop(1, "#7a4800");
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.roundRect(bx, by, pw, ph, p(6));
+    ctx.fill();
+    ctx.strokeStyle = "#5a3000";
+    ctx.lineWidth = p(3);
+    ctx.stroke();
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(0,0,0,.4)";
+    ctx.beginPath();
+    ctx.roundRect(bx + p(8), by + p(8), pw - p(16), p(24), p(3));
+    ctx.fill();
+    ctx.fillStyle = "#ffe080";
+    ctx.font = `bold ${p(11)}px monospace`;
+    ctx.fillText(t("results"), W / 2, by + p(24));
+    ctx.fillStyle = "rgba(0,0,0,.3)";
+    ctx.beginPath();
+    ctx.roundRect(bx + p(8), by + p(38), pw - p(16), p(24), p(3));
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = `${p(9)}px monospace`;
+    ctx.textAlign = "left";
+    ctx.fillText(t("distance") + ":", bx + p(14), by + p(54));
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#88ff88";
+    ctx.fillText(resData.d + "m", bx + pw - p(14), by + p(54));
+    // Combo badge
+    if (comboMax >= 2) {
+        ctx.fillStyle = "rgba(0,0,0,.25)";
+        ctx.beginPath();
+        ctx.roundRect(
+            bx + p(8),
+            by + p(67),
+            pw - p(16),
+            p(20),
+            p(3),
+        );
+        ctx.fill();
+        ctx.fillStyle =
+            comboMax >= 5
+                ? "#ff4400"
+                : comboMax >= 3
+                    ? "#ffaa00"
+                    : "#ffe000";
+        ctx.font = `bold ${p(8.5)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.fillText(
+            "🔥 BEST COMBO: x" + comboMax,
+            W / 2,
+            by + p(81),
+        );
+    }
+    const barsY = comboMax >= 2 ? by + p(94) : by + p(70);
+    [
+        { l: "distance", v: resData.m1, c: "#4488ff" },
+        { l: "bonus", v: resData.m2, c: "#ffaa00" },
+        { l: "stars", v: resData.m3, c: "#ffee00" },
+        { l: "combo", v: resData.m4, c: "#ff6600" },
+    ].forEach((b, i) => {
+        const ry = barsY + i * p(40);
+        ctx.fillStyle = "rgba(0,0,0,.25)";
+        ctx.beginPath();
+        ctx.roundRect(bx + p(8), ry, pw - p(16), p(34), p(3));
+        ctx.fill();
+        ctx.fillStyle = "#ccc";
+        ctx.font = `${p(7)}px monospace`;
+        ctx.textAlign = "left";
+        ctx.fillText(t(b.l), bx + p(12), ry + p(12));
+        const bw = pw - p(32);
+        ctx.fillStyle = "rgba(0,0,0,.4)";
+        ctx.fillRect(bx + p(12), ry + p(16), bw, p(9));
+        ctx.fillStyle = b.c;
+        ctx.fillRect(
+            bx + p(12),
+            ry + p(16),
+            Math.min(bw, bw * (b.v / 200)),
+            p(9),
+        );
+        ctx.strokeStyle = "rgba(0,0,0,.3)";
+        ctx.lineWidth = p(1);
+        ctx.strokeRect(bx + p(12), ry + p(16), bw, p(9));
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "right";
+        ctx.font = `${p(7)}px monospace`;
+        ctx.fillText(b.v + " $", bx + pw - p(12), ry + p(30));
+    });
+    const divY = barsY + p(166);
+    ctx.strokeStyle = "rgba(0,0,0,.3)";
+    ctx.lineWidth = p(1);
+    ctx.beginPath();
+    ctx.moveTo(bx + p(12), divY);
+    ctx.lineTo(bx + pw - p(12), divY);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(0,0,0,.2)";
+    ctx.beginPath();
+    ctx.roundRect(bx + p(8), divY + p(5), pw - p(16), p(22), p(3));
+    ctx.fill();
+    ctx.fillStyle = "#ffe080";
+    ctx.font = `bold ${p(8)}px monospace`;
+    ctx.textAlign = "left";
+    ctx.fillText(t("earned") + ":", bx + p(14), divY + p(20));
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#fff";
+    ctx.fillText(resData.e + " $", bx + pw - p(14), divY + p(20));
+    ctx.fillStyle = "rgba(0,0,0,.2)";
+    ctx.beginPath();
+    ctx.roundRect(bx + p(8), divY + p(30), pw - p(16), p(22), p(3));
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${p(8)}px monospace`;
+    ctx.textAlign = "left";
+    ctx.fillText(t("total") + ":", bx + p(14), divY + p(45));
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#ffe060";
+    ctx.fillText(sd.money + " $", bx + pw - p(14), divY + p(45));
+    const btnY = divY+p(58);
+    // 4 boutons: MENU | SHOP | PARTAGER | REJOUER
+    // pw=p(244), padding=p(8) each side → usable=pw-p(16)=p(228), 3 gaps of p(4) → bw=(p(228)-p(12))/4=p(54)
+    const bw4 = p(54),
+        bg4 = p(4);
+    [
+        {
+            l: "🏠 MENU",
+            bg: "#1a1010",
+            br: "#553322",
+            c: "#ffaa88",
+        },
+        {
+            l: t("shop"),
+            bg: "#223366",
+            br: "#4466aa",
+            c: "#aabbff",
+        },
+        {
+            l: t("scores"),
+            bg: "#002230",
+            br: "#006688",
+            c: "#44ddff",
+        },
+        {
+            l: t("retry"),
+            bg: "#1a5522",
+            br: "#44aa55",
+            c: "#88ff99",
+        },
+    ].forEach((b, i) => {
+        const bx2 = bx+p(8)+(bw4+bg4)*i;
+        ctx.fillStyle=b.bg; ctx.beginPath(); ctx.roundRect(bx2,btnY,bw4,p(30),p(3)); ctx.fill();
+        ctx.strokeStyle=b.br; ctx.lineWidth=p(1.5); ctx.stroke();
+        ctx.fillStyle=b.c; ctx.font=`bold ${p(8)}px monospace`;
+        ctx.textAlign="center"; ctx.fillText(b.l, bx2+bw4/2, btnY+p(20));
+    });
+}
+
+// ══════════════════════════════════════════
+//  MAIN LOOP
+// ══════════════════════════════════════════
+function loop() {
+    try {
+        frame++;
+        ctx.clearRect(0, 0, W, H);
+        tickShake();
+        tickToast();
+
+        switch (gs) {
+            case "tapContinue":
+                drawTapContinue();
+                break;
+            case "intro":
+                drawIntroScreen();
+                break;
+            case "lang":
+                drawLangScreen();
+                break;
+            case "nameSetup":
+                drawBg();
+                CANNON.draw();
+                break;
+            case "tutorial":
+                drawTutorial();
+                break;
+            case "start":
+                drawStartScreen();
+                break;
+            case "results":
+                drawResults();
+                break;
+            case "aim":
+                drawBg();
+                tickPfx();
+                CANNON.update();
+                CANNON.draw();
+                drawHUD();
+                break;
+            case "paused":
+                // Static background while paused
+                drawBg();
+                if (robot) robot.draw();
+                drawHUD();
+                break;
+            case "flying":
+            case "dead":
+                drawBg();
+                tickPfx();
+                if (camX + W > nextStarWX) {
+                    spawnStar(
+                        nextStarWX +
+                            W +
+                            p(60) +
+                            Math.random() * p(80),
+                    );
+                    nextStarWX += p(130) + Math.random() * p(120);
+                }
+                if (camX + W > nextEnemyWX) {
+                    if (distM > 15)
+                        spawnEnemy(
+                            nextEnemyWX +
+                                W +
+                                p(80) +
+                                Math.random() * p(100),
+                        );
+                    nextEnemyWX += p(180) + Math.random() * p(160);
+                }
+                if (camX + W > nextBoostWX) {
+                    spawnBoost(
+                        nextBoostWX +
+                            W +
+                            p(160) +
+                            Math.random() * p(200),
+                    );
+                    nextBoostWX += p(500) + Math.random() * p(400);
+                }
+                if (camX + W > nextRingWX) {
+                    spawnRing(
+                        nextRingWX +
+                            W +
+                            p(120) +
+                            Math.random() * p(160),
+                    );
+                    nextRingWX += p(400) + Math.random() * p(300);
+                }
+                if (camX + W > nextChestWX) {
+                    spawnChest(
+                        nextChestWX +
+                            W +
+                            p(150) +
+                            Math.random() * p(200),
+                    );
+                    nextChestWX += p(450) + Math.random() * p(300);
+                }
+                if (camX + W > nextMeteorWX && distM > 50) {
+                    spawnMeteor(
+                        camX + W * 0.5 + Math.random() * W * 0.4,
+                    );
+                    nextMeteorWX =
+                        camX + W + p(200) + Math.random() * p(300);
+                }
+                tickDrawStars();
+                tickDrawBoosts();
+                tickDrawRings();
+                tickDrawChests();
+                tickDrawMeteors();
+                enemies.forEach((e) => { e.update(); e.draw(); });
+                enemies = enemies.filter((e) => e.alive);
+                tickLightning();
+
+                updateSpeedStreak();
+                tickCombo();
+                tickDrawFloats();
+                if (robot) {
+                    if (robot.alive) {
+                        robot.update();
+                        checkMilestone();
+                        // Track no-jetpack distance
+                        if (jetOn) {
+                            jetWasOn = true;
+                            distNoJetStart = distM;
+                        } else {
+                            runMaxDistNoJet = Math.max(
+                                runMaxDistNoJet,
+                                distM - distNoJetStart,
+                            );
+                        }
+                        for (const e of enemies) {
+                            if (!e.alive) continue;
+                            if (
+                                Math.hypot(
+                                    robot.wx - e.wx,
+                                    robot.wy - e.wy,
+                                ) <
+                                robot.r + e.r - p(2)
+                            ) {
+                                e.alive = false;
+                                robot.hit();
+                                break;
+                            }
+                        }
+                    }
+                    robot.draw();
+                    if (!robot.alive && gs === "flying") {
+                        gs = "dead";
+                        deadTimer = 52;
+                    }
+                }
+                if (robot && gs === "flying") {
+                    const _pmFull =
+                        Math.round(
+                            Math.min(
+                                1,
+                                robot.speed /
+                                    Math.max(
+                                        1,
+                                        uv("cannon") * 18 + 5,
+                                    ),
+                            ) * 7,
+                        ) >= 7;
+                    if (_pmFull) runRedZone = true;
+                }
+                if (gs === "dead") {
+                    deadTimer--;
+                    if (deadTimer <= 0) endGame();
+                }
+                CANNON.draw();
+                drawHUD();
+                break;
+            case "shop":
+            case "ach":
+            case "bdg":
+            case "dc":
+            case "lb":
+            case "options":
+                drawBg();
+                break;
+        }
+    } catch (err) {
+        console.error("[ROBOFLY loop]:", err);
+    }
+    animId = requestAnimationFrame(loop);
+}
+
+// ══════════════════════════════════════════
+//  INPUT
+// ══════════════════════════════════════════
+function getPos(e) {
+    ensureSFX();
+    if (_actx && _actx.state === "suspended") _actx.resume();
+    const r = cvs.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return {
+        x: (src.clientX - r.left) * (W / r.width),
+        y: (src.clientY - r.top) * (H / r.height),
+    };
+}
+function inR(x, y, rx, ry, rw, rh) {
+    return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
+}
+
+function onDown(e) {
+    if (e.cancelable) e.preventDefault();
+    if (nameSetupActive) return;
+    const { x, y } = getPos(e);
+
+    if (gs === "tapContinue") {
+        gs = "intro";
+        return;
+    }
+    // intro : non-passable, avance seule
+    if (gs === "lang") {
+        const pw = p(248),
+            ph = p(195),
+            bx = W / 2 - pw / 2,
+            by = H / 2 - ph / 2 - p(10);
+        if (inR(x, y, W / 2 - p(96), by + p(50), p(88), p(52))) {
+            setupLang = "fr";
+            return;
+        }
+        if (inR(x, y, W / 2 + p(8), by + p(50), p(88), p(52))) {
+            setupLang = "en";
+            return;
+        }
+        if (inR(x, y, W / 2 - p(58), by + p(118), p(116), p(32))) {
+            sd.lang = setupLang;
+            save();
+            if (!sd.name) {
+                gs = "nameSetup";
+                showNameSetup();
+            } else { gs = "start"; cgShowBanner(); }
+            return;
+        }
+        return;
+    }
+    if (gs === "start") {
+        const { pw,ph,bx,by,PAD,BTNW,HALFGAP,HALFW,GAP,
+                R1Y,R1H,R2Y,R2H,R3Y,R3H,R4Y,R4H,R5Y,R5H,
+                hcBtnY,hcH,THIRD,hcUnlocked } = _smGeom();
+        if (inR(x, y, bx + PAD, R1Y, BTNW, R1H)) {
+            synthClick();
+            startGame();
+            return;
+        }
+        if (hcUnlocked) {
+            if (inR(x, y, bx+PAD, hcBtnY, BTNW, hcH)) {
+                synthClick(); hardcoreMode = !hardcoreMode; return;
+            }
+        }
+        if (inR(x, y, bx + PAD, R2Y, BTNW, R2H)) {
+            synthClick();
+            openShop();
+            return;
+        }
+        if (inR(x, y, bx + PAD, R3Y, BTNW, R3H)) {
+            synthClick();
+            openLB();
+            return;
+        }
+        if (inR(x, y, bx + PAD, R4Y, HALFW, R4H)) {
+            synthClick();
+            openAch();
+            return;
+        }
+        if (
+            inR(
+                x,
+                y,
+                bx + PAD + HALFW + HALFGAP * 2,
+                R4Y,
+                HALFW,
+                R4H,
+            )
+        ) {
+            synthClick();
+            openBdg();
+            return;
+        }
+        // Row 5: DÉFIS | TUTORIEL | OPTIONS
+        if (inR(x, y, bx + PAD, R5Y, THIRD, R5H)) {
+            synthClick();
+            openDC();
+            return;
+        }
+        if (
+            inR(x, y, bx + PAD + THIRD + HALFGAP, R5Y, THIRD, R5H)
+        ) {
+            synthClick();
+            openTutorial();
+            return;
+        }
+        if (
+            inR(
+                x,
+                y,
+                bx + PAD + (THIRD + HALFGAP) * 2,
+                R5Y,
+                THIRD,
+                R5H,
+            )
+        ) {
+            synthClick();
+            openOptions();
+            return;
+        }
+        // pas de fallthrough — uniquement clic hors panel ignoré
+        return;
+    }
+    if (gs === "tutorial") {
+        const pages = getTutPages();
+        const pw = p(340),
+            ph = p(270),
+            bx = W / 2 - pw / 2,
+            by = H / 2 - ph / 2;
+        const btnY = by + ph - p(22),
+            btnH = p(18);
+        const isLast = tutPage === pages.length - 1;
+        if (inR(x, y, bx + pw - p(22), by + p(6), p(22), p(22))) {
+            synthClick();
+            gs = "start"; cgShowBanner();
+            return;
+        }
+        if (
+            tutPage > 0 &&
+            inR(x, y, bx + p(10), btnY, p(80), btnH)
+        ) {
+            synthClick();
+            tutPage--;
+            return;
+        }
+        if (inR(x, y, bx + pw - p(100), btnY, p(90), btnH)) {
+            synthClick();
+            if (isLast) {
+                gs = "start"; cgShowBanner();
+            } else {
+                tutPage++;
+            }
+            return;
+        }
+        if (!isLast) {
+            synthClick();
+            tutPage++;
+            return;
+        }
+        synthClick();
+        gs = "start"; cgShowBanner();
+        return;
+    }
+    if (gs === "aim") {
+        launchRobot();
+        return;
+    }
+    if (gs === "flying") {
+        if (isPauseBtn(x, y)) {
+            synthClick();
+            pauseGame();
+            return;
+        }
+        jetOn = true;
+        return;
+    }
+    if (gs === "results") {
+        const pw = p(244),
+            ph = p(350),
+            bx = W / 2 - pw / 2,
+            by = H / 2 - ph / 2 - p(8);
+        const barsY = comboMax >= 2 ? by + p(94) : by + p(70);
+        const divY = barsY + p(166);
+        const btnY = divY+p(58);
+        const bw4 = p(54), bg4 = p(4);
+        if (inR(x, y, bx + p(8), btnY, bw4, p(30))) {
+            synthClick();
+            gs = "start";
+            cgShowBanner();
+            frame = 0;
+            camX = 0;
+            initBg();
+            CANNON.active = false;
+            CANNON.show = true;
+            CANNON.angle = -Math.PI * 0.35;
+            return;
+        }
+        if (inR(x, y, bx + p(8) + bw4 + bg4, btnY, bw4, p(30))) {
+            synthClick();
+            openShop();
+            return;
+        }
+        if (inR(x, y, bx+p(8)+(bw4+bg4)*2, btnY, bw4, p(30))) {
+            synthClick();
+            openLB();
+            return;
+        }
+        if (
+            inR(x, y, bx + p(8) + (bw4 + bg4) * 3, btnY, bw4, p(30))
+        ) {
+            synthClick();
+            startGame();
+            return;
+        }
+    }
+}
+function onUp() {
+    jetOn = false;
+}
+
+cvs.addEventListener("mousedown", onDown);
+cvs.addEventListener("touchstart", onDown, { passive: false });
+document.addEventListener("mouseup", onUp);
+document.addEventListener("touchend", onUp);
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+document.addEventListener("keydown", (e) => {
+    if (["Space", "ArrowUp"].includes(e.code)) {
+        e.preventDefault();
+        if (gs === "tapContinue") {
+            gs = "intro";
+            return;
+        }
+        // intro : non-passable
+        if (gs === "start") {
+            synthClick();
+            startGame();
+            return;
+        }
+        if (gs === "aim") {
+            launchRobot();
+            return;
+        } // return = no jetpack on launch frame
+        if (gs === "flying") jetOn = true;
+        if (gs === "paused") resumeGame();
+    }
+    if (e.code === "Escape" || e.code === "Enter") {
+        if (
+            e.code === "Enter" &&
+            ["flying", "paused"].includes(gs)
+        ) {
+            synthClick();
+            if (gs === "flying") pauseGame();
+            else resumeGame();
+        } else if (e.code === "Escape") {
+            if (gs === "flying") {
+                synthClick();
+                pauseGame();
+            } else if (gs === "paused") {
+                synthClick();
+                resumeGame();
+            } else if (gs === "tutorial") {
+                synthClick();
+                gs = "start"; cgShowBanner();
+            } else if (gs === "shop") {
+                synthClick();
+                closeShop();
+            } else if (gs === "ach") {
+                synthClick();
+                closeAch();
+            } else if (gs === "bdg") {
+                synthClick();
+                closeBdg();
+            } else if (gs === "dc") {
+                synthClick();
+                closeDC();
+            } else if (gs === "lb") {
+                synthClick();
+                closeLB();
+            } else if (gs === "options") {
+                synthClick();
+                closeOptions();
+            }
+        }
+    }
+});
+document.addEventListener("keyup", (e) => {
+    if (["Space", "ArrowUp"].includes(e.code)) jetOn = false;
+});
+
+// ══════════════════════════════════════════
+//  GAME FLOW
+// ══════════════════════════════════════════
+function startGame() {
+    cgGameplayStop();
+    cgHideBanner();
+    cgGameplayStart();
+    playGameMusic();
+    distM = 0;
+    coins = 0;
+    frame = 0;
+    camX = 0;
+    shakeIntensity = 0;
+    shakeX = 0;
+    shakeY = 0;
+    bgThemeIdx = 0;
+    _bgFadeAlpha = 0;
+    _bgFadeDir   = 0;
+    _bgNextIdx   = 0;
+    _skyGrad = null; // reset biome to night city
+    stars = [];
+    enemies = [];
+    boosts = [];
+    rings = [];
+    chests = [];
+    meteors = [];
+    pfx = [];
+    floatTexts = [];
+    robot = null;
+    jetOn = false;
+    maxFuel = uv("battery");
+    jetFuel = maxFuel;
+    shield = uv("armor");
+    combo = 0;
+    comboTimer = 0;
+    comboMax = 0;
+    nextMilestone = 100;
+    // windZones reset
+    windZones = [];
+    speedStreakFrames = 0;
+    speedStreakMult = 1;
+    nextStarWX = p(200);
+    nextEnemyWX = p(380);
+    nextBoostWX = p(300);
+    nextRingWX = p(450);
+    nextChestWX = p(500);
+    nextMeteorWX = p(999999);
+    // Reset per-run trackers
+    runHits = 0;
+    runChests = 0;
+    runBoosts = 0;
+    runRings = 0;
+    runStars = 0;
+    runMeteorsDodged = 0;
+    runHasRing = false;
+    runHasBoost = false;
+    runHasStar = false;
+    runHasChest = false;
+    runRedZone = false;
+    runMaxDistNoJet = 0;
+    distNoJetStart = 0;
+    jetWasOn = false;
+    CANNON.active = true;
+    CANNON.show = true;
+    CANNON.angle = -Math.PI * 0.35;
+    CANNON.dir = 1;
+    hide("shopDiv");
+    hide("lbDiv");
+    hide("optDiv");
+    hide("pauseDiv");
+    gs = "aim";
+}
+function launchRobot() {
+    gs = "flying";
+    CANNON.active = false;
+    CANNON.show = false;
+    robot = makeRobot();
+    // Canon au max → vitesse horizontale maximale dès le lancement
+    if (sd.up.cannon >= 4) {
+        robot.vx = uv("cannon") * SC;
+        speedStreakFrames = 660; // P-meter immédiatement plein + rouge
+    }
+    jetFuel = maxFuel;
+    jetOn = false;
+    nextMeteorWX = camX + W + p(400);
+    playsfx("launch", { vol: 0.9 });
+}
+function endGame() {
+    stopJetSFX();
+    stopAllMusic();
+    cgGameplayStop();
+    gs = "loading"; // état neutre pendant la pub
+    const d = distM,
+        m1 = Math.floor(d * 0.02),
+        m2 = Math.floor(coins * 0.4),
+        m3 = Math.floor(d / 300),
+        m4 = comboMax * 5,
+        e = m1 + m2 + m3 + m4;
+    sd.money += e;
+    if (d > sd.best) sd.best = d;
+    sd.totalDist = (sd.totalDist || 0) + d;
+    sd.totalCoins = (sd.totalCoins || 0) + coins;
+    sd.gamesPlayed = (sd.gamesPlayed || 0) + 1;
+    gamesPlayedToday++;
+    if (runHits === 0) sd.perfectGames = (sd.perfectGames || 0) + 1;
+    if ((sd.gamesPlayed||0) >= 10 && !sd.hardcoreUnlocked) sd.hardcoreUnlocked = true;
+    if (runRedZone) sd.redZoneCount = (sd.redZoneCount || 0) + 1;
+    // Update no-jetpack distance for this run
+    if (!jetWasOn) runMaxDistNoJet = distM;
+    save();
+    resData = { d, m1, m2, m3, m4, e };
+    pendingDist = d;
+    checkAch("endGame");
+    checkDailyChallenges();
+    // Midgame ad — résultats + bannière affichés après
+    cgMidgameAd(() => {
+        gs = "results";
+        cgShowBanner();
+        if (!animId) animId = requestAnimationFrame(loop);
+        setTimeout(async () => {
+            if (gs === "results" && window.fbPush)
+                await window.fbPush(sd.name || "PLAYER", pendingDist);
+        }, 800);
+    });
+}
+
+// PAUSE
+function pauseGame() {
+    if (gs !== "flying") return;
+    prevGs = "flying";
+    pauseMusic();
+    stopJetSFX();
+    if (_actx && _actx.state === "running") _actx.suspend();
+    gs = "paused";
+    jetOn = false;
+    show("pauseDiv");
+    document.getElementById("pauseResume").textContent =
+        t("resume");
+}
+window.resumeGame = function () {
+    if (gs !== "paused") return;
+    hide("pauseDiv");
+    gs = "flying";
+    if (_actx && _actx.state === "suspended") _actx.resume();
+    resumeMusic();
+};
+window.quitToMenu = function () {
+    stopJetSFX();
+    hide("pauseDiv");
+    gs = "start";
+    cgShowBanner();
+    frame = 0;
+    camX = 0;
+    initBg();
+    CANNON.active = false;
+    CANNON.show = true;
+    CANNON.angle = -Math.PI * 0.35;
+};
+
+// ══════════════════════════════════════════
+//  SHOP
+// ══════════════════════════════════════════
+function openShop() {
+    gs = "shop";
+    renderShop();
+    show("shopDiv");
+}
+function closeShop() {
+    hide("shopDiv");
+    gs = "start";
+    cgShowBanner();
+    frame = 0;
+    camX = 0;
+    initBg();
+    CANNON.active = false;
+    CANNON.show = true;
+    CANNON.angle = -Math.PI * 0.35;
+}
+window.closeShop = closeShop;
+function renderShop() {
+    document.getElementById("shMoney").textContent = sd.money;
+    document.getElementById("shTitle").textContent =
+        "⚙ " + t("upgrades");
+    document.getElementById("shDesc").textContent = "";
+    const cont = document.getElementById("upgCont");
+    cont.innerHTML = "";
+    const lang = sd.lang || "fr";
+    Object.entries(UDEFS).forEach(([k, u]) => {
+        const lv = sd.up[k];
+        const maxLv = u.costs.length;
+        const isMax = lv >= maxLv;
+        const card = document.createElement("div");
+        card.className = "upg-card";
+        // Header
+        const hdr = document.createElement("div");
+        hdr.className = "upg-card-header";
+        const nextCost = isMax ? null : u.costs[lv];
+        const nextTip = isMax
+            ? null
+            : lang === "en"
+                ? u.tips_en[lv]
+                : u.tips_fr[lv];
+        hdr.innerHTML = `<div class="upg-card-icon">${u.icon}</div><div class="upg-card-info"><div class="upg-card-name">${t(k)}</div><div class="upg-card-sub">${lang === "en" ? u.desc_en : u.desc_fr}</div></div>`;
+        card.appendChild(hdr);
+        // Level bar
+        const bar = document.createElement("div");
+        bar.className = "upg-level-bar";
+        for (let i = 0; i < maxLv; i++) {
+            const seg = document.createElement("div");
+            seg.className =
+                "upg-lvl-seg" +
+                (i < lv
+                    ? " filled"
+                    : i === lv && !isMax
+                        ? " next-buy"
+                        : "");
+            if (i === lv && !isMax) {
+                seg.title =
+                    (lang === "en" ? u.tips_en[i] : u.tips_fr[i]) +
+                    " — " +
+                    u.costs[i] +
+                    " $";
+                seg.addEventListener("click", () => {
+                    synthClick();
+                    doBuy(k, i);
+                });
+            }
+            bar.appendChild(seg);
+        }
+        card.appendChild(bar);
+        // Stat row
+        const stat = document.createElement("div");
+        stat.className = "upg-card-stat";
+        stat.innerHTML = `<span>${lang === "en" ? u.stat_en : u.stat_fr}:</span><span>${u.statFmt(lv)}</span>`;
+        card.appendChild(stat);
+        // Cost + buy button
+        if (!isMax) {
+            const costRow = document.createElement("div");
+            costRow.className = "upg-cost-row";
+            costRow.innerHTML = `<div class="upg-cost">💰 ${nextCost} $</div>`;
+            const btn = document.createElement("button");
+            btn.className = "upg-buy-btn";
+            btn.textContent = lang === "en" ? nextTip : nextTip;
+            btn.addEventListener("click", () => {
+                synthClick();
+                doBuy(k, lv);
+            });
+            costRow.appendChild(btn);
+            card.appendChild(costRow);
+        } else {
+            const maxd = document.createElement("div");
+            maxd.style.cssText =
+                "text-align:center;font-size:clamp(8px,1.3vh,11px);color:#44cc88;padding:0.2vh 0 0;letter-spacing:1px;font-weight:700;flex-shrink:0;";
+            maxd.textContent = "✓ MAX";
+            card.appendChild(maxd);
+        }
+        cont.appendChild(card);
+    });
+}
+function doBuy(k, lv) {
+    const cost = UDEFS[k].costs[lv];
+    if (sd.money >= cost) {
+        sd.money -= cost;
+        sd.up[k]++;
+        sd.totalShopBuys = (sd.totalShopBuys || 0) + 1;
+        sd.totalSpent = (sd.totalSpent || 0) + cost;
+        save();
+        renderShop();
+        checkAch("shop");
+    } else {
+        document.getElementById("shDesc").textContent =
+            t("notEnough");
+        document.getElementById("shDesc").style.color = "#ff4444";
+        setTimeout(() => {
+            document.getElementById("shDesc").style.color = "";
+        }, 900);
+    }
+}
+
+// ══════════════════════════════════════════
+//  LEADERBOARD
+// ══════════════════════════════════════════
+async function openLB() {
+    gs = "lb";
+    show("lbDiv");
+    document.getElementById("lbRows").innerHTML =
+        `<div class="lb-empty">${t("loading")}</div>`;
+    const rows = window.fbTop ? await window.fbTop() : [];
+    if (!rows.length) {
+        document.getElementById("lbRows").innerHTML =
+            `<div class="lb-empty">${t("noScores")}</div>`;
+        return;
+    }
+    const medals = ["🥇", "🥈", "🥉"];
+    document.getElementById("lbRows").innerHTML = rows
+        .map(
+            (r, i) =>
+                `<div class="lb-row${r.name === sd.name ? " lb-me" : ""}"><span class="lb-rank">${medals[i] || "#" + (i + 1)}</span><span class="lb-name">${esc(r.name || "???")}</span><span class="lb-score">${r.score}m</span></div>`,
+        )
+        .join("");
+}
+function closeLB() {
+    hide("lbDiv");
+    gs = "start";
+    cgShowBanner();
+    frame = 0;
+}
+window.closeLB = closeLB;
+
+// ══════════════════════════════════════════
+//  OPTIONS
+// ══════════════════════════════════════════
+let optFromPause = false;
+function openOptions(fromPause = false) {
+    optFromPause = !!fromPause;
+    gs = "options";
+    document.getElementById("optName").value = sd.name || "";
+    document.getElementById("optSound").textContent = sd.sound
+        ? "ON"
+        : "OFF";
+    document.getElementById("optMusic").textContent = sd.music
+        ? "ON"
+        : "OFF";
+    document.getElementById("optVib").textContent = sd.vibration
+        ? "ON"
+        : "OFF";
+    document.getElementById("optLang").textContent = (
+        sd.lang || "fr"
+    ).toUpperCase();
+    document.getElementById("optTitle").textContent =
+        "⚙ " + t("options");
+    applyLang();
+    show("optDiv");
+    if (optFromPause) hide("pauseDiv");
+}
+window.openOptions = openOptions;
+function closeOptions() {
+    hide("optDiv");
+    if (optFromPause) {
+        gs = "paused";
+        show("pauseDiv");
+    } else {
+        gs = "start";
+        cgShowBanner();
+        frame = 0;
+    }
+}
+window.closeOptions = closeOptions;
+window.toggleOpt = function (k) {
+    sd[k] = !sd[k];
+    if (k === "music") {
+        if (!sd.music) stopAllMusic();
+        else if (gs === "flying" || optFromPause) playGameMusic(); else playMenuMusic();
+    }
+    const ids = { sound: "optSound", music: "optMusic", vibration: "optVib" };
+    if (ids[k])
+        document.getElementById(ids[k]).textContent = sd[k] ? "ON" : "OFF";
+    save();
+};
+window.toggleLang = function () {
+    const next = sd.lang === "fr" ? "en" : "fr";
+    sd.lang = next;
+    document.getElementById("optLang").textContent =
+        next.toUpperCase();
+    document.getElementById("optTitle").textContent =
+        "⚙ " + t("options");
+    applyLang();
+};
+window.saveOptions = function () {
+    const n = (
+        document.getElementById("optName").value.trim() ||
+        sd.name ||
+        "PLAYER"
+    )
+        .toUpperCase()
+        .slice(0, 12);
+    sd.name = n;
+    save();
+    closeOptions();
+};
+
+// ══════════════════════════════════════════
+//  NAME SETUP (HTML modal)
+// ══════════════════════════════════════════
+function showNameSetup() {
+    nameSetupActive = true;
+    let modal = document.getElementById("nsModal");
+    if (!modal) {
+        modal = document.createElement("div");
+        modal.id = "nsModal";
+        modal.className = "ov";
+        modal.style.cssText =
+            "background:rgba(0,0,0,.88);z-index:20;";
+        modal.innerHTML = `<div style="background:linear-gradient(180deg,#0d1a30,#060e1e);border:2px solid #2244aa;border-radius:10px;padding:28px;width:min(320px,88vw);text-align:center;"><div id="nsT" style="font-size:clamp(14px,2.5vh,20px);font-weight:700;color:#88ccff;margin-bottom:6px;"></div><div id="nsS" style="font-size:clamp(9px,2.2vw,11px);color:#446;margin-bottom:18px;"></div><input id="nsI" maxlength="12" autocomplete="off" style="font-family:monospace;font-size:clamp(14px,3.8vw,19px);padding:10px 14px;border:2px solid #3366cc;border-radius:4px;background:#05101f;color:#fff;width:100%;margin-bottom:16px;text-align:center;letter-spacing:3px;"/><button id="nsB" style="font-family:monospace;font-size:clamp(10px,2.8vw,14px);padding:10px 0;width:100%;border:none;border-radius:4px;background:linear-gradient(135deg,#2255cc,#0033aa);color:#fff;cursor:pointer;letter-spacing:1px;"></button></div>`;
+        document.body.appendChild(modal);
+    }
+    document.getElementById("nsT").textContent = t("namePrompt");
+    document.getElementById("nsS").textContent = t("nameSub");
+    document.getElementById("nsB").textContent = t("nameBtn");
+    document.getElementById("nsI").value = sd.name || "";
+    document.getElementById("nsB").onclick = () => {
+        const n = (
+            document.getElementById("nsI").value.trim() || "PLAYER"
+        )
+            .toUpperCase()
+            .slice(0, 12);
+        sd.name = n;
+        const _firstTime = !sd.setupDone;
+        sd.setupDone = true;
+        save();
+        modal.classList.add("off");
+        nameSetupActive = false;
+        if (_firstTime) {
+            gs = "tutorial";
+        } else {
+            gs = "start";
+            cgShowBanner();
+        }
+    };
+    modal.classList.remove("off");
+    setTimeout(() => {
+        const inp = document.getElementById("nsI");
+        inp.focus();
+        // Valider avec Entrée
+        inp.onkeydown = (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                document.getElementById("nsB").click();
+            }
+        };
+    }, 120);
+}
+
+// ══════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════
+function show(id) {
+    document.getElementById(id).classList.remove("off");
+}
+function hide(id) {
+    document.getElementById(id).classList.add("off");
+}
+function esc(s) {
+    return s.replace(
+        /[&<>"]/g,
+        (c) =>
+            ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+            })[c],
+    );
+}
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function (
+        x,
+        y,
+        w,
+        h,
+        r,
+    ) {
+        this.beginPath();
+        this.moveTo(x + r, y);
+        this.lineTo(x + w - r, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r);
+        this.lineTo(x + w, y + h - r);
+        this.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        this.lineTo(x + r, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r);
+        this.lineTo(x, y + r);
+        this.quadraticCurveTo(x, y, x + r, y);
+        this.closePath();
+    };
+}
+
+// ══════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════
+// ══════════════════════════════════════════
+//  CRAZYGAMES SDK
+// ══════════════════════════════════════════
+const _cg = () => window.CrazyGames && window.CrazyGames.SDK;
+
+// -- Bannière -----------------------------------------
+let _bannerShown = false;
+function cgShowBanner() {
+    playMenuMusic();
+    const sdk = _cg();
+    if (!sdk) return;
+    const wrap = document.getElementById('cg-banner-wrap');
+    if (wrap) wrap.style.display = 'flex';
+    if (!_bannerShown) {
+        sdk.banner.requestBanner({ id: 'cg-banner', width: 320, height: 50 })
+            .catch(() => {});
+        _bannerShown = true;
+    }
+}
+function cgHideBanner() {
+    const sdk = _cg();
+    if (sdk) sdk.banner.clearBanner('cg-banner').catch(() => {});
+    const wrap = document.getElementById('cg-banner-wrap');
+    if (wrap) wrap.style.display = 'none';
+    _bannerShown = false;
+}
+
+// -- Gameplay events ----------------------------------
+function cgGameplayStart() {
+    const sdk = _cg(); if (sdk) sdk.game.gameplayStart();
+}
+function cgGameplayStop() {
+    const sdk = _cg(); if (sdk) sdk.game.gameplayStop();
+}
+
+// -- Vidéo midgame ------------------------------------
+// onDone() appelé dans tous les cas (fin d'ad ou erreur)
+function cgMidgameAd(onDone) {
+    const sdk = _cg();
+    if (!sdk) { onDone(); return; }
+    // Pause loop + mute audio
+    if (animId) { cancelAnimationFrame(animId); animId = null; }
+    if (_actx && _actx.state === 'running') _actx.suspend();
+    const callbacks = {
+        adStarted:  () => {},
+        adFinished: () => { _adResume(onDone); },
+        adError:    () => { _adResume(onDone); },
+    };
+    sdk.ad.requestAd('midgame', callbacks);
+}
+function _adResume(onDone) {
+    if (_actx && _actx.state === 'suspended') _actx.resume();
+    onDone();
+}
+
+// ══════════════════════════════════════════
+//  MUSIQUE DE FOND
+// ══════════════════════════════════════════
+const _bgmMenu = document.getElementById('bgm-menu');
+const _bgmGame = document.getElementById('bgm-game');
+
+function _bgmVolume(el, vol) {
+    if (el) el.volume = vol;
+}
+function stopAllMusic() {
+    [_bgmMenu, _bgmGame].forEach(el => {
+        if (!el) return;
+        el.pause();
+        el.currentTime = 0;
+    });
+}
+function playMenuMusic() {
+    if (!sd.music) { stopAllMusic(); return; }
+    // Stopper la musique de jeu complètement (reset)
+    if (_bgmGame) { _bgmGame.pause(); _bgmGame.currentTime = 0; }
+    // Jouer la musique menu si elle n'est pas déjà en lecture
+    if (_bgmMenu && _bgmMenu.paused) {
+        _bgmVolume(_bgmMenu, 0.55);
+        _bgmMenu.play().catch(() => {});
+    }
+}
+function playGameMusic() {
+    if (!sd.music) { stopAllMusic(); return; }
+    // Stopper la musique menu complètement (reset)
+    if (_bgmMenu) { _bgmMenu.pause(); _bgmMenu.currentTime = 0; }
+    // Jouer la musique de jeu si elle n'est pas déjà en lecture
+    if (_bgmGame && _bgmGame.paused) {
+        _bgmVolume(_bgmGame, 0.5);
+        _bgmGame.play().catch(() => {});
+    }
+}
+function pauseMusic() {
+    [_bgmMenu, _bgmGame].forEach(el => { if (el) el.pause(); });
+}
+function resumeMusic() {
+    if (!sd.music) return;
+    // Reprendre la piste correspondant à l'état actuel
+    if (gs === 'flying') {
+        _bgmGame && _bgmGame.play().catch(() => {});
+    } else {
+        _bgmMenu && _bgmMenu.play().catch(() => {});
+    }
+}
+
+function _gameReady() {
+    initBg();
+    CANNON.active = false;
+    CANNON.show = true;
+    CANNON.angle = -Math.PI * 0.35;
+    CANNON.dir = 1;
+    gs = "tapContinue";
+    animId = requestAnimationFrame(loop);
+}
+_loadAndStart();

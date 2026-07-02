@@ -10913,6 +10913,8 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
                 state.paused = true;
                 const lang = settings.lang || "en";
 
+                crazySDK.happytime();
+
                 // Bloquer uniquement les touches qui pourraient fermer l'écran (Echap, P)
                 const _blockEsc = (e) => {
                     if (e.code === "Escape" || e.code === "KeyP") {

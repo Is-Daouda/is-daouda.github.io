@@ -12305,12 +12305,12 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
                             }
                             state.runLevelDeaths = 0;
                             // Show upgrade screen before next level
-                            showAd(() => {
+                            //showAd(() => {
                                 // 3. Interstitiel entre les niveaux
                                 showUpgradeMenu(() =>
                                     startLevel(state.level + 1),
                                 );
-                            });
+                            //});
                         } else {
                             state.phase = "win";
                             // Débloquer le mode Survie
@@ -12493,12 +12493,12 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
                             audio.stopMusic();
                             audio.sfx.victory();
                             crazySDK.happytime();
-                            showAd(() => {
+                            //showAd(() => {
                                 // 2. Interstitiel Victoire
                                 _showPauseBtn(false);
                                 _showTouchLayer(false);
                                 hud.renderWin(state);
-                            });
+                            //});
                         }
                     }
                 }

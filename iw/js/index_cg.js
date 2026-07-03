@@ -11394,7 +11394,7 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
             let _fullscreenDone = false;
 
             function _requestFullscreen() {
-                if (_fullscreenDone) return;
+                /*if (_fullscreenDone) return;
                 try {
                     const el = document.documentElement;
                     const req =
@@ -11411,6 +11411,7 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
                         _fullscreenDone = true;
                     }
                 } catch (e) {}
+                 */
             }
 
             // Re-attempt fullscreen on first user gesture (browser may block first try)

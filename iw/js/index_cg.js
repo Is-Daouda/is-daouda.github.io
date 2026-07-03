@@ -11394,7 +11394,6 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
             let _fullscreenDone = false;
 
             function _requestFullscreen() {
-                /*
                 if (_fullscreenDone) return;
                 try {
                     const el = document.documentElement;
@@ -11412,13 +11411,12 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
                         _fullscreenDone = true;
                     }
                 } catch (e) {}
-                 */
             }
 
             // Re-attempt fullscreen on first user gesture (browser may block first try)
             function _fsOnGesture() {
                 if (_fullscreenDone) return;
-                _requestFullscreen();
+                //_requestFullscreen();
             }
             document.addEventListener("pointerdown", _fsOnGesture, {
                 once: true,
@@ -11431,7 +11429,7 @@ Promise.all([idb.preload(), crazySDKInit]).then(() => {
 
             function _showSplash(onDone) {
                 // Request fullscreen on first user gesture
-                _requestFullscreen();
+                //_requestFullscreen();
 
                 // Play the logo sound
                 const snd = new Audio(SOUND_SRC);

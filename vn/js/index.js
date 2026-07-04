@@ -7111,6 +7111,37 @@ window.addEventListener("wheel", (event) => event.preventDefault(), {
 	passive: false,
 });
 
+// -- Pause automatique quand la page perd le focus ----
+// (onglet changé, fenêtre/appli en arrière-plan, etc.)
+// Exigé par GamePix : "the game must pause (including audio)".
+let _focusSuspended = false;
+function _pauseForFocusLoss() {
+	if (_focusSuspended) return;
+	_focusSuspended = true;
+	if (gs === "flying") {
+		// Réutilise le menu pause existant (audio + boucle figés)
+		pauseGame();
+	} else {
+		// Autres écrans : on coupe juste le son
+		stopJetSFX();
+		pauseMusic();
+		if (_actx && _actx.state === "running") _actx.suspend();
+	}
+}
+function _resumeAfterFocusGain() {
+	if (!_focusSuspended) return;
+	_focusSuspended = false;
+	if (gs === "paused") return; // reprise manuelle requise
+	if (_actx && _actx.state === "suspended") _actx.resume();
+	resumeMusic();
+}
+document.addEventListener("visibilitychange", () => {
+	if (document.hidden) _pauseForFocusLoss();
+	else _resumeAfterFocusGain();
+});
+window.addEventListener("blur", _pauseForFocusLoss);
+window.addEventListener("focus", _resumeAfterFocusGain);
+
 // ══════════════════════════════════════════
 //  MUSIQUE DE FOND
 // ══════════════════════════════════════════

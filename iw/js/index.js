@@ -10415,7 +10415,7 @@ idb.preload().then(() => {
 
 			// ── Publicité interstitielle ───────────────────────────────────────
 			function showAd() {
-				if (window.GamePix) {
+				try {
 					GamePix.interstitialAd().then(function (res) {
 						if (res.success) {
 							// Log the success if you want
@@ -10423,7 +10423,7 @@ idb.preload().then(() => {
 							// Log the error if you want
 						}
 					});
-				}
+				} catch (e) {}
 			}
 
 			window.addEventListener("load", function () {

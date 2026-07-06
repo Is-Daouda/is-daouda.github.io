@@ -1,14 +1,14 @@
 function showAd()
 {
-	if (window.GamePix) {
-		window.GamePix.interstitialAd().then(function (res) {
+	try {
+		GamePix.interstitialAd().then(function (res) {
 			if (res.success) {
-			  // Log the success if you want
+				// Log the success if you want
 			} else {
-			  // Log the error if you want
+				// Log the error if you want
 			}
-		  });
-	}
+		});
+	} catch (e) {}
 }
 
 window.addEventListener("load", function() {

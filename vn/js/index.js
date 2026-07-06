@@ -6612,6 +6612,8 @@ function offerContinue() {
 		btn.querySelector("span").textContent = t("continueAd");
 	}
 	show("continueDiv");
+
+	document.getElementById("resultBtn").textContent = t("continueSkip");
 }
 function requestContinueAd() {
 	runContinueUsed = true; // une seule offre par run, qu'elle aboutisse ou non
@@ -6666,6 +6668,7 @@ function pauseGame() {
 	show("pauseDiv");
 	document.getElementById("pauseResume").textContent =
 		t("resume");
+	document.getElementById("pauseQuit").textContent = t("quit");
 }
 window.resumeGame = function () {
 	if (gs !== "paused") return;

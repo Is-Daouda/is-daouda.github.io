@@ -1,3 +1,4 @@
+
 window.addEventListener("load", function() {
 	window.focus();
 	document.body.addEventListener("click", function(e) {

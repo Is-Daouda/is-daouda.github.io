@@ -5441,7 +5441,7 @@ function drawTapContinue() {
 	ctx.shadowBlur = 0;
 	ctx.font = `${p(18)}px monospace`;
 	ctx.fillText(
-		"👆",
+		"👆🏾",
 		W / 2,
 		by + ph + p(22) + Math.sin(frame * 0.1) * p(5),
 	);

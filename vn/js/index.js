@@ -210,7 +210,7 @@ const L = {
 	},
 };
 function t(k) {
-	return (L[sd.lang || "fr"] || L.fr)[k] || k;
+	return (L[sd.lang || "en"] || L.fr)[k] || k;
 }
 function applyLang() {
 	document.querySelectorAll("[data-k]").forEach((el) => {
@@ -1674,7 +1674,7 @@ let runContinueUsed = false;
 let toastQueue = [];
 let toastTimer = 0;
 function showToast(ach) {
-	const lang = sd.lang || "fr";
+	const lang = sd.lang || "en";
 	document.getElementById("toastIcon").textContent = ach[1];
 	document.getElementById("toastName").textContent =
 		lang === "en" ? ach[3] : ach[2];
@@ -1789,7 +1789,7 @@ function checkBadges() {
 function openAch() {
 	gs = "ach";
 	show("achDiv");
-	const lang = sd.lang || "fr";
+	const lang = sd.lang || "en";
 	document.getElementById("achStats").textContent =
 		sd.ach.length +
 		" " +
@@ -1840,7 +1840,7 @@ window.closeAch = function () {
 function openBdg() {
 	gs = "bdg";
 	show("bdgDiv");
-	const lang = sd.lang || "fr";
+	const lang = sd.lang || "en";
 	document.getElementById("bdgStats").textContent =
 		sd.bdg.length +
 		" " +
@@ -2392,7 +2392,7 @@ const TUT_PAGES_EN = [
 ];
 
 function getTutPages() {
-	return (sd.lang || "fr") === "en" ? TUT_PAGES_EN : TUT_PAGES_FR;
+	return (sd.lang || "en") === "en" ? TUT_PAGES_EN : TUT_PAGES_FR;
 }
 
 function openTutorial() {
@@ -2874,7 +2874,7 @@ function checkDailyChallenges() {
 			sd.money += ch.reward;
 			sd.totalCoins = (sd.totalCoins || 0) + ch.reward;
 			sd.dcTotalDone = (sd.dcTotalDone || 0) + 1;
-			const lang = sd.lang || "fr";
+			const lang = sd.lang || "en";
 			const _dt = sd.dcTotalDone;
 			const _ns = ROBOT_SKINS.find(s => s.req === _dt);
 			if (_ns) queueToast({0:"🎨",1:"🎨",2:"SKIN DÉBLOQUÉ !",3:"SKIN UNLOCKED!",4:(lang==="fr"?_ns.fr:_ns.en),5:"Sélectionne dans Défis"});
@@ -2896,7 +2896,7 @@ function checkDailyChallenges() {
 function openDC() {
 	gs = "dc";
 	show("dcDiv");
-	const lang = sd.lang || "fr";
+	const lang = sd.lang || "en";
 	const chs = getDailyChallenges();
 	const key = getDailyKey();
 	const done = (sd.dcDone && sd.dcDone[key]) || [];
@@ -2915,7 +2915,7 @@ function openDC() {
 	// ── Sélecteur cosmétiques ──────────────────────────────────
 	const totalDone = sd.dcTotalDone || 0;
 	const cosmEl = document.getElementById("dcCosm");
-	cosmEl.innerHTML = `<div class="dc-section-hdr">🎨 COSMÉTIQUES — ${totalDone} défis complétés</div>`;
+	cosmEl.innerHTML = `<div class="dc-section-hdr">🎨 ${lang === "en" ? "COSMETICS" : "COSMÉTIQUES"} — ${totalDone} ${lang === "en" ? "challenges completed" : "défis complétés"}</div>`;
 	const skinDiv = document.createElement("div");
 	skinDiv.innerHTML = `<div style="font-size:9px;color:#88aacc;margin:6px 0 3px">${lang==="fr"?"SKINS ROBOT :":"ROBOT SKINS:"}</div>`;
 	ROBOT_SKINS.forEach(sk => {
@@ -3198,7 +3198,7 @@ const COMBO_WINDOW = 170; // frames to maintain combo
 const COMBO_MULT = [1, 1, 1.5, 2, 2.5, 3, 4, 5]; // index = combo count capped at 7
 
 // Setup flow
-let setupLang = "fr";
+let setupLang = "en";
 let nameSetupActive = false;
 
 // ══════════════════════════════════════════
@@ -6713,7 +6713,7 @@ function renderShop() {
 	document.getElementById("shDesc").textContent = "";
 	const cont = document.getElementById("upgCont");
 	cont.innerHTML = "";
-	const lang = sd.lang || "fr";
+	const lang = sd.lang || "en";
 	Object.entries(UDEFS).forEach(([k, u]) => {
 		const lv = sd.up[k];
 		const maxLv = u.costs.length;
@@ -6854,7 +6854,7 @@ function openOptions(fromPause = false) {
 		? "ON"
 		: "OFF";
 	document.getElementById("optLang").textContent = (
-		sd.lang || "fr"
+		sd.lang || "en"
 	).toUpperCase();
 	document.getElementById("optTitle").textContent =
 		"⚙ " + t("options");
@@ -7043,6 +7043,8 @@ function gpxMidgameAd(onDone) {
 	}
 	// Pause boucle + audio AVANT l'appel (obligatoire selon la doc)
 	if (animId) { cancelAnimationFrame(animId); animId = null; }
+	jetOn = false;
+	stopJetSFX();
 	if (_actx && _actx.state === 'running') _actx.suspend();
 	pauseMusic();
 	_interstitialInFlight = true;
@@ -7071,6 +7073,8 @@ function gpxRewardAd(onReward, onNoReward) {
 		return;
 	}
 	if (animId) { cancelAnimationFrame(animId); animId = null; }
+	jetOn = false;
+	stopJetSFX();
 	if (_actx && _actx.state === 'running') _actx.suspend();
 	pauseMusic();
 	sdk.rewardAd().then((res) => {

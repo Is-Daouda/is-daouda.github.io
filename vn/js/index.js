@@ -6561,6 +6561,7 @@ function launchRobot() {
 	jetFuel = maxFuel;
 	jetOn = false;
 	nextMeteorWX = camX + W + p(400);
+	resumeMusic();
 	playsfx("launch", { vol: 0.9 });
 }
 function endGame() {
@@ -7141,7 +7142,7 @@ function _resumeAfterFocusGain() {
 	_focusSuspended = false;
 	if (gs === "paused") return; // reprise manuelle requise
 	if (_actx && _actx.state === "suspended") _actx.resume();
-	resumeMusic();
+	//resumeMusic();
 }
 document.addEventListener("visibilitychange", () => {
 	if (document.hidden) _pauseForFocusLoss();

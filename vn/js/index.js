@@ -1,4 +1,3 @@
-
 window.addEventListener("load", function() {
 	window.focus();
 	document.body.addEventListener("click", function(e) {
@@ -64,13 +63,13 @@ function save() {
 function _loadAndStart() {
 	_openIDB().then(db => new Promise((res, rej) => {
 		const req = db.transaction(IDB_STORE,"readonly")
-					  .objectStore(IDB_STORE).get(IDB_KEY);
+						.objectStore(IDB_STORE).get(IDB_KEY);
 		req.onsuccess = () => res(req.result);
 		req.onerror   = () => rej(req.error);
 	})).then(saved => {
 		if (saved) sd = Object.assign({}, DEF, saved);
 	}).catch(e => console.warn("load:", e))
-	  .finally(() => _gameReady());
+		.finally(() => _gameReady());
 }
 
 // ══════════════════════════════════════════
@@ -142,6 +141,7 @@ const L = {
 		continueSkip: "Voir les résultats",
 		continueSearching: "Recherche d'une pub…",
 		continueNone: "Pas de pub disponible",
+		flyHint: "👆🏾 TOUCHE L'ÉCRAN OU ESPACE POUR VOLER",
 	},
 	en: {
 		play: "► PLAY",
@@ -208,6 +208,7 @@ const L = {
 		continueSkip: "See results",
 		continueSearching: "Looking for an ad…",
 		continueNone: "No ad available",
+		flyHint: "👆🏾 TAP THE SCREEN OR PRESS SPACE TO FLY",
 	},
 };
 function t(k) {
@@ -2846,6 +2847,7 @@ function getDailyChallenges() {
 let gamesPlayedToday = 0;
 let runDistNoJet = 0; // longest stretch without jetpack in current run
 let jetWasOn = false;
+let flyHintFrames = 0; // affiche le message "touche l'écran / espace" au lancement
 let runMaxDistNoJet = 0,
 	distNoJetStart = 0;
 
@@ -4238,8 +4240,8 @@ function addCombo(wx, wy) {
 			combo >= 5
 				? "#ff4400"
 				: combo >= 3
-				  ? "#ffaa00"
-				  : "#ffe000";
+					? "#ffaa00"
+					: "#ffe000";
 		addFloat(
 			wx,
 			wy - p(16),
@@ -5208,6 +5210,44 @@ function drawHUD() {
 	drawComboHUD();
 }
 
+// ── Message "touche l'écran / espace pour voler" au lancement ──
+function drawFlyHint() {
+	const txt = t("flyHint");
+	const y = H * 0.32;
+	// Pulsation douce (respiration) via un cosinus sur le temps
+	const pulse = 0.75 + 0.25 * Math.sin(frame * 0.12);
+	ctx.save();
+	ctx.globalAlpha =
+		flyHintFrames < 20 ? flyHintFrames / 20 : 1; // fondu de sortie
+	ctx.font = `bold ${p(12)}px monospace`;
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	const tw = ctx.measureText(txt).width;
+	const padX = p(14),
+		padY = p(9);
+	const boxH = p(12) + padY * 2; // symétrique autour de y
+	ctx.fillStyle = "rgba(0,0,0,.55)";
+	ctx.beginPath();
+	ctx.roundRect(
+		W / 2 - tw / 2 - padX,
+		y - boxH / 2,
+		tw + padX * 2,
+		boxH,
+		p(6),
+	);
+	ctx.fill();
+	ctx.strokeStyle = `rgba(120,200,255,${0.5 * pulse + 0.3})`;
+	ctx.lineWidth = p(1.5);
+	ctx.stroke();
+	ctx.shadowColor = `rgba(150,220,255,${pulse})`;
+	ctx.shadowBlur = p(10) * pulse;
+	ctx.fillStyle = "#eaffff";
+	ctx.fillText(txt, W / 2, y);
+	ctx.shadowBlur = 0;
+	ctx.textBaseline = "alphabetic";
+	ctx.restore();
+}
+
 // ══════════════════════════════════════════
 //  MILESTONE CELEBRATION
 // ══════════════════════════════════════════
@@ -5539,9 +5579,9 @@ function _smGeom() {
 	const hcH    = ip(34);
 	const THIRD  = (BTNW - HALFGAP * 2) / 3;
 	return { hcUnlocked, pw, ph, bx, by, PAD, BTNW,
-			 HALFGAP, HALFW, GAP, ip, psc,
-			 R1Y,R1H,R2Y,R2H,R3Y,R3H,R4Y,R4H,R5Y,R5H,
-			 hcBtnY, hcH, THIRD };
+				HALFGAP, HALFW, GAP, ip, psc,
+				R1Y,R1H,R2Y,R2H,R3Y,R3H,R4Y,R4H,R5Y,R5H,
+				hcBtnY, hcH, THIRD };
 }
 
 function drawStartScreen() {
@@ -5878,8 +5918,8 @@ function drawResults() {
 			comboMax >= 5
 				? "#ff4400"
 				: comboMax >= 3
-				  ? "#ffaa00"
-				  : "#ffe000";
+					? "#ffaa00"
+					: "#ffe000";
 		ctx.font = `bold ${p(8.5)}px monospace`;
 		ctx.textAlign = "center";
 		ctx.fillText(
@@ -6165,6 +6205,13 @@ function loop() {
 					if (deadTimer <= 0) {
 						if (!runContinueUsed) offerContinue();
 						else endGame();
+					}
+				}
+				if (gs === "flying" && flyHintFrames > 0) {
+					if (jetOn) flyHintFrames = 0; // le joueur a compris, on efface
+					else {
+						flyHintFrames--;
+						drawFlyHint();
 					}
 				}
 				CANNON.draw();
@@ -6553,6 +6600,7 @@ function launchRobot() {
 	CANNON.active = false;
 	CANNON.show = false;
 	robot = makeRobot();
+	flyHintFrames = 130; // ~2s, s'efface dès la première pression
 	// Canon au max → vitesse horizontale maximale dès le lancement
 	if (sd.up.cannon >= 4) {
 		robot.vx = uv("cannon") * SC;
@@ -6732,8 +6780,8 @@ function renderShop() {
 		const nextTip = isMax
 			? null
 			: lang === "en"
-			  ? u.tips_en[lv]
-			  : u.tips_fr[lv];
+				? u.tips_en[lv]
+				: u.tips_fr[lv];
 		hdr.innerHTML = `<div class="upg-card-icon">${u.icon}</div><div class="upg-card-info"><div class="upg-card-name">${t(k)}</div><div class="upg-card-sub">${lang === "en" ? u.desc_en : u.desc_fr}</div></div>`;
 		card.appendChild(hdr);
 		// Level bar
@@ -6746,8 +6794,8 @@ function renderShop() {
 				(i < lv
 					? " filled"
 					: i === lv && !isMax
-					  ? " next-buy"
-					  : "");
+						? " next-buy"
+						: "");
 			if (i === lv && !isMax) {
 				seg.title =
 					(lang === "en" ? u.tips_en[i] : u.tips_fr[i]) +
@@ -7142,7 +7190,6 @@ function _resumeAfterFocusGain() {
 	_focusSuspended = false;
 	if (gs === "paused") return; // reprise manuelle requise
 	if (_actx && _actx.state === "suspended") _actx.resume();
-	//resumeMusic();
 }
 document.addEventListener("visibilitychange", () => {
 	if (document.hidden) _pauseForFocusLoss();

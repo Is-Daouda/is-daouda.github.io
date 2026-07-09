@@ -1953,7 +1953,7 @@ const TUT_PAGES_FR = [
 			"Maintiens appuyé / touche pour activer",
 			"Le robot monte et accélère légèrement",
 			"La jauge orange en bas = carburant",
-			"Les ennemis drainent 50% du carburant",
+			"Les ennemis drainent 30% du carburant",
 		],
 		draw(cx, cy, sc) {
 			// Robot with jetpack flames
@@ -2358,7 +2358,7 @@ const TUT_PAGES_EN = [
 			"Hold tap/space to activate",
 			"Robot rises and accelerates slightly",
 			"Orange bar at bottom = fuel",
-			"Enemy hit = lose 50% fuel",
+			"Enemy hit = lose 25% fuel",
 		],
 		draw: TUT_PAGES_FR[1].draw,
 	},

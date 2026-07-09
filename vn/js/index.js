@@ -1,3 +1,4 @@
+
 window.addEventListener("load", function() {
 	window.focus();
 	document.body.addEventListener("click", function(e) {
@@ -6655,6 +6656,13 @@ function endGame() {
 // ── Offre de continuation (1x par run, via pub récompensée) ──
 function offerContinue() {
 	gs = "continueOffer";
+	// Coupe le son dès l'apparition du popup (pas seulement au clic) :
+	// sinon la musique de vol continue tant que le joueur hésite,
+	// et parfois jusque dans la pub elle-même.
+	jetOn = false;
+	stopJetSFX();
+	pauseMusic();
+	if (_actx && _actx.state === "running") _actx.suspend();
 	const btn = document.getElementById("continueAdBtn");
 	if (btn) {
 		btn.disabled = false;
@@ -6662,7 +6670,9 @@ function offerContinue() {
 	}
 	show("continueDiv");
 
-	document.getElementById("resultBtn").textContent = t("continueSkip");
+	const rBtn = document.getElementById("resultBtn");
+	rBtn.disabled = false;
+	rBtn.textContent = t("continueSkip");
 }
 function requestContinueAd() {
 	runContinueUsed = true; // une seule offre par run, qu'elle aboutisse ou non
@@ -6671,6 +6681,9 @@ function requestContinueAd() {
 		btn.disabled = true;
 		btn.querySelector("span").textContent = t("continueSearching");
 	}
+
+	const rBtn = document.getElementById("resultBtn");
+	if (rBtn) rBtn.disabled = true;
 	gpxRewardAd(
 		() => {
 			hide("continueDiv");

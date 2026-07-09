@@ -2358,7 +2358,7 @@ const TUT_PAGES_EN = [
 			"Hold tap/space to activate",
 			"Robot rises and accelerates slightly",
 			"Orange bar at bottom = fuel",
-			"Enemy hit = lose 25% fuel",
+			"Enemy hit = lose 30% fuel",
 		],
 		draw: TUT_PAGES_FR[1].draw,
 	},

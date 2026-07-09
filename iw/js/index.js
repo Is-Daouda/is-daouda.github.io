@@ -235,9 +235,9 @@ const idb = (() => {
 			iw_tuto_done: "TUTORIEL…",
 			iw_normal_cleared: "PROGRESSION…",
 		};
-		report(5, "OUVERTURE BASE DE DONNÉES…");
+		report(5, "OPENING UP THE DATABASE…");
 		await _open();
-		report(15, "BASE DE DONNÉES PRÊTE");
+		report(15, "DATA BASE READY");
 		for (let i = 0; i < ALL_KEYS.length; i++) {
 			const key = ALL_KEYS[i];
 			let val = await _get(key);
@@ -251,12 +251,12 @@ const idb = (() => {
 			if (val !== null) _cache[key] = val;
 			const pct =
 				15 + Math.round(((i + 1) / ALL_KEYS.length) * 75);
-			report(pct, labels[key] || "CHARGEMENT…");
+			report(pct, labels[key] || "LOADING…");
 		}
 		for (const key of ALL_KEYS) localStorage.removeItem(key);
-		report(95, "FINALISATION…");
+		report(95, "FINALIZATION…");
 		await new Promise((r) => setTimeout(r, 120));
-		report(100, "PRÊT !");
+		report(100, "READY !");
 		await new Promise((r) => setTimeout(r, 220));
 		_ready = true;
 	}

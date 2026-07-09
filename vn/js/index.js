@@ -4197,8 +4197,8 @@ function makeRobot() {
 				synthEnemyHit();
 				return;
 			}
-			// Drain 50% jetpack + slow down
-			jetFuel = Math.max(0, jetFuel - maxFuel * 0.5);
+			// Drain 30% jetpack + slow down
+			jetFuel = Math.max(0, jetFuel - maxFuel * 0.3);
 			this.vx *= 0.65; // ralentissement moins brutal
 			this.hitCooldown = 120; // 2.0s @60fps
 			shakeIntensity = p(8);

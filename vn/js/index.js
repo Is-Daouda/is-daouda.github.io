@@ -143,6 +143,7 @@ const L = {
 		continueSearching: "Recherche d'une pub…",
 		continueNone: "Pas de pub disponible",
 		flyHint: "👆🏾 TOUCHE L'ÉCRAN OU ESPACE POUR VOLER",
+		orbHint: "⚡ COLLECTE LES ORBES BLEUES POUR RECHARGER TON CARBURANT",
 	},
 	en: {
 		play: "► PLAY",
@@ -210,6 +211,7 @@ const L = {
 		continueSearching: "Looking for an ad…",
 		continueNone: "No ad available",
 		flyHint: "👆🏾 TAP THE SCREEN OR PRESS SPACE TO FLY",
+		orbHint: "⚡ COLLECT THE BLUE ORBS TO RECHARGE YOUR FUEL",
 	},
 };
 function t(k) {
@@ -2849,6 +2851,8 @@ let gamesPlayedToday = 0;
 let runDistNoJet = 0; // longest stretch without jetpack in current run
 let jetWasOn = false;
 let flyHintFrames = 0; // affiche le message "touche l'écran / espace" au lancement
+let orbHintFrames = 0; // affiche le message "collecte les orbes bleues" ensuite
+let orbHintPending = false;
 let runMaxDistNoJet = 0,
 	distNoJetStart = 0;
 
@@ -5249,6 +5253,43 @@ function drawFlyHint() {
 	ctx.restore();
 }
 
+// ── Message "collecte les orbes bleues pour recharger" ──
+function drawOrbHint() {
+	const txt = t("orbHint");
+	const y = H * 0.32;
+	const pulse = 0.75 + 0.25 * Math.sin(frame * 0.15);
+	ctx.save();
+	ctx.globalAlpha =
+		orbHintFrames < 25 ? orbHintFrames / 25 : Math.min(1, (150 - orbHintFrames) / 20);
+	ctx.font = `bold ${p(12)}px monospace`;
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	const tw = ctx.measureText(txt).width;
+	const padX = p(14),
+		padY = p(9);
+	const boxH = p(12) + padY * 2; // symétrique autour de y
+	ctx.fillStyle = "rgba(0,0,0,.55)";
+	ctx.beginPath();
+	ctx.roundRect(
+		W / 2 - tw / 2 - padX,
+		y - boxH / 2,
+		tw + padX * 2,
+		boxH,
+		p(6),
+	);
+	ctx.fill();
+	ctx.strokeStyle = `rgba(80,180,255,${0.55 * pulse + 0.3})`;
+	ctx.lineWidth = p(1.5);
+	ctx.stroke();
+	ctx.shadowColor = `rgba(100,200,255,${pulse})`;
+	ctx.shadowBlur = p(11) * pulse;
+	ctx.fillStyle = "#eaf6ff";
+	ctx.fillText(txt, W / 2, y);
+	ctx.shadowBlur = 0;
+	ctx.textBaseline = "alphabetic";
+	ctx.restore();
+}
+
 // ══════════════════════════════════════════
 //  MILESTONE CELEBRATION
 // ══════════════════════════════════════════
@@ -6214,6 +6255,13 @@ function loop() {
 						flyHintFrames--;
 						drawFlyHint();
 					}
+					if (flyHintFrames === 0 && orbHintPending) {
+						orbHintPending = false;
+						orbHintFrames = 150; // ~2.5s
+					}
+				} else if (gs === "flying" && orbHintFrames > 0) {
+					orbHintFrames--;
+					drawOrbHint();
 				}
 				CANNON.draw();
 				drawHUD();
@@ -6602,6 +6650,8 @@ function launchRobot() {
 	CANNON.show = false;
 	robot = makeRobot();
 	flyHintFrames = 130; // ~2s, s'efface dès la première pression
+	orbHintFrames = 0;
+	orbHintPending = true; // s'affichera juste après le message de vol
 	// Canon au max → vitesse horizontale maximale dès le lancement
 	if (sd.up.cannon >= 4) {
 		robot.vx = uv("cannon") * SC;

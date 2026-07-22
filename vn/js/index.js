@@ -1955,7 +1955,7 @@ const TUT_PAGES_FR = [
 			"Maintiens appuyé / touche pour activer",
 			"Le robot monte et accélère légèrement",
 			"La jauge orange en bas = carburant",
-			"Les ennemis drainent 30% du carburant",
+			"Les ennemis drainent 20% du carburant",
 		],
 		draw(cx, cy, sc) {
 			// Robot with jetpack flames
@@ -2360,7 +2360,7 @@ const TUT_PAGES_EN = [
 			"Hold tap/space to activate",
 			"Robot rises and accelerates slightly",
 			"Orange bar at bottom = fuel",
-			"Enemy hit = lose 30% fuel",
+			"Enemy hit = lose 20% fuel",
 		],
 		draw: TUT_PAGES_FR[1].draw,
 	},
@@ -4201,8 +4201,8 @@ function makeRobot() {
 				synthEnemyHit();
 				return;
 			}
-			// Drain 30% jetpack + slow down
-			jetFuel = Math.max(0, jetFuel - maxFuel * 0.3);
+			// Drain 20% jetpack + slow down
+			jetFuel = Math.max(0, jetFuel - maxFuel * 0.2);
 			this.vx *= 0.65; // ralentissement moins brutal
 			this.hitCooldown = 120; // 2.0s @60fps
 			shakeIntensity = p(8);

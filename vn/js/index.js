@@ -7171,11 +7171,11 @@ function offerContinue() {
 	if (_actx && _actx.state === "running") _actx.suspend();
 	const btn = document.getElementById("continueAdBtn");
 	if (btn) {
-		if (GPX_ENABLED) {
+		if (GPX_ENABLED || BB_ENABLED) {
 			btn.disabled = false;
 			btn.querySelector("span").textContent = t("continueAd");
 		} else {
-			// Pas de SDK GamePix chargé (autre plateforme, ex. itch.io) :
+			// Aucun SDK de pub chargé (autre plateforme, ex. itch.io) :
 			// on remplace la pub par un coût en étoiles.
 			const canAfford = sd.money >= 2000;
 			btn.disabled = !canAfford;
@@ -7195,7 +7195,7 @@ function requestContinueAd() {
 	const btn = document.getElementById("continueAdBtn");
 	const rBtn = document.getElementById("resultBtn");
 
-	if (!GPX_ENABLED) {
+	if (!GPX_ENABLED && !BB_ENABLED) {
 		// Pas de SDK sur cette plateforme : continuation payée en étoiles,
 		// aucun appel réseau/pub, tout se passe en local immédiatement.
 		if (sd.money < 2000) return; // le bouton est normalement déjà désactivé
@@ -7613,41 +7613,65 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
 //  INIT
 // ══════════════════════════════════════════
 // ══════════════════════════════════════════
-//  GAMEPIX SDK (v3 — d'après my.gamepix.com/sdk/doc)
+//  SDK PLATEFORME (GamePix v3 / Bounty Board / aucun)
 // ══════════════════════════════════════════
-// API réelle GamePix : pas de callbacks globaux on.pause/on.resume,
-// pas de bannière pilotable. On appelle nous-mêmes
-// GamePix.interstitialAd() / GamePix.rewardAd(), qui renvoient une
-// Promise ; on met le jeu en pause AVANT l'appel et on le reprend
-// DANS le .then(). GamePix.updateScore/updateLevel servent aux
-// stats/leaderboards de la plateforme, lang() donne la langue du
-// joueur, happyMoment() signale un moment fort, localStorage
-// remplace le localStorage classique (le jeu tourne en iframe).
-// GPX_ENABLED est calculé UNE FOIS au chargement : si la balise
-// <script src=".../gamepix.sdk.js"> n'est pas présente dans le
-// <head> (ex. build pour itch.io ou une autre plateforme), le SDK
-// ne se charge jamais et window.GamePix reste undefined. On fige
-// ce constat ici pour que TOUTES les fonctions gpx* ci-dessous se
-// désactivent proprement, sans avoir à toucher au code par ailleurs.
+// Les fonctions gpx* ci-dessous forment une couche d'abstraction :
+// le reste du jeu les appelle sans jamais savoir laquelle des deux
+// plateformes (ou aucune) est réellement présente. GPX_ENABLED et
+// BB_ENABLED sont calculés UNE FOIS au chargement, d'après la seule
+// balise <script> effectivement incluse dans le <head> (GamePix,
+// Bounty Board, ou ni l'une ni l'autre pour itch.io/site perso).
+// Si aucune n'est présente, tout se dégrade silencieusement — sauf
+// la continuation après un crash, qui bascule automatiquement sur
+// un coût en étoiles (voir offerContinue/requestContinueAd).
+//
+// GamePix : GamePix.interstitialAd()/rewardAd() renvoient une
+// Promise ; on met le jeu en pause AVANT l'appel et on reprend DANS
+// le .then(). updateScore/updateLevel/happyMoment/lang() disponibles.
+//
+// Bounty Board : pas d'interstitiel générique, uniquement des pubs
+// récompensées (rewardedAd), à déclencher SEULEMENT dans la pile
+// d'appel directe d'un clic joueur (sinon erreur
+// 'direct_user_action_required'). gameplayStart/Stop, submitScore
+// + gameOver (une fois par run) font partie de son cycle de vie.
 const GPX_ENABLED = typeof window.GamePix !== "undefined";
+const BB_ENABLED =
+	!GPX_ENABLED && typeof window.BBArcade !== "undefined";
 const _gpx = () => (GPX_ENABLED ? window.GamePix : null);
+const _bb = () => (BB_ENABLED ? window.BBArcade : null);
+
+if (BB_ENABLED) {
+	try {
+		window.BBArcade.init();
+	} catch (e) {} // fire-and-forget, ne bloque jamais le boot
+}
 
 let _interstitialInFlight = false;
+let _rewardInFlight = false;
 
 // -- Écran menu / résultats ----------------------------
-// (pas de bannière côté GamePix, on ne fait que gérer la musique)
+// (pas de bannière pilotable côté SDK, on ne fait que gérer la musique)
 function gpxOnMenu() {
 	playMenuMusic();
 }
 
 // -- Début / fin de partie ------------------------------
-function gpxGameplayStart() {}
-function gpxGameplayStop() {}
+function gpxGameplayStart() {
+	const bb = _bb();
+	if (bb && typeof bb.gameplayStart === "function")
+		bb.gameplayStart();
+}
+function gpxGameplayStop() {
+	const bb = _bb();
+	if (bb && typeof bb.gameplayStop === "function")
+		bb.gameplayStop();
+}
 
-// -- Coupure pub interstitielle -------------------------
+// -- Coupure pub interstitielle (fin de run, non sollicitée) --
 // onDone() appelé dans tous les cas (pub jouée, refusée, erreur,
-// ou SDK absent). GamePix décide lui-même s'il affiche une pub
-// ou non à chaque appel : ce n'est jamais garanti.
+// ou SDK absent/sans interstitiel). Bounty Board n'a pas
+// d'interstitiel générique (rewardedAd uniquement, et seulement sur
+// geste direct du joueur) : onDone() y est donc appelé aussitôt.
 function gpxMidgameAd(onDone) {
 	const sdk = _gpx();
 	if (
@@ -7684,51 +7708,125 @@ function _gpxResume(onDone) {
 	onDone();
 }
 
-// -- Pub récompensée (optionnelle, à brancher sur un futur
-//    bouton "regarder une pub pour un bonus") ------------
+// -- Pub récompensée pour continuer après un crash -------
+// GamePix : GamePix.rewardAd(). Bounty Board : BBArcade.rewardedAd().
+// Doit être appelée directement depuis le clic du joueur (aucun
+// await/timer avant), ce qui est le cas ici (bouton -> requestContinueAd
+// -> gpxRewardAd, sans détour asynchrone).
 function gpxRewardAd(onReward, onNoReward) {
-	const sdk = _gpx();
-	if (!sdk || typeof sdk.rewardAd !== "function") {
-		if (onNoReward) onNoReward();
+	if (GPX_ENABLED) {
+		const sdk = _gpx();
+		if (
+			!sdk ||
+			typeof sdk.rewardAd !== "function" ||
+			_rewardInFlight
+		) {
+			if (onNoReward) onNoReward();
+			return;
+		}
+		if (animId) {
+			cancelAnimationFrame(animId);
+			animId = null;
+		}
+		jetOn = false;
+		stopJetSFX();
+		if (_actx && _actx.state === "running") _actx.suspend();
+		pauseMusic();
+		_rewardInFlight = true;
+		sdk.rewardAd()
+			.then((res) => {
+				_rewardInFlight = false;
+				_gpxResume(() => {
+					if (res && res.success) {
+						if (onReward) onReward();
+					} else if (onNoReward) onNoReward();
+				});
+			})
+			.catch(() => {
+				_rewardInFlight = false;
+				_gpxResume(() => {
+					if (onNoReward) onNoReward();
+				});
+			});
 		return;
 	}
-	if (animId) {
-		cancelAnimationFrame(animId);
-		animId = null;
-	}
-	jetOn = false;
-	stopJetSFX();
-	if (_actx && _actx.state === "running") _actx.suspend();
-	pauseMusic();
-	sdk.rewardAd()
-		.then((res) => {
-			_gpxResume(() => {
-				if (res && res.success) {
-					if (onReward) onReward();
-				} else if (onNoReward) onNoReward();
-			});
+	if (BB_ENABLED) {
+		const bb = _bb();
+		if (
+			!bb ||
+			typeof bb.rewardedAd !== "function" ||
+			_rewardInFlight
+		) {
+			if (onNoReward) onNoReward();
+			return;
+		}
+		_rewardInFlight = true;
+		bb.rewardedAd({
+			placement: "death_revive",
+			reward: "extra_life",
+			onStart: () => {
+				// Bounty Board appelle onStart au moment réel où la pub
+				// démarre : c'est là qu'on coupe boucle + audio.
+				if (animId) {
+					cancelAnimationFrame(animId);
+					animId = null;
+				}
+				jetOn = false;
+				stopJetSFX();
+				if (_actx && _actx.state === "running")
+					_actx.suspend();
+				pauseMusic();
+			},
 		})
-		.catch(() => {
-			_gpxResume(() => {
-				if (onNoReward) onNoReward();
+			.then((result) => {
+				_rewardInFlight = false;
+				_gpxResume(() => {
+					if (result && result.status === "viewed") {
+						if (onReward) onReward();
+					} else if (onNoReward) onNoReward();
+				});
+			})
+			.catch(() => {
+				_rewardInFlight = false;
+				_gpxResume(() => {
+					if (onNoReward) onNoReward();
+				});
 			});
-		});
+		return;
+	}
+	// Aucun SDK : le code appelant (requestContinueAd) bascule sur
+	// la continuation payée en étoiles avant même d'arriver ici.
+	if (onNoReward) onNoReward();
 }
 
 // -- Score / niveau / moments forts ---------------------
+// GamePix : updateScore()/updateLevel() sont des indicateurs "en
+// continu". Bounty Board distingue submitScore() (libre pendant la
+// partie) de gameOver() (exactement une fois par run) : comme cette
+// fonction n'est appelée qu'une fois, en fin de run, on envoie les
+// deux pour bien clôturer l'entrée du classement.
 function gpxUpdateScore(value) {
+	const v = Math.max(0, Math.round(value || 0));
 	const sdk = _gpx();
 	if (sdk && typeof sdk.updateScore === "function") {
-		sdk.updateScore(Math.max(0, Math.round(value || 0)));
+		sdk.updateScore(v);
+		return;
+	}
+	const bb = _bb();
+	if (bb) {
+		if (typeof bb.submitScore === "function") bb.submitScore(v);
+		if (typeof bb.gameOver === "function") bb.gameOver(v);
 	}
 }
 function gpxUpdateLevel(value) {
+	// Pas d'équivalent Bounty Board : uniquement GamePix.
 	const sdk = _gpx();
 	if (sdk && typeof sdk.updateLevel === "function") {
 		sdk.updateLevel(Math.max(0, Math.round(value || 0)));
 	}
 }
 function gpxHappyMoment() {
+	// Pas d'équivalent Bounty Board : uniquement GamePix.
 	const sdk = _gpx();
 	if (sdk && typeof sdk.happyMoment === "function")
 		sdk.happyMoment();
@@ -7849,5 +7947,9 @@ function _gameReady() {
 	CANNON.dir = 1;
 	gs = "tapContinue";
 	animId = requestAnimationFrame(loop);
+	const bb = _bb();
+	if (bb && typeof bb.gameLoadingFinished === "function") {
+		bb.gameLoadingFinished();
+	}
 }
 _loadAndStart();

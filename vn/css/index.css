@@ -1,3 +1,4 @@
+
 * {
 	margin: 0;
 	padding: 0;
@@ -11,7 +12,8 @@ body {
 	background: #000;
 	font-family: "Courier New", monospace;
 }
-canvas {
+/* Canvas principal du jeu uniquement */
+#c {
 	display: block;
 	position: fixed;
 	top: 0;
@@ -19,6 +21,13 @@ canvas {
 	width: 100%;
 	height: 100%;
 	touch-action: none;
+}
+
+/* Les autres canvas : aperçus des skins, cartes, etc. */
+canvas:not(#c) {
+	display: block;
+	max-width: 100%;
+	touch-action: auto;
 }
 .ov {
 	position: fixed;
@@ -334,7 +343,10 @@ canvas {
 	font-family: monospace;
 	transition: opacity 0.15s;
 }
-.cosm-btn:disabled { opacity: 0.35; cursor: default; }
+.cosm-btn:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
 .upg-card {
 	background: rgba(0, 0, 0, 0.4);
 	border: 1.5px solid #1a3a70;
@@ -701,4 +713,217 @@ canvas {
 }
 .gbtn-red:hover {
 	background: #881100;
+}
+
+/* -- SKINS -- */
+.sk-panel {
+	width: min(96vw, 800px);
+	max-height: 94vh;
+	background: linear-gradient(180deg, #0f1c3c, #060d20);
+	border: 2px solid #2f56b8;
+	border-radius: 12px;
+	padding: 1.2vh 14px 1.4vh;
+	display: flex;
+	flex-direction: column;
+	gap: 0.8vh;
+	box-shadow: 0 0 34px rgba(70, 130, 255, 0.35);
+	font-family: monospace;
+	color: #dbe8ff;
+}
+.sk-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+.sk-head .ach-title {
+	margin: 0;
+}
+.sk-money {
+	color: #ffe060;
+	font-weight: 700;
+	font-size: clamp(11px, 2.5vh, 16px);
+	background: rgba(0, 0, 0, 0.35);
+	border: 1px solid #6a5a20;
+	border-radius: 20px;
+	padding: 0.3vh 12px;
+}
+.sk-tabs {
+	display: flex;
+	gap: 6px;
+}
+.sk-tab {
+	flex: 1;
+	font-family: monospace;
+	font-weight: 700;
+	font-size: clamp(9px, 2vh, 12px);
+	padding: 0.7vh 6px;
+	border-radius: 6px;
+	border: 1.5px solid #2a3f78;
+	background: #0a1330;
+	color: #8fb0ee;
+	cursor: pointer;
+}
+.sk-tab.on {
+	background: #1f3f9a;
+	color: #fff;
+	border-color: #6a95ff;
+}
+.sk-body {
+	display: flex;
+	gap: 12px;
+	min-height: 0;
+	flex: 1;
+}
+.sk-left {
+	width: 33%;
+	min-width: 130px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.7vh;
+	background: rgba(5, 10, 30, 0.6);
+	border: 1px solid #20336e;
+	border-radius: 10px;
+	padding: 1vh 8px;
+}
+#skPrev {
+	width: min(100%, clamp(96px, 26vh, 170px));
+	aspect-ratio: 1;
+	background: radial-gradient(circle, #18285a 0%, #0a1230 70%);
+	border-radius: 50%;
+	border: 1px solid #2a4590;
+}
+#skName {
+	font-weight: 700;
+	font-size: clamp(11px, 2.6vh, 16px);
+	color: #fff;
+	text-align: center;
+}
+#skInfo {
+	font-size: clamp(8px, 1.9vh, 11px);
+	color: #a9c0ee;
+	text-align: center;
+	white-space: pre-line;
+	line-height: 1.35;
+	flex: 1;
+	overflow-y: auto;
+	min-height: 0;
+	touch-action: pan-y;
+}
+.sk-act {
+	width: 100%;
+	font-family: monospace;
+	font-weight: 700;
+	font-size: clamp(10px, 2.2vh, 13px);
+	padding: 1vh 6px;
+	border-radius: 7px;
+	border: 2px solid #4fe08a;
+	background: #12562c;
+	color: #d8ffe6;
+	cursor: pointer;
+}
+.sk-act.poor {
+	border-color: #b8602a;
+	background: #4a2a12;
+	color: #ffcfa8;
+}
+.sk-act.ok {
+	border-color: #3a8a58;
+	background: #0e2a1a;
+	color: #7fd8a4;
+}
+.sk-act.lock {
+	border-color: #444a60;
+	background: #14182a;
+	color: #7b84a6;
+}
+.sk-grid {
+	flex: 1;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+	gap: 7px;
+	overflow-y: auto;
+	max-height: 64vh;
+	padding: 2px 4px 6px 2px;
+	align-content: start;
+	-webkit-overflow-scrolling: touch;
+	touch-action: pan-y;
+	overscroll-behavior: contain;
+}
+.sk-sep {
+	grid-column: 1/-1;
+	font-size: clamp(8px, 1.9vh, 11px);
+	font-weight: 700;
+	color: #8fb0ee;
+	letter-spacing: 2px;
+	border-bottom: 1px solid #24397a;
+	padding: 2px 0;
+}
+.sk-card {
+	--b: #3a5ab0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	background: #0a1330;
+	border: 1.5px solid #243a78;
+	border-radius: 9px;
+	padding: 4px 2px 5px;
+	cursor: pointer;
+	transition: transform 0.12s;
+}
+.sk-card canvas {
+	width: clamp(40px, 11vh, 58px);
+	height: clamp(40px, 11vh, 58px);
+}
+.sk-card.sel {
+	border-color: var(--b);
+	background: #122352;
+	box-shadow: 0 0 10px var(--b);
+	transform: scale(1.04);
+}
+.sk-card.locked canvas {
+	filter: brightness(0.45) saturate(0.5);
+}
+.sk-card.legend {
+	border-color: #ffb020;
+	background: linear-gradient(180deg, #2a1a04, #0a1330);
+}
+.sk-n {
+	font-size: clamp(8px, 1.8vh, 10.5px);
+	font-weight: 700;
+	color: #e8f0ff;
+	text-align: center;
+	line-height: 1.15;
+}
+.sk-s {
+	font-size: clamp(7px, 1.6vh, 9.5px);
+	color: #9ab4e8;
+	margin-top: 1px;
+}
+.sk-card.equipped .sk-s {
+	color: #7fe0a0;
+}
+.sk-card.buy .sk-s {
+	color: #ffd870;
+}
+
+/* Petits écrans */
+@media (max-width: 600px) {
+	#skinDiv {
+		padding: 1vh 1vw;
+	}
+
+	#skinDiv .sk-panel {
+		width: 98vw;
+		padding: 1vh 8px;
+	}
+
+	#skinDiv .sk-body {
+		gap: 6px;
+	}
+
+	#skinDiv .sk-left {
+		min-width: 100px;
+		width: 34%;
+	}
 }

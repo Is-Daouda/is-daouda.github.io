@@ -96,8 +96,6 @@ function ensureSkinsScreen() {
     return root;
 }
 
-ensureSkinsScreen();
-
 try { window.__ls && window.__ls.set(0.5, "game"); } catch (e) {}
 function _lsSet(p, k) { try { window.__ls && window.__ls.set(p, k); } catch (e) {} }
 window.addEventListener("load", function () {
@@ -4084,6 +4082,7 @@ function skinReqInfo(sk) {
 		: { icon: "🔒", name: "?", desc: "" };
 }
 function openSkins(from) {
+	ensureSkinsScreen();
 	skReturn = from || "start";
 	gs = "skins";
 	skTab = "skins";

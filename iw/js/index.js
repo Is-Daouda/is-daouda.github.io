@@ -850,6 +850,7 @@ const idb = (() => {
 		"inferno_hi",
 		"iw_tuto_done",
 		"iw_normal_cleared",
+		"iw_clears",
 	];
 	let _db = null;
 	let _cache = {};
@@ -920,6 +921,7 @@ const idb = (() => {
 			inferno_hi: "SCORES…",
 			iw_tuto_done: "TUTORIEL…",
 			iw_normal_cleared: "PROGRESSION…",
+			iw_clears: "MAÎTRISE…",
 		};
 		report(5, "OPENING UP THE DATABASE…");
 		await _open();
@@ -3460,6 +3462,35 @@ function initInput(cvs) {
 
 let _pauseToggle = null; // set after game() callback initializes
 
+// ═══ BONUS DE MAÎTRISE — multiplicateur de score permanent ══════════════
+// Chaque fin complète du jeu ajoute définitivement +10 % de score
+// (x1.1, x1.2, x1.3…). Compteur sauvegardé dans IndexedDB (iw_clears),
+// actif sur toutes les parties suivantes (normal, quotidien, survie).
+const mastery = (() => {
+	const KEY = "iw_clears";
+	const STEP = 0.1;
+	const count = () => {
+		const n = parseInt(idb.getItem(KEY), 10);
+		return n > 0 ? n : 0;
+	};
+	const multAt = (n) => Math.round((1 + n * STEP) * 100) / 100;
+	const fmtM = (m) => m.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+	return {
+		count,
+		mult: () => multAt(count()),
+		label: () => fmtM(multAt(count())),
+		award() {
+			const n = count();
+			idb.setItem(KEY, String(n + 1));
+			return {
+				count: n + 1,
+				from: fmtM(multAt(n)),
+				to: fmtM(multAt(n + 1)),
+			};
+		},
+	};
+})();
+
 // ═══ MENU KEYBOARD / GAMEPAD NAVIGATION ══════════════════════════════════
 const menuNav = (() => {
 	let _active = false;
@@ -5763,6 +5794,15 @@ animation: fadeInUp 0.5s ease both 0.45s;">
 ${tr("hiScore")}: <span style="font-weight: 900;">${state.hiScore.toLocaleString()}</span>
 </div>
 
+${
+mastery.count() > 0
+? `<div style="font-size:clamp(10px,1.6vh,12px);font-weight:900;letter-spacing:2px;color:#fbbf24;
+text-shadow:0 0 10px rgba(245,158,11,.6);animation:fadeInUp 0.5s ease both 0.5s;">
+✦ ${settings.lang === "fr" ? "MAÎTRISE" : "MASTERY"} ×${mastery.label()} · ${mastery.count()} ${settings.lang === "fr" ? (mastery.count() > 1 ? "fins" : "fin") : mastery.count() > 1 ? "clears" : "clear"}
+</div>`
+: ""
+}
+
 <div data-hide-small style="font-size: 10px; color: #4b5563; margin-top: 2px;
 animation: fadeInUp 0.5s ease both 0.55s;">
 👤 ${settings.playerName || "Pilot"}
@@ -6383,6 +6423,17 @@ ${state.score.toLocaleString()}
 <div style="color: #6b7280; font-size: 13px;">
 ${tr("hiScore")}: <span style="color: #fbbf24; font-weight: 700;">${state.hiScore.toLocaleString()}</span>
 </div>
+${
+state.clearBonus
+? `<div style="margin-top:4px;padding:8px 20px;border-radius:12px;border:1px solid rgba(250,204,21,.6);
+background:linear-gradient(90deg,rgba(120,53,15,.55),rgba(250,204,21,.18));text-align:center;
+animation:popIn 0.5s ease both 0.3s;box-shadow:0 0 22px rgba(250,204,21,.25);">
+<div style="font-size:11px;letter-spacing:3px;color:#fbbf24;font-weight:900;">✦ ${settings.lang === "fr" ? "BONUS DE MAÎTRISE" : "MASTERY BONUS"} ✦</div>
+<div style="font-size:clamp(18px,4vw,26px);font-weight:900;color:#fff;text-shadow:0 0 12px #f59e0b;">×${state.clearBonus.from} → ×${state.clearBonus.to}</div>
+<div style="font-size:10px;color:#d6b36a;">${settings.lang === "fr" ? "Score multiplié en permanence dès ta prochaine partie" : "Permanent score boost starting next run"}</div>
+</div>`
+: ""
+}
 ${window.rankClimb ? window.rankClimb.finalLine(state.score) : ""}
 <div id="lb-status" style="font-size: 11px; color: #4b5563; margin-top: 4px;"></div>
 <div style="display: flex; gap: 10px; margin-top: 12px;">
@@ -6990,7 +7041,11 @@ background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent);
 ">
 <div style="display: flex; flex-direction: column;">
 <span style="color: #fb923c; font-size: 20px; font-weight: 700;">
-${state.score.toLocaleString()}
+${state.score.toLocaleString()}${
+	mastery.count() > 0 && !state.isSurvival
+		? ` <span style="font-size:11px;color:#facc15;letter-spacing:1px;text-shadow:0 0 8px rgba(250,204,21,.6);">✦×${mastery.label()}</span>`
+		: ""
+}
 </span>
 <span style="color: #6b7280; font-size: 15px;">
 HI ${state.hiScore.toLocaleString()}
@@ -11321,6 +11376,16 @@ idb.preload().then(() => {
 				} else {
 					startLevel(0);
 				}
+				if (mastery.count() > 0 && !state.isSurvival)
+					addMessage(
+						"✦ " +
+							(settings.lang === "fr"
+								? "BONUS MAÎTRISE ×"
+								: "MASTERY BONUS ×") +
+							mastery.label(),
+						"#facc15",
+						22,
+					);
 			}
 			_startGame = startGame; // expose to HUD event handlers
 			const UPGRADES = [
@@ -11655,7 +11720,11 @@ min-width:clamp(90px,18vw,110px);
 				const frenzyMul = state.frenzyMode ? 2 : 1;
 				const scoreMul = state.scoreMul || 1;
 				const gained = Math.round(
-					base * multiplier * frenzyMul * scoreMul,
+					base *
+						multiplier *
+						frenzyMul *
+						scoreMul *
+						(state.isSurvival ? 1 : mastery.mult()),
 				);
 				state.score += gained;
 				if (state.score > state.hiScore) {
@@ -11911,7 +11980,7 @@ min-width:clamp(90px,18vw,110px);
 			// Re-attempt fullscreen on first user gesture (browser may block first try)
 			function _fsOnGesture() {
 				if (_fullscreenDone) return;
-				//_requestFullscreen();
+				_requestFullscreen();
 			}
 			document.addEventListener("pointerdown", _fsOnGesture, {
 				once: true,
@@ -11924,7 +11993,7 @@ min-width:clamp(90px,18vw,110px);
 
 			function _showSplash(onDone) {
 				// Request fullscreen on first user gesture
-				//_requestFullscreen();
+				_requestFullscreen();
 
 				// Play the logo sound
 				const snd = new Audio(SOUND_SRC);
@@ -12779,6 +12848,10 @@ ${settings.lang === "fr" ? "✦ APPUYEZ POUR CONTINUER ✦" : "✦ TAP TO CONTIN
 							);
 						} else {
 							state.phase = "win";
+							// Bonus de maîtrise : +10 % permanent à chaque fin complète
+							state.clearBonus = state.isSurvival
+								? null
+								: mastery.award();
 							// Débloquer le mode Survie
 							if (!state.isSurvival) {
 								const alreadyUnlocked =

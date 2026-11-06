@@ -1,4 +1,654 @@
 
+(function () {
+    "use strict";
+
+    // ==========================================
+    // CONFIGURATION
+    // ==========================================
+
+    const CONFIG = {
+        title: "VECTONOVA",
+        brand: "IS DAOUDA GAMES",
+        minDuration: 1100,
+        maxWait: 20000,
+        stars: 46,
+        tipInterval: 2800
+    };
+
+    // ==========================================
+    // TRADUCTIONS
+    // ==========================================
+
+    const TXT = {
+        fr: {
+            dl: "Chargement du jeu…",
+            game: "Initialisation…",
+            save: "Lecture de ta sauvegarde…",
+            audio: "Préparation des sons…",
+            ready: "Prêt !"
+        },
+        en: {
+            dl: "Loading the game…",
+            game: "Initializing…",
+            save: "Reading your save…",
+            audio: "Preparing sounds…",
+            ready: "Ready!"
+        }
+    };
+
+    const TIPS = {
+        fr: [
+            "Collecte les orbes bleus ⚡ pour recharger ton carburant.",
+            "Maintiens appuyé pour utiliser le jetpack, relâche pour planer.",
+            "Dépasse 10 000 m pour débloquer le skin Soleil !",
+            "Enchaîne les étoiles pour faire grimper ton combo.",
+            "Grimpe le classement : bats les 100 meilleurs scores.",
+            "Des skins s'obtiennent aussi en débloquant des succès."
+        ],
+        en: [
+            "Collect the blue orbs ⚡ to refuel your jetpack.",
+            "Hold to use the jetpack, release to glide.",
+            "Pass 10,000 m to unlock the Sun skin!",
+            "Chain stars together to boost your combo.",
+            "Climb the leaderboard: beat the top 100 scores.",
+            "Some skins are unlocked by earning achievements."
+        ]
+    };
+
+    // ==========================================
+    // CRÉATION DU CSS
+    // ==========================================
+
+    function createCSS() {
+
+        if (document.getElementById("loadScreenCSS")) return;
+
+        const style = document.createElement("style");
+
+        style.id = "loadScreenCSS";
+
+        style.textContent = `
+            #loadScreen {
+                position: fixed;
+                inset: 0;
+                z-index: 2147483000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                font-family: "Courier New", monospace;
+                color: #dbe8ff;
+                background: radial-gradient(
+                    ellipse at 50% 38%,
+                    #16296a 0%,
+                    #0a1238 48%,
+                    #03061a 100%
+                );
+                transition: opacity .6s ease, visibility 0s .6s;
+                user-select: none;
+                -webkit-user-select: none;
+                touch-action: none;
+            }
+
+            #loadScreen.ls-hide {
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
+            }
+
+            #loadScreen .ls-stars {
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+            }
+
+            #loadScreen .ls-stars i {
+                position: absolute;
+                background: #fff;
+                border-radius: 50%;
+                opacity: .2;
+                animation: lsTw 2.6s ease-in-out infinite;
+            }
+
+            #loadScreen .ls-glow {
+                position: absolute;
+                left: 50%;
+                top: 40%;
+                width: min(90vw, 640px);
+                height: min(60vh, 360px);
+                transform: translate(-50%, -50%);
+                background: radial-gradient(
+                    ellipse,
+                    rgba(80,160,255,.28),
+                    rgba(120,70,255,.12) 45%,
+                    transparent 70%
+                );
+                filter: blur(6px);
+                animation: lsGlow 3.2s ease-in-out infinite;
+                pointer-events: none;
+            }
+
+            #loadScreen .ls-box {
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: clamp(6px, 2vh, 16px);
+                width: min(86vw, 460px);
+            }
+
+            #loadScreen .ls-robot {
+                width: clamp(110px, 31vh, 190px);
+                height: auto;
+                overflow: visible;
+                animation: lsFloat 2.4s ease-in-out infinite;
+                filter: drop-shadow(0 0 14px rgba(255,190,60,.45));
+            }
+
+            #loadScreen .ls-flame {
+                transform-box: fill-box;
+                transform-origin: 100% 50%;
+                animation: lsFlame .16s ease-in-out infinite alternate;
+            }
+
+            #loadScreen .ls-title {
+                font-weight: 700;
+                font-size: clamp(24px, 8.5vh, 50px);
+                letter-spacing: .2em;
+                padding-left: .2em;
+                background: linear-gradient(
+                    90deg,
+                    #fff,
+                    #8fe9ff,
+                    #ff8fe0,
+                    #8fe9ff,
+                    #fff
+                );
+                background-size: 300% 100%;
+                -webkit-background-clip: text;
+                background-clip: text;
+                color: transparent;
+                -webkit-text-fill-color: transparent;
+                animation: lsTitle 4s linear infinite;
+                filter: drop-shadow(0 0 12px rgba(110,200,255,.55));
+            }
+
+            #loadScreen .ls-bar {
+                position: relative;
+                width: 100%;
+                height: clamp(10px, 2.4vh, 17px);
+                border-radius: 20px;
+                background: rgba(255,255,255,.07);
+                border: 1px solid rgba(130,200,255,.4);
+                overflow: hidden;
+                box-shadow: 0 0 16px rgba(80,160,255,.25);
+            }
+
+            #loadScreen .ls-fill {
+                position: absolute;
+                inset: 0;
+                transform-origin: 0 50%;
+                transform: scaleX(0);
+                border-radius: 20px;
+                background: linear-gradient(
+                    90deg,
+                    #2f8cff,
+                    #6fe6ff 60%,
+                    #ff7ad9
+                );
+                box-shadow: 0 0 14px rgba(100,220,255,.85);
+            }
+
+            #loadScreen .ls-shine {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                width: 30%;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(255,255,255,.45),
+                    transparent
+                );
+                animation: lsShine 1.5s ease-in-out infinite;
+            }
+
+            #loadScreen .ls-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                width: 100%;
+                font-size: clamp(9px, 2.1vh, 13px);
+                color: #9fc4ff;
+                letter-spacing: .04em;
+            }
+
+            #loadScreen .ls-row b {
+                color: #fff;
+                font-size: clamp(11px, 2.5vh, 15px);
+                text-shadow: 0 0 8px rgba(120,220,255,.8);
+            }
+
+            #loadScreen .ls-tip {
+                min-height: 2.7em;
+                max-width: 100%;
+                text-align: center;
+                font-size: clamp(9px, 2vh, 12px);
+                line-height: 1.4;
+                color: #c8dcff;
+                opacity: .95;
+                transition: opacity .35s;
+            }
+
+            #loadScreen .ls-brand {
+                position: absolute;
+                bottom: clamp(8px, 3vh, 22px);
+                left: 0;
+                right: 0;
+                text-align: center;
+                font-size: clamp(8px, 1.8vh, 11px);
+                letter-spacing: .35em;
+                color: rgba(160,190,255,.55);
+            }
+
+            @keyframes lsTw {
+                0%, 100% {
+                    opacity: .15;
+                    transform: scale(.8);
+                }
+                50% {
+                    opacity: .95;
+                    transform: scale(1.25);
+                }
+            }
+
+            @keyframes lsGlow {
+                0%, 100% { opacity: .75; }
+                50% { opacity: 1; }
+            }
+
+            @keyframes lsFloat {
+                0%, 100% {
+                    transform: translateY(0) rotate(-3deg);
+                }
+                50% {
+                    transform: translateY(-9px) rotate(3deg);
+                }
+            }
+
+            @keyframes lsFlame {
+                from { transform: scaleX(.72) scaleY(.9); }
+                to { transform: scaleX(1.18) scaleY(1.1); }
+            }
+
+            @keyframes lsTitle {
+                from { background-position: 0 0; }
+                to { background-position: 300% 0; }
+            }
+
+            @keyframes lsShine {
+                from { left: -35%; }
+                to { left: 105%; }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                #loadScreen * {
+                    animation: none !important;
+                }
+            }
+        `;
+
+        document.head.appendChild(style);
+    }
+
+    // ==========================================
+    // CRÉATION DU HTML
+    // ==========================================
+
+    function createHTML() {
+
+        let screen = document.getElementById("loadScreen");
+
+        // Si l'écran existe déjà, on ne le recrée pas.
+        if (screen && screen.querySelector("#lsFill")) {
+            return screen;
+        }
+
+        if (!screen) {
+            screen = document.createElement("div");
+            screen.id = "loadScreen";
+            document.body.prepend(screen);
+        }
+
+        screen.setAttribute("role", "progressbar");
+        screen.setAttribute("aria-valuemin", "0");
+        screen.setAttribute("aria-valuemax", "100");
+        screen.setAttribute("aria-valuenow", "0");
+        screen.setAttribute("aria-label", "Loading");
+
+        screen.innerHTML = `
+            <div class="ls-stars" id="lsStars"></div>
+
+            <div class="ls-glow"></div>
+
+            <div class="ls-box">
+
+                <svg class="ls-robot"
+                     viewBox="0 0 150 90"
+                     aria-hidden="true">
+
+                    <defs>
+                        <radialGradient id="lsBody"
+                            cx="42%" cy="40%" r="65%">
+                            <stop offset="0" stop-color="#ffe060"/>
+                            <stop offset=".65" stop-color="#ffaa00"/>
+                            <stop offset="1" stop-color="#cc7700"/>
+                        </radialGradient>
+
+                        <linearGradient id="lsFl"
+                            x1="1" y1="0" x2="0" y2="0">
+                            <stop offset="0" stop-color="#fff2a0"/>
+                            <stop offset=".45" stop-color="#ff9a00"/>
+                            <stop offset="1" stop-color="#ff4a00"
+                                  stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+
+                    <g class="ls-flame">
+                        <path d="M44 34 L2 45 L44 56 Z"
+                              fill="url(#lsFl)"/>
+                    </g>
+
+                    <rect x="40" y="30" width="22" height="30"
+                          rx="6" fill="#1a44bb"/>
+
+                    <rect x="44" y="35" width="13" height="10"
+                          rx="2" fill="#2a66dd"/>
+
+                    <circle cx="90" cy="45" r="31"
+                            fill="url(#lsBody)"/>
+
+                    <path d="M66 28 A31 31 0 0 1 100 16"
+                          stroke="rgba(255,255,255,.42)"
+                          stroke-width="4"
+                          fill="none"
+                          stroke-linecap="round"/>
+
+                    <ellipse cx="98" cy="42" rx="19" ry="14"
+                             fill="#002255"/>
+
+                    <ellipse cx="101" cy="40" rx="11" ry="8"
+                             fill="#0088ff"/>
+
+                    <ellipse cx="105" cy="37" rx="4" ry="2.6"
+                             fill="rgba(255,255,255,.6)"
+                             transform="rotate(-17 105 37)"/>
+
+                </svg>
+
+                <div class="ls-title">VECTONOVA</div>
+
+                <div class="ls-bar">
+                    <div class="ls-fill" id="lsFill"></div>
+                    <div class="ls-shine"></div>
+                </div>
+
+                <div class="ls-row">
+                    <span id="lsStatus">…</span>
+                    <b id="lsPct">0%</b>
+                </div>
+
+                <div class="ls-tip" id="lsTip"></div>
+
+            </div>
+
+            <div class="ls-brand">IS DAOUDA GAMES</div>
+        `;
+
+        return screen;
+    }
+
+    // ==========================================
+    // INITIALISATION
+    // ==========================================
+
+    function init() {
+
+        // Évite une double initialisation.
+        if (window.__lsInitialized) return;
+        window.__lsInitialized = true;
+
+        createCSS();
+
+        const el = createHTML();
+
+        const fill = el.querySelector("#lsFill");
+        const pct = el.querySelector("#lsPct");
+        const status = el.querySelector("#lsStatus");
+        const tip = el.querySelector("#lsTip");
+        const stars = el.querySelector("#lsStars");
+
+        const lang = {
+            value: /^fr/i.test(navigator.language || "fr")
+                ? "fr" : "en"
+        };
+
+        let startTime = performance.now();
+        let target = 0.05;
+        let shown = 0;
+        let finished = false;
+        let force = false;
+        let raf = 0;
+        let guard = 0;
+        let tipTimer = 0;
+        let tipIndex = Math.floor(Math.random() * TIPS.fr.length);
+        let currentKey = "dl";
+
+        // ======================================
+        // ÉTOILES
+        // ======================================
+
+        for (let i = 0; i < CONFIG.stars; i++) {
+
+            const star = document.createElement("i");
+            const size = 1 + Math.random() * 2.2;
+
+            star.style.cssText = `
+                left:${Math.random() * 100}%;
+                top:${Math.random() * 100}%;
+                width:${size}px;
+                height:${size}px;
+                animation-delay:${Math.random() * 2.6}s;
+                animation-duration:${1.8 + Math.random() * 2.4}s;
+            `;
+
+            stars.appendChild(star);
+        }
+
+        // ======================================
+        // TEXTES
+        // ======================================
+
+        function updateText() {
+            status.textContent =
+                TXT[lang.value][currentKey] || "";
+
+            tip.textContent =
+                TIPS[lang.value][tipIndex % TIPS[lang.value].length];
+        }
+
+        function nextTip() {
+
+            tip.style.opacity = "0";
+
+            setTimeout(function () {
+
+                tipIndex++;
+
+                tip.textContent =
+                    TIPS[lang.value][tipIndex % TIPS[lang.value].length];
+
+                tip.style.opacity = ".95";
+
+            }, 350);
+        }
+
+        // ======================================
+        // ANIMATION DE PROGRESSION
+        // ======================================
+
+        function frame() {
+
+            const cap = finished
+                ? 1
+                : Math.min(target + 0.07, 0.96);
+
+            shown += (target - shown) * (finished ? 0.2 : 0.14);
+
+            if (!finished) {
+                shown += (cap - shown) * 0.01;
+            }
+
+            if (shown > cap) shown = cap;
+
+            if (finished && target - shown < 0.004) {
+                shown = target;
+            }
+
+            fill.style.transform = `scaleX(${shown.toFixed(4)})`;
+
+            const progress = Math.round(shown * 100);
+
+            pct.textContent = progress + "%";
+
+            el.setAttribute("aria-valuenow", progress);
+
+            if (
+                finished &&
+                (shown >= 0.995 || force) &&
+                performance.now() - startTime >=
+                    (force ? 0 : CONFIG.minDuration)
+            ) {
+                hide();
+                return;
+            }
+
+            raf = requestAnimationFrame(frame);
+        }
+
+        // ======================================
+        // FERMETURE
+        // ======================================
+
+        function hide() {
+
+            cancelAnimationFrame(raf);
+            clearInterval(tipTimer);
+            clearTimeout(guard);
+
+            el.classList.add("ls-hide");
+
+            setTimeout(function () {
+
+                if (el.parentNode) {
+                    el.parentNode.removeChild(el);
+                }
+
+            }, 800);
+
+            window.__ls = {
+                set: function () {},
+                lang: function () {},
+                done: function () {}
+            };
+        }
+
+        // ======================================
+        // API PUBLIQUE
+        // ======================================
+
+        window.__ls = {
+
+            // Progression entre 0 et 1.
+            set: function (progress, stage) {
+
+                progress = Number(progress);
+
+                if (!Number.isFinite(progress)) return;
+
+                progress = Math.max(0, Math.min(1, progress));
+
+                if (progress > target) {
+                    target = progress;
+                }
+
+                if (stage && TXT[lang.value][stage]) {
+
+                    currentKey = stage;
+                    status.textContent = TXT[lang.value][stage];
+                }
+
+                // Sécurité si le chargement du jeu reste bloqué.
+                if (stage === "game" && !guard) {
+
+                    guard = setTimeout(function () {
+                        window.__ls.done(true);
+                    }, CONFIG.maxWait);
+                }
+            },
+
+            // Changement de langue.
+            lang: function (newLang) {
+
+                if (
+                    (newLang === "fr" || newLang === "en") &&
+                    newLang !== lang.value
+                ) {
+                    lang.value = newLang;
+                    updateText();
+                }
+            },
+
+            // Terminer le chargement.
+            done: function (forceClose) {
+
+                finished = true;
+                target = 1;
+
+                if (forceClose) {
+                    force = true;
+                }
+            }
+        };
+
+        // ======================================
+        // DÉMARRAGE
+        // ======================================
+
+        updateText();
+
+        tipTimer = setInterval(nextTip, CONFIG.tipInterval);
+
+        window.__ls.set(0.38, "dl");
+
+        raf = requestAnimationFrame(frame);
+    }
+
+    // ==========================================
+    // ATTENTE DU BODY SI NÉCESSAIRE
+    // ==========================================
+
+    if (document.body) {
+        init();
+    } else {
+        document.addEventListener("DOMContentLoaded", init, {
+            once: true
+        });
+    }
+
+})();
+
 // ═══════════════════════════════════════════════════════════════
 //  ÉCRAN SKINS — création dynamique si le HTML n'est pas déclaré
 //  À coller juste AVANT la ligne  "// ── Écran SKINS ──"
@@ -161,6 +811,8 @@ const DEF = {
 	activeTrail: 0,
 	dcTotalDone: 0,
 	skinsOwned: [],
+	skinsSeen: null, // ids de skins déjà "vus" (null = à initialiser au 1er affichage)
+	trailsSeen: null,
 	ghost: null,
 };
 let sd = Object.assign({}, DEF);
@@ -402,6 +1054,7 @@ function _loadAndStart() {
 			if (saved) sd = Object.assign({}, DEF, saved);
 			if (sd.lang) { try { window.__ls && window.__ls.lang(sd.lang); } catch (e) {} }
 			_lsSet(0.84, "game");
+			_seenEnsure();
 			if (CLOUD.dirty) _scheduleCloudSave(1500); // migration locale → cloud
 			if (CLOUD.guest) setTimeout(_guestNudge, 4500);
 		})
@@ -3401,6 +4054,53 @@ function activeSkinDef() {
 	const s = SKIN_BY_ID[sd.activeSkin || 0];
 	return skinOwned(s) ? s : ROBOT_SKINS[0];
 }
+// ── Badge « NOUVEAU » : skin ou traînée débloqué(e) mais pas encore vu(e) ──
+// Débloquer = passer de "non possédé" à "possédé" sans achat (succès, distance, défis du jour).
+// À la 1re utilisation tout ce qui est déjà possédé est considéré comme vu (pas de faux badge après une mise à jour).
+function _seenEnsure() {
+	if (!Array.isArray(sd.skinsSeen)) sd.skinsSeen = ROBOT_SKINS.filter(skinOwned).map((s) => s.id);
+	if (!Array.isArray(sd.trailsSeen)) sd.trailsSeen = TRAIL_COLORS.filter((t) => (sd.dcTotalDone || 0) >= t.req).map((t) => t.id);
+}
+function skinsNew() {
+	_seenEnsure();
+	const skins = ROBOT_SKINS.filter((s) => skinOwned(s) && !sd.skinsSeen.includes(s.id)).map((s) => s.id);
+	const trails = TRAIL_COLORS.filter((t) => (sd.dcTotalDone || 0) >= t.req && !sd.trailsSeen.includes(t.id)).map((t) => t.id);
+	return { skins, trails, count: skins.length + trails.length };
+}
+function skinsMarkSeen(kind, id) {
+	_seenEnsure();
+	const arr = kind === "trails" ? sd.trailsSeen : sd.skinsSeen;
+	const owned = kind === "trails" ? (sd.dcTotalDone || 0) >= (TRAIL_COLORS[id] || { req: 1e9 }).req : skinOwned(SKIN_BY_ID[id]);
+	if (owned && !arr.includes(id)) { arr.push(id); save(); } // un élément verrouillé n'est jamais marqué "vu"
+}
+function skinsMarkAllSeen() {
+	const n = skinsNew();
+	n.skins.forEach((id) => sd.skinsSeen.push(id));
+	n.trails.forEach((id) => sd.trailsSeen.push(id));
+	if (n.count) save();
+}
+// Pastille rouge-orange qui pulse ; u = unité de taille (ip(1) dans le menu, p(1) sur les résultats)
+function _drawNewBadge(cx, cy, u) {
+	const lbl = (sd.lang || "en") === "en" ? "NEW" : "NOUVEAU";
+	const pl = 0.5 + 0.5 * Math.sin(frame * 0.14);
+	ctx.save();
+	ctx.translate(cx, cy);
+	ctx.scale(1 + 0.07 * pl, 1 + 0.07 * pl);
+	ctx.font = "bold " + 7 * u + "px monospace";
+	const w = ctx.measureText(lbl).width + 8 * u, h = 11.5 * u;
+	const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+	g.addColorStop(0, "#ff3b6b"); g.addColorStop(1, "#ff9a2e");
+	ctx.shadowColor = "rgba(255,90,90,0.95)";
+	ctx.shadowBlur = (4 + 6 * pl) * u;
+	ctx.fillStyle = g;
+	ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h, h / 2); ctx.fill();
+	ctx.shadowBlur = 0;
+	ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = u;
+	ctx.stroke();
+	ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+	ctx.fillText(lbl, 0, 0.5 * u);
+	ctx.restore();
+}
 function buySkin(id) {
 	const sk = SKIN_BY_ID[id];
 	if (!sk || !sk.price || skinOwned(sk) || sd.money < sk.price)
@@ -3408,6 +4108,8 @@ function buySkin(id) {
 	sd.money -= sk.price;
 	sd.totalSpent = (sd.totalSpent || 0) + sk.price;
 	sd.skinsOwned = (sd.skinsOwned || []).concat(id);
+	_seenEnsure();
+	if (!sd.skinsSeen.includes(id)) sd.skinsSeen.push(id);
 	sd.activeSkin = id; // équipé tout de suite
 	save();
 	checkAch("shop");
@@ -4093,6 +4795,7 @@ function openSkins(from) {
 }
 window.openSkins = openSkins;
 window.closeSkins = function () {
+	skinsMarkAllSeen(); // les nouveautés ont été vues : le badge disparaît
 	hide("skinDiv");
 	SK_CARDS = [];
 	if (skReturn === "results") {
@@ -4118,6 +4821,7 @@ window.skSetTab = function (tab) {
 };
 window.skSelect = function (id) {
 	synthClick();
+	skinsMarkSeen(skTab === "trails" ? "trails" : "skins", id);
 	skSel = id;
 	skMsg = "";
 	renderSkins();
@@ -4163,10 +4867,9 @@ function renderSkins() {
 	document.getElementById("skTitle").textContent =
 		"🎨 " +
 		(skTab === "skins" ? "SKINS" : _L2("TRAÎNÉES", "TRAILS"));
-	document.getElementById("skTabSkins").className =
-		"sk-tab" + (skTab === "skins" ? " on" : "");
-	document.getElementById("skTabTrails").className =
-		"sk-tab" + (skTab === "trails" ? " on" : "");
+	const _nw0 = skinsNew();
+	document.getElementById("skTabSkins").className = "sk-tab" + (skTab === "skins" ? " on" : "") + (_nw0.skins.length ? " has-new" : "");
+	document.getElementById("skTabTrails").className = "sk-tab" + (skTab === "trails" ? " on" : "") + (_nw0.trails.length ? " has-new" : "");
 	document.getElementById("skTabSkins").textContent = "SKINS";
 	document.getElementById("skTabTrails").textContent = _L2(
 		"TRAÎNÉES",
@@ -4180,6 +4883,12 @@ function renderSkins() {
 			(cls ? " " + cls : "");
 		if (border) d.style.setProperty("--b", border);
 		d.onclick = () => window.skSelect(id);
+		if (cls && cls.indexOf("isnew") >= 0) {
+			const nt = document.createElement("div");
+			nt.className = "sk-new";
+			nt.textContent = _L2("NOUVEAU", "NEW");
+			d.appendChild(nt);
+		}
 		const cv = document.createElement("canvas");
 		cv.width = 96;
 		cv.height = 96;
@@ -4195,6 +4904,7 @@ function renderSkins() {
 		grid.appendChild(d);
 		SK_CARDS.push({ cv, draw: cvDraw });
 	};
+	const _nw = skinsNew();
 	if (skTab === "skins") {
 		let lastGrp = "";
 		ROBOT_SKINS.forEach((sk) => {
@@ -4223,7 +4933,7 @@ function renderSkins() {
 				(cv, fr) => paintSkinPreview(cv, sk, fr, false),
 				_L2(sk.fr, sk.en),
 				line2,
-				st + (sk.id === 15 ? " legend" : ""),
+				st + (sk.id === 15 ? " legend" : "") + (_nw.skins.includes(sk.id) ? " isnew" : ""),
 				sk.c2,
 			);
 		});
@@ -4240,7 +4950,7 @@ function renderSkins() {
 					: ok
 						? _L2("POSSÉDÉE", "OWNED")
 						: "🔒 " + tc.req,
-				act ? "equipped" : ok ? "owned" : "locked",
+				(act ? "equipped" : ok ? "owned" : "locked") + (_nw.trails.includes(tc.id) ? " isnew" : ""),
 				tc.col,
 			);
 		});
@@ -9490,6 +10200,242 @@ function rampT(span) {
 function lerp(a, b, t) {
 	return a + (b - a) * t;
 }
+// ══════════════════════════════════════════
+//  APPARENCE DES ENNEMIS : un nouveau look tous les 4000 m
+// ══════════════════════════════════════════
+// Le comportement (vitesse, trajectoire, zone de collision) ne change pas : seule
+// l'apparence change. Chaque ennemi garde le look du palier où il est apparu, donc
+// le passage d'un palier à l'autre se fait en douceur. Après le dernier palier on repart du premier.
+//   0 Classique (look d'origine, dessiné par spawnEnemy) · 1 Drones · 2 Spectres
+//   3 Insectes aliens · 4 Démons de feu · 5 Cosmiques
+const ENEMY_TIER_M = 4000;
+const ENEMY_LOOKS = [
+	null,
+	{ // ── 1 : DRONES MÉCANIQUES ──
+		bat(e, r) {
+			ctx.rotate(Math.sin(e.ph * 2) * 0.12);
+			const bg = ctx.createLinearGradient(0, -p(5), 0, p(5));
+			bg.addColorStop(0, "#a9b4c8"); bg.addColorStop(1, "#3a4254");
+			ctx.strokeStyle = "#566078"; ctx.lineWidth = p(2); ctx.lineCap = "round";
+			ctx.beginPath(); ctx.moveTo(-p(3), -p(3)); ctx.lineTo(-p(13), -p(8)); ctx.moveTo(p(3), -p(3)); ctx.lineTo(p(13), -p(8)); ctx.stroke();
+			ctx.fillStyle = bg; ctx.beginPath(); ctx.roundRect(-p(9), -p(4.5), p(18), p(9), p(4)); ctx.fill();
+			for (const sd2 of [-1, 1]) { // hélices
+				const bw = p(3 + 9 * Math.abs(Math.cos(frame * 0.8 + sd2)));
+				ctx.fillStyle = "rgba(210,228,255,0.6)";
+				ctx.beginPath(); ctx.ellipse(sd2 * p(13), -p(8.5), bw, p(1.4), 0, 0, _TAU); ctx.fill();
+				ctx.fillStyle = "#222a38"; ctx.fillRect(sd2 * p(13) - p(1), -p(9.5), p(2), p(2.4));
+			}
+			const blink = frame % 36 < 22;
+			ctx.fillStyle = blink ? "#ff3030" : "#7a1a1a";
+			ctx.beginPath(); ctx.arc(-p(4), 0, p(2.4), 0, _TAU); ctx.fill();
+			if (blink) _glow(-p(4), 0, p(9), "#ff3030", 0.6);
+			ctx.strokeStyle = "#566078"; ctx.lineWidth = p(1);
+			ctx.beginPath(); ctx.moveTo(p(5), -p(4.5)); ctx.lineTo(p(7), -p(10)); ctx.stroke();
+			ctx.fillStyle = frame % 50 < 25 ? "#6fff9a" : "#1e5a30";
+			ctx.beginPath(); ctx.arc(p(7), -p(10), p(1.2), 0, _TAU); ctx.fill();
+		},
+		orb(e, r) { // mine
+			ctx.rotate(e.ang);
+			const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+			g.addColorStop(0, "#8c97ab"); g.addColorStop(1, "#262c3a");
+			ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, _TAU); ctx.fill();
+			ctx.fillStyle = "#b9c4d8";
+			for (let i = 0; i < 8; i++) { const a = (i / 8) * _TAU; ctx.beginPath(); ctx.arc(Math.cos(a) * r, Math.sin(a) * r, p(2.1), 0, _TAU); ctx.fill(); }
+			ctx.strokeStyle = "rgba(0,0,0,0.35)"; ctx.lineWidth = p(1);
+			ctx.beginPath(); ctx.arc(0, 0, r * 0.62, 0, _TAU); ctx.stroke();
+			ctx.rotate(-e.ang);
+			const on = frame % 40 < 20;
+			ctx.fillStyle = on ? "#ff3a3a" : "#601818";
+			ctx.beginPath(); ctx.arc(0, 0, p(3), 0, _TAU); ctx.fill();
+			if (on) _glow(0, 0, p(12), "#ff3a3a", 0.7);
+		},
+		spike(e, r) { // scie circulaire
+			ctx.rotate(e.ang * 2);
+			ctx.fillStyle = "#c4ccda";
+			ctx.beginPath();
+			for (let i = 0; i < 16; i++) {
+				const a0 = (i / 16) * _TAU, a1 = a0 + _TAU / 32, a2 = a0 + _TAU / 16;
+				ctx.lineTo(Math.cos(a0) * r * 0.78, Math.sin(a0) * r * 0.78);
+				ctx.lineTo(Math.cos(a1) * (r + p(3.5)), Math.sin(a1) * (r + p(3.5)));
+				ctx.lineTo(Math.cos(a2) * r * 0.78, Math.sin(a2) * r * 0.78);
+			}
+			ctx.closePath(); ctx.fill();
+			const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 0.8);
+			g.addColorStop(0, "#e8edf7"); g.addColorStop(1, "#7a859c");
+			ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r * 0.78, 0, _TAU); ctx.fill();
+			ctx.strokeStyle = "rgba(60,70,90,0.5)"; ctx.lineWidth = p(1);
+			ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, _TAU); ctx.stroke();
+			ctx.fillStyle = "#2a303c"; ctx.beginPath(); ctx.arc(0, 0, p(3), 0, _TAU); ctx.fill();
+		},
+	},
+	{ // ── 2 : SPECTRES ──
+		bat(e, r) { // fantôme
+			const bob = Math.sin(e.ph * 2) * p(1.5);
+			_glow(0, 0, p(20), "#8fb0ff", 0.4);
+			ctx.globalAlpha = 0.82;
+			const g = ctx.createLinearGradient(0, -p(10), 0, p(11));
+			g.addColorStop(0, "#ffffff"); g.addColorStop(1, "#8fa8ff");
+			ctx.fillStyle = g;
+			ctx.beginPath(); ctx.moveTo(-p(9), p(9) + bob);
+			ctx.lineTo(-p(9), -p(1)); ctx.arc(0, -p(1), p(9), Math.PI, 0); ctx.lineTo(p(9), p(9) + bob);
+			for (let k = 0; k < 3; k++) { const x1 = p(9) - (k + 0.5) * p(6), x2 = p(9) - (k + 1) * p(6); ctx.quadraticCurveTo(x1, p(14) + Math.sin(e.ph * 3 + k) * p(2) + bob, x2, p(9) + bob); }
+			ctx.closePath(); ctx.fill();
+			ctx.beginPath(); ctx.ellipse(-p(10), p(1) + Math.sin(e.ph * 3) * p(2), p(4), p(2.2), 0.5, 0, _TAU); ctx.ellipse(p(10), p(1) - Math.sin(e.ph * 3) * p(2), p(4), p(2.2), -0.5, 0, _TAU); ctx.fill();
+			ctx.globalAlpha = 1;
+			ctx.fillStyle = "#1a1f4a";
+			ctx.beginPath(); ctx.ellipse(-p(3.2), -p(2), p(1.8), p(2.6), 0, 0, _TAU); ctx.ellipse(p(3.2), -p(2), p(1.8), p(2.6), 0, 0, _TAU); ctx.fill();
+			ctx.beginPath(); ctx.ellipse(0, p(3), p(1.7), p(2.2), 0, 0, _TAU); ctx.fill();
+		},
+		orb(e, r) { // feu follet
+			const fl = 0.85 + 0.15 * Math.sin(frame * 0.4 + e.ph);
+			_glow(0, 0, r * 2.4, "#7dff9a", 0.5);
+			ctx.fillStyle = "rgba(150,255,170,0.55)";
+			for (let k = 0; k < 3; k++) {
+				const L = r * (1.4 + k * 0.55) * fl, off = (k - 1) * r * 0.45;
+				ctx.beginPath(); ctx.moveTo(r * 0.3, off - r * 0.4); ctx.quadraticCurveTo(r * 0.9 + L * 0.5, off + Math.sin(frame * 0.2 + k) * p(3), r * 0.5 + L, off); ctx.quadraticCurveTo(r * 0.9 + L * 0.5, off + r * 0.2, r * 0.3, off + r * 0.4); ctx.closePath(); ctx.fill();
+			}
+			const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+			g.addColorStop(0, "#ffffff"); g.addColorStop(0.45, "#b8ffb0"); g.addColorStop(1, "#2fa84a");
+			ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r * 0.82 * fl, 0, _TAU); ctx.fill();
+		},
+		spike(e, r) { // étoile spectrale à un œil
+			ctx.rotate(e.ang * 0.6);
+			_glow(0, 0, r * 2, "#b070ff", 0.45);
+			const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r + p(4));
+			g.addColorStop(0, "#e8d0ff"); g.addColorStop(1, "#5a2aa8");
+			ctx.fillStyle = g; ctx.beginPath();
+			for (let i = 0; i < 16; i++) { const a = (i / 16) * _TAU, rr = i % 2 ? r * 0.55 : r + p(4); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+			ctx.closePath(); ctx.fill();
+			ctx.rotate(-e.ang * 0.6);
+			ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.ellipse(0, 0, r * 0.42, r * 0.28, 0, 0, _TAU); ctx.fill();
+			ctx.fillStyle = "#220a44"; ctx.beginPath(); ctx.arc(Math.sin(frame * 0.05) * p(1.6), 0, r * 0.17, 0, _TAU); ctx.fill();
+		},
+	},
+	{ // ── 3 : INSECTES ALIENS ──
+		bat(e, r) { // guêpe
+			const fl = Math.abs(Math.sin(frame * 0.9));
+			ctx.fillStyle = "rgba(200,255,220,0.5)"; ctx.strokeStyle = "rgba(80,160,110,0.6)"; ctx.lineWidth = p(0.8);
+			for (const sd2 of [-1, 1]) {
+				ctx.beginPath(); ctx.ellipse(sd2 * p(2), -p(5), p(10), p(2 + 5 * fl), sd2 * -0.5, 0, _TAU); ctx.fill(); ctx.stroke();
+			}
+			for (let k = 0; k < 3; k++) { // corps segmenté
+				ctx.fillStyle = k % 2 ? "#2a3a10" : "#d8e030";
+				ctx.beginPath(); ctx.ellipse(p(7) - k * p(5.5), 0, p(5.2 - k * 0.5), p(4.4 - k * 0.5), 0, 0, _TAU); ctx.fill();
+			}
+			ctx.fillStyle = "#ff3ad0"; ctx.beginPath(); ctx.arc(-p(9), -p(1), p(3.3), 0, _TAU); ctx.fill();
+			ctx.fillStyle = "rgba(255,255,255,0.7)"; ctx.beginPath(); ctx.arc(-p(10), -p(2.2), p(1), 0, _TAU); ctx.fill();
+			ctx.strokeStyle = "#2a3a10"; ctx.lineWidth = p(1);
+			ctx.beginPath(); ctx.moveTo(-p(10), -p(3.5)); ctx.quadraticCurveTo(-p(14), -p(9), -p(17), -p(6)); ctx.moveTo(-p(8), -p(4)); ctx.quadraticCurveTo(-p(10), -p(11), -p(14), -p(11)); ctx.stroke();
+			ctx.fillStyle = "#2a3a10"; ctx.beginPath(); ctx.moveTo(p(14), -p(1.5)); ctx.lineTo(p(20), 0); ctx.lineTo(p(14), p(1.5)); ctx.closePath(); ctx.fill();
+		},
+		orb(e, r) { // gousse de spores
+			const pl = 1 + 0.08 * Math.sin(frame * 0.2 + e.ph);
+			ctx.strokeStyle = "#7a2a9a"; ctx.lineWidth = p(1.6); ctx.lineCap = "round";
+			for (let i = 0; i < 7; i++) { const a = (i / 7) * _TAU + e.ang, w2 = Math.sin(frame * 0.15 + i) * p(2.5); ctx.beginPath(); ctx.moveTo(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8); ctx.quadraticCurveTo(Math.cos(a) * r * 1.3 + w2, Math.sin(a) * r * 1.3 - w2, Math.cos(a + 0.3) * (r + p(5)), Math.sin(a + 0.3) * (r + p(5))); ctx.stroke(); }
+			ctx.save(); ctx.scale(pl, pl);
+			const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+			g.addColorStop(0, "#f09aff"); g.addColorStop(0.6, "#a02ac0"); g.addColorStop(1, "#4a1060");
+			ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, _TAU); ctx.fill();
+			ctx.fillStyle = "rgba(255,230,120,0.85)";
+			for (let i = 0; i < 5; i++) { const a = (i / 5) * _TAU + e.ang * 0.5; ctx.beginPath(); ctx.arc(Math.cos(a) * r * 0.5, Math.sin(a) * r * 0.5, p(1.8 + (i % 2)), 0, _TAU); ctx.fill(); }
+			ctx.restore();
+		},
+		spike(e, r) { // oursin extraterrestre
+			ctx.rotate(e.ang * 0.7);
+			ctx.lineCap = "round";
+			for (let i = 0; i < 14; i++) {
+				const a = (i / 14) * _TAU, L = r + p(5) + (i % 2) * p(3);
+				ctx.strokeStyle = "#4a8a20"; ctx.lineWidth = p(1.7);
+				ctx.beginPath(); ctx.moveTo(Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6); ctx.lineTo(Math.cos(a) * L, Math.sin(a) * L); ctx.stroke();
+				ctx.fillStyle = "#ffa030"; ctx.beginPath(); ctx.arc(Math.cos(a) * L, Math.sin(a) * L, p(1.3), 0, _TAU); ctx.fill();
+			}
+			const g = ctx.createRadialGradient(-r * 0.2, -r * 0.2, r * 0.1, 0, 0, r * 0.7);
+			g.addColorStop(0, "#a8e060"); g.addColorStop(1, "#244a10");
+			ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r * 0.7, 0, _TAU); ctx.fill();
+		},
+	},
+	{ // ── 4 : DÉMONS DE FEU ──
+		bat(e, r) { // diablotin enflammé
+			const fl = Math.sin(e.ph * 2);
+			ctx.rotate(fl * 0.2);
+			_glow(0, 0, p(22), "#ff7a20", 0.45);
+			for (const sd2 of [-1, 1]) {
+				const g = ctx.createLinearGradient(0, 0, sd2 * p(26), 0);
+				g.addColorStop(0, "#ff4a10"); g.addColorStop(1, "rgba(255,200,60,0.2)");
+				ctx.fillStyle = g; ctx.beginPath();
+				ctx.moveTo(0, -p(3)); ctx.bezierCurveTo(sd2 * p(18), -p(15 + 3 * fl), sd2 * p(28), p(2), sd2 * p(22), p(9));
+				ctx.lineTo(sd2 * p(16), p(4)); ctx.lineTo(sd2 * p(11), p(10)); ctx.lineTo(sd2 * p(6), p(5)); ctx.lineTo(0, p(5)); ctx.closePath(); ctx.fill();
+			}
+			ctx.fillStyle = "#7a1008"; ctx.beginPath(); ctx.arc(0, 0, p(6.5), 0, _TAU); ctx.fill();
+			ctx.fillStyle = "#ff2a0a"; ctx.beginPath(); ctx.moveTo(-p(4), -p(4)); ctx.lineTo(-p(6), -p(10)); ctx.lineTo(-p(1.5), -p(5.5)); ctx.moveTo(p(4), -p(4)); ctx.lineTo(p(6), -p(10)); ctx.lineTo(p(1.5), -p(5.5)); ctx.fill();
+			ctx.fillStyle = "#ffe040"; ctx.beginPath(); ctx.ellipse(-p(2.2), -p(0.8), p(1.5), p(1), 0.3, 0, _TAU); ctx.ellipse(p(2.2), -p(0.8), p(1.5), p(1), -0.3, 0, _TAU); ctx.fill();
+		},
+		orb(e, r) { // boule de feu
+			_glow(0, 0, r * 2.6, "#ff6a10", 0.55);
+			for (let k = 0; k < 7; k++) {
+				const a = (k / 7) * _TAU + e.ang * 1.4, L = r * (0.5 + 0.45 * Math.abs(Math.sin(frame * 0.25 + k * 1.7)));
+				ctx.fillStyle = k % 2 ? "#ff8a1e" : "#ffd24a"; ctx.save(); ctx.rotate(a);
+				ctx.beginPath(); ctx.moveTo(r * 0.5, -p(3)); ctx.quadraticCurveTo(r + L * 0.5, -p(1), r + L, 0); ctx.quadraticCurveTo(r + L * 0.5, p(1), r * 0.5, p(3)); ctx.closePath(); ctx.fill(); ctx.restore();
+			}
+			const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+			g.addColorStop(0, "#fffbe0"); g.addColorStop(0.45, "#ffc030"); g.addColorStop(1, "#e03a0a");
+			ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r * 0.9, 0, _TAU); ctx.fill();
+		},
+		spike(e, r) { // roche de lave
+			ctx.rotate(e.ang * 0.4);
+			_glow(0, 0, r * 2, "#ff6a10", 0.28);
+			ctx.fillStyle = "#4a2218"; ctx.strokeStyle = "rgba(255,140,50,0.7)"; ctx.lineWidth = p(1.2); ctx.beginPath();
+			for (let i = 0; i < 9; i++) { const a = (i / 9) * _TAU, rr = (i % 2 ? r * 0.85 : r + p(3.5)) * (0.92 + 0.12 * _R(i * 4.1)); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+			ctx.closePath(); ctx.fill(); ctx.stroke();
+			const pu = 0.55 + 0.4 * Math.sin(frame * 0.12 + e.ph);
+			ctx.strokeStyle = "rgba(255,150,40," + pu + ")"; ctx.lineWidth = p(1.6); ctx.lineCap = "round";
+			ctx.beginPath(); ctx.moveTo(-r * 0.6, -r * 0.2); ctx.lineTo(-r * 0.1, r * 0.1); ctx.lineTo(r * 0.2, -r * 0.4); ctx.moveTo(-r * 0.1, r * 0.1); ctx.lineTo(r * 0.1, r * 0.6); ctx.moveTo(r * 0.2, -r * 0.4); ctx.lineTo(r * 0.65, -r * 0.1); ctx.stroke();
+			_glow(0, 0, r * 1.6, "#ff6a10", 0.3 * pu);
+		},
+	},
+	{ // ── 5 : COSMIQUES ──
+		bat(e, r) { // soucoupe
+			ctx.rotate(Math.sin(e.ph * 2) * 0.12);
+			const dg = ctx.createRadialGradient(0, -p(5), p(1), 0, -p(5), p(9));
+			dg.addColorStop(0, "rgba(190,255,255,0.9)"); dg.addColorStop(1, "rgba(60,170,220,0.5)");
+			ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(0, -p(2), p(7), Math.PI, 0); ctx.closePath(); ctx.fill();
+			ctx.fillStyle = "#1a3a4a"; ctx.beginPath(); ctx.ellipse(0, -p(5), p(1.6), p(2.2), 0, 0, _TAU); ctx.fill();
+			const bg = ctx.createLinearGradient(0, -p(2), 0, p(5));
+			bg.addColorStop(0, "#e0e8f4"); bg.addColorStop(1, "#5a6a84");
+			ctx.fillStyle = bg; ctx.beginPath(); ctx.ellipse(0, 0, p(17), p(5.5), 0, 0, _TAU); ctx.fill();
+			const cols = ["#ff4a8a", "#ffe040", "#4aff9a", "#4ab0ff"];
+			for (let i = 0; i < 4; i++) { const on = Math.floor(frame / 8) % 4 === i; ctx.fillStyle = on ? cols[i] : "#2a3a50"; ctx.beginPath(); ctx.arc(-p(10) + i * p(6.7), p(0.6), p(1.5), 0, _TAU); ctx.fill(); if (on) _glow(-p(10) + i * p(6.7), p(0.6), p(7), cols[i], 0.7); }
+		},
+		orb(e, r) { // sphère de plasma
+			_glow(0, 0, r * 2.4, "#ff4adf", 0.5);
+			const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+			g.addColorStop(0, "#ffffff"); g.addColorStop(0.5, "#ff8ae8"); g.addColorStop(1, "#a01ac0");
+			ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r * 0.7, 0, _TAU); ctx.fill();
+			ctx.strokeStyle = "rgba(255,170,245,0.85)"; ctx.lineWidth = p(1.3);
+			for (let k = 0; k < 2; k++) {
+				ctx.save(); ctx.rotate(e.ang * (k ? -1 : 1) + k * 1.1);
+				ctx.beginPath(); ctx.ellipse(0, 0, r * 1.15, r * 0.4, 0, 0, _TAU); ctx.stroke();
+				ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(r * 1.15, 0, p(1.7), 0, _TAU); ctx.fill(); ctx.restore();
+			}
+		},
+		spike(e, r) { // éclat de cristal / comète
+			ctx.fillStyle = "rgba(170,225,255,0.3)";
+			for (let k = 1; k <= 4; k++) { ctx.beginPath(); ctx.arc(r * 0.8 + k * p(5), Math.sin(frame * 0.2 + k) * p(2), p(3.5 - k * 0.6), 0, _TAU); ctx.fill(); }
+			ctx.rotate(e.ang * 0.8);
+			for (let i = 0; i < 8; i++) {
+				const a = (i / 8) * _TAU, a2 = a + _TAU / 8, tip = r + p(4);
+				ctx.fillStyle = i % 2 ? "#bfe8ff" : "#4a98e0";
+				ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * r * 0.55, Math.sin(a) * r * 0.55); ctx.lineTo(Math.cos(a + _TAU / 16) * tip, Math.sin(a + _TAU / 16) * tip); ctx.lineTo(Math.cos(a2) * r * 0.55, Math.sin(a2) * r * 0.55); ctx.closePath(); ctx.fill();
+			}
+			ctx.rotate(-e.ang * 0.8);
+			_glow(0, 0, r * 1.5, "#9fd8ff", 0.4);
+			const s2 = Math.abs(Math.sin(frame * 0.1 + e.ph)); ctx.fillStyle = "#fff";
+			_poly([-p(4) * s2, 0, 0, -p(1), p(4) * s2, 0, 0, p(1)]); ctx.fill();
+		},
+	},
+];
+const enemyTier = () => Math.floor(distM / ENEMY_TIER_M) % ENEMY_LOOKS.length;
+
 function spawnEnemy(wx) {
 	const tp = ["bat", "orb", "spike"][
 		Math.floor(Math.random() * 3)
@@ -9500,6 +10446,7 @@ function spawnEnemy(wx) {
 		(hardcoreMode ? 1.5 : 1);
 	enemies.push({
 		tp,
+		tier: enemyTier(),
 		wx,
 		wy: p(40) + Math.random() * (GY() - p(120)),
 		r: p(tp === "bat" ? 15 : 12),
@@ -9530,6 +10477,11 @@ function spawnEnemy(wx) {
 			if (scx < -p(40) || scx > W + p(40)) return;
 			ctx.save();
 			ctx.translate(scx, scy);
+			if (this.tier > 0) {
+				ENEMY_LOOKS[this.tier][this.tp](this, r);
+				ctx.restore();
+				return;
+			}
 			if (this.tp === "bat") {
 				ctx.rotate(Math.sin(this.ph * 2) * 0.28);
 				ctx.fillStyle = "#6633aa";
@@ -11848,6 +12800,7 @@ function drawStartScreen() {
 		ctx.fillStyle = col;
 		ctx.font = `bold ${ip(9)}px monospace`;
 		ctx.fillText(lbl, rx2 + _THIRD / 2, R4Y + R4H * 0.66);
+		if (i === 2 && skinsNew().count > 0) _drawNewBadge(rx2 + _THIRD - ip(18), R4Y + ip(0.5), ip(1));
 	});
 
 	// Row 5 : DÉFIS | TUTORIEL | OPTIONS (3 colonnes égales)
@@ -12121,6 +13074,7 @@ function drawResults() {
 			ctx.font = `bold ${p(9)}px monospace`;
 			ctx.fillText(d.lb, cxm, btnY + p(20));
 		}
+		if (rb.id === "skins" && skinsNew().count > 0) _drawNewBadge(rb.x + rb.w - p(14), btnY - p(1.5), p(0.9));
 	});
 }
 

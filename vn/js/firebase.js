@@ -38,13 +38,13 @@ window.fbPush = async (name, score) => {
     }
 };
 
-// Récupère le top 50
+// Récupère le top 100
 window.fbTop = async () => {
     try {
         const q = query(
             collection(db, "leaderboard"),
             orderBy("score", "desc"),
-            limit(50),
+            limit(100),
         );
         const snap = await getDocs(q);
         return snap.docs.map((d) => d.data());
